@@ -1,0 +1,3 @@
+injection_weather_notes:
+  description: "Injected text appended to New York weather notes"
+  default: ""
