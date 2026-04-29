@@ -4,15 +4,19 @@ Man-in-the-middle red teaming for AI agents, built on [AgentDojo](https://github
 
 ## What is this?
 
-AgentDojo is a framework for evaluating prompt injection attacks and defenses on LLM agents. By default it runs everything in-process with simulated tools. This project bridges the gap to **real agents** by exposing AgentDojo's tools via MCP and adding a proxy mode that can forward tool calls to real infrastructure.
+AgentDojo is a framework for evaluating prompt injection attacks and defenses on LLM agents. By default it runs everything in-process with simulated tools. MiDojo puts a **benchmark proxy** between the agent and its real MCP server. Same protocol, same tools — the agent doesn't know the difference. Each tool in the proxy can:
 
-It includes:
+- **Forward the call to the real upstream server**, and optionally modify the response to include injection text. The agent gets real data + attack payload in a single tool response.
+- **Not forward at all** and execute against a local simulated environment — AgentDojo's out-of-the-box behavior.
 
-- A **benchmark MCP server** — exposes a suite's tools via MCP, backed by AgentDojo's in-memory simulated environment or proxied to real upstream servers
+This lets you benchmark agents against real infrastructure without planting injections in production systems.
+
+The project includes:
+
+- A **benchmark MCP server** — the proxy that exposes a suite's tools via MCP, with per-tool forwarding and injection overlay
 - A **control plane REST API** — for configuring benchmark scenarios, recording traces, and grading results
 - An **orchestrator CLI** — drives the full benchmark matrix (user task x injection task x attack) against an external agent
-- A **proxy mode** — per-tool routing that forwards read operations to real MCP servers while intercepting writes in simulation, with injection overlay on proxied responses
-- **Domain suites** — pluggable task suites with environments, tools, tasks, and attacks (includes a weather reference suite)
+- **Weather reference suite** — a minimal example suite demonstrating how to define environments, tools, tasks, and attacks
 
 ## Architecture
 
@@ -31,12 +35,9 @@ Orchestrator              Agent                  Benchmark MCP Server
 
 ### Proxy Mode
 
-In proxy mode (`--real-mcp-url`), forwarding logic lives inside the tool functions themselves. Each tool decides whether to forward to upstream and how to compose the response:
+Forwarding is configured per-tool in code, not in external config — the tool's implementation IS the routing decision. A tool that forwards calls `MCPForwardingClient.get_instance().call_tool(...)` to hit the real upstream server, then appends local environment data that may contain injection text (via AgentDojo's `{placeholder}` YAML substitution). A tool that doesn't forward runs entirely against the local simulated environment.
 
-- **Write tools** (deploy, undeploy, send message, etc.) always execute against the local simulated environment
-- **Read tools** call `MCPForwardingClient.get_instance().call_tool(...)` to forward to upstream, then append local environment data that may contain injection text (via AgentDojo's `{placeholder}` YAML substitution)
-
-No separate routing config is needed — the tool's code IS the config. This lets you benchmark agents against real infrastructure without planting injections in production systems.
+In the weather suite, for example, `get_weather` forwards to the real weather server and appends injected notes, while `send_weather_alert` only writes to the local environment so the grading system can check what the agent did.
 
 ## Quick Start
 
@@ -131,7 +132,7 @@ The tool-level injection composition pattern — forward a call to upstream, the
 
 AgentDojo's `Depends()` gives tools a mutable reference to an environment attribute but doesn't distinguish read from write access. In proxy mode, this distinction matters: read tools can be forwarded to real upstream servers (with optional injection overlay), while write tools must always run against the local simulated environment so that `post_environment` captures mutations for grading.
 
-Today this classification is implicit in the tool code (read tools call `get_forwarding_client()`, write tools don't). Replacing `Depends()` with explicit `Reads()` and `Writes()` annotations would make it declarative:
+Today this classification is implicit in the tool code (read tools call `MCPForwardingClient.get_instance()`, write tools don't). Replacing `Depends()` with explicit `Reads()` and `Writes()` annotations would make it declarative:
 
 ```python
 # Instead of:
