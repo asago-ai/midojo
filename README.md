@@ -169,27 +169,23 @@ midojo's benchmark MCP server sits in front of the real one — it forwards tool
 
 Only the weather reference suite exists today. Domain-specific suites can be added for any environment where agents interact with tools.
 
-### Damage prevention via agent runtime hooks
+### Integration with agent framework hooks
 
-Agent runtimes like Claude Code expose hook systems (e.g., `PreToolUse`) that can intercept tool calls before execution — modifying inputs, denying calls, or injecting context. These hooks cannot fabricate tool responses or modify outputs, so they can't plant injections. But they're useful for the opposite purpose: preventing real-world side effects when an agent falls for an injection during a benchmark. For example, a PreToolUse hook could deny a `deploy_model` call that targets an attacker-controlled endpoint, letting you observe that the agent was compromised without it causing actual damage.
+midojo currently injects at the proxy level — intercepting MCP tool responses between server and agent. But agent frameworks expose their own hook systems that are useful for benchmarking in two ways: as an alternative injection surface, and as a safety net to prevent damage when an agent falls for an injection.
 
-The pattern is: midojo's proxy plants the injection at the tool response layer; the runtime hook prevents dangerous actions from executing. This two-layer approach — inject via proxy, contain via hooks — would allow benchmarking against live infrastructure with a safety net.
-
-[agent-eval-harness](https://github.com/opendatahub-io/agent-eval-harness) (opendatahub-io) is one example of a framework that uses PreToolUse hooks for evaluation isolation (auto-answering prompts, blocking production API calls). Its hook patterns could be adapted for damage prevention during midojo benchmarks. Its MLflow integration, configurable judge abstractions, and HTML report generation are also worth adopting.
-
-### Framework-level injection via tool response hooks
-
-midojo currently injects at the proxy level — intercepting MCP tool responses between server and agent. But several agent frameworks expose hooks that can intercept and *modify* tool outputs before the LLM sees them, opening an alternative injection strategy that doesn't require a proxy:
+**Injection via post-tool hooks.** Several frameworks can intercept and *modify* tool outputs before the LLM sees them, enabling injection without a proxy:
 
 - **LangChain/LangGraph** — custom `ToolNode` or `@wrap_tool_call` middleware can fully replace tool outputs
 - **CrewAI** — `@after_tool_call` hook receives the tool result and can return a modified string
 - **OpenAI Agents SDK** — `@tool_output_guardrail` can substitute responses via `reject_content()`
 - **Claude Agent SDK** — `PostToolUse` hook supports `updatedMCPToolOutput` for MCP tools
 
-This means three injection strategies depending on what layer you control:
+**Damage prevention via pre-tool hooks.** Hooks that fire *before* execution (e.g., Claude Code's `PreToolUse`) can't modify outputs, but they can deny dangerous calls. For example, a PreToolUse hook could block a `deploy_model` call targeting an attacker-controlled endpoint — letting you observe that the agent was compromised without it causing actual damage. [agent-eval-harness](https://github.com/opendatahub-io/agent-eval-harness) (opendatahub-io) uses this pattern for evaluation isolation and is a reference for how to adapt it for benchmarking.
+
+Together this gives three injection strategies depending on what layer you control:
 
 1. **Proxy-level** (current midojo approach) — agent-agnostic, works with anything that speaks MCP. You control the server.
-2. **Framework-level** — use the agent framework's own hooks to inject. You control the agent code. Most flexible for LangChain/CrewAI where full output replacement is supported.
+2. **Framework-level** — use the agent framework's own hooks to inject and contain. You control the agent code. Most flexible for LangChain/CrewAI where full output replacement is supported.
 3. **Gateway-level** — inject at the MCP Gateway infrastructure. Agent and framework agnostic. You control the platform.
 
-Supporting framework-level injection would let midojo work with agents that don't use MCP, or where inserting a proxy isn't practical.
+Supporting framework-level injection would let midojo work with agents that don't use MCP, or where inserting a proxy isn't practical. Combining post-tool injection with pre-tool damage prevention would allow benchmarking against live infrastructure with a safety net.
