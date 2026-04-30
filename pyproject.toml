@@ -32,7 +32,7 @@ dev = [
 
 [project.scripts]
 midojo-serve = "midojo.serve:main"
-midojo-orchestrate = "midojo.orchestrator:main"
+midojo-run = "midojo.orchestrator:main"
 weather-mcp-serve = "midojo.suites.weather.real_mcp:main"
 weather-agent = "midojo.suites.weather.agent:main"
 

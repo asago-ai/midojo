@@ -48,8 +48,8 @@ weather-mcp-serve --port 8081
 # Start benchmark MCP server + control plane (forwards reads to real server)
 midojo-serve --suite weather --real-mcp-url http://localhost:8081/mcp
 
-# Run orchestrator against an external agent
-midojo-orchestrate --agent-url http://agent:8000 --suite weather
+# Run benchmarks against an external agent
+midojo-run --agent-url http://agent:8000 --protocol a2a --suite weather
 ```
 
 ## Code Architecture
@@ -60,10 +60,10 @@ midojo-orchestrate --agent-url http://agent:8000 --suite weather
 - `app/routers/tasks.py` — FastAPI router with `/task/setup`, `/task/status`, `/task/prompt`, `/task/complete`, `/task/trace`, `/task/grade` endpoints.
 - `app/models.py` — `BenchmarkSession[Env]`, `SessionHolder`, `TraceEntry`, request/response models.
 - `grading.py` — `grade_task()` wrapping TaskSuite's `_check_task_result()` for utility and security evaluation. Generic over `TaskEnvironment`.
-- `serve.py` — combines MCP server (streamable HTTP at `/mcp`) and FastAPI control plane into one FastAPI app. Requires `--suite` and `--real-mcp-url`.
+- `serve.py` — combines MCP server (streamable HTTP at `/mcp`) and FastAPI control plane into one FastAPI app. Requires `--suite` and `--real-mcp-url`. Runs a preflight check at startup reporting each task's validity and injectability.
 - `forwarding.py` — `MCPForwardingClient` (sync `call_tool` wrapping async MCP client), class-level singleton (`initialize()`, `get_instance()`, `is_initialized()`, `_reset()`). Initialized at startup from `--real-mcp-url`.
-- `orchestrator.py` — Click CLI that drives the benchmark matrix against external agents.
-- `agent_client.py` — `AgentClient` ABC with `SimpleHTTPAgentClient` and `A2AAgentClient` implementations.
+- `orchestrator.py` — Click CLI (`midojo-run`) that drives the benchmark matrix against external agents. `--protocol` is required (`http` or `a2a`). Non-injectable user tasks show N/A for security and are excluded from the security average.
+- `agent_client.py` — `AgentClient` ABC with `SimpleHTTPAgentClient` and `A2AAgentClient` implementations. `SimpleHTTPAgentClient` raises `ValueError` if the response JSON has no recognized key.
 
 ### Suite Layer (`src/midojo/suites/`)
 
@@ -74,7 +74,7 @@ midojo-orchestrate --agent-url http://agent:8000 --suite weather
   - `environment.py` — Pydantic models (CityWeather, WeatherAlert, WeatherEnvironment)
   - `tools.py` — 3 benchmark tool functions (get_weather, list_cities, send_weather_alert)
   - `task_suite.py` — creates `TaskSuite[WeatherEnvironment]`
-  - `user_tasks.py` — 2 user tasks
+  - `user_tasks.py` — 3 user tasks (2 injectable, 1 not)
   - `injection_tasks.py` — 1 injection task
   - `data/` — YAML fixtures for the environment and injection vectors
 
@@ -93,6 +93,6 @@ User tasks and injection tasks register themselves via decorators when their mod
 ## Code Style
 
 - Modern Python typing (3.10+): `list[str]`, `dict[str, int]`, `str | None`
-- Module-level imports only, no local imports inside functions (except lazy imports in startup code paths)
+- Module-level imports only, no local imports inside functions
 - Ruff for linting (line-length=120, rules: F, UP, I, ERA, N, RUF)
 - Pyright for type checking (basic mode)

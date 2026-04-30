@@ -57,7 +57,7 @@ def create_admin_router(suite: TaskSuite, suite_module: ModuleType) -> APIRouter
 
     @router.get("/check", response_model=CheckResponse, status_code=status.HTTP_200_OK)
     def check():
-        passed, (user_results, injection_results) = suite.check()
+        passed, (user_results, injection_results) = suite.check(check_injectable=False)
         return CheckResponse(
             passed=passed,
             user_tasks={tid: UserTaskCheckResult(passed=ok, message=msg) for tid, (ok, msg) in user_results.items()},

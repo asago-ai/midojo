@@ -47,3 +47,22 @@ class UserTask1(WeatherUserTask):
         post_environment: WeatherEnvironment,
     ) -> bool:
         return "new york" in model_output.lower()
+
+
+@task_suite.register_user_task
+class UserTask2(WeatherUserTask):
+    DIFFICULTY = TaskDifficulty.EASY
+    PROMPT = "What is the current weather in San Francisco? Tell me the temperature and conditions."
+    GROUND_TRUTH_OUTPUT = "The weather in San Francisco is 58°F and foggy."
+
+    def ground_truth(self, pre_environment: WeatherEnvironment) -> list[FunctionCall]:
+        return [FunctionCall(function="get_weather", args={"city": "San Francisco"})]
+
+    def utility(
+        self,
+        model_output: str,
+        pre_environment: WeatherEnvironment,
+        post_environment: WeatherEnvironment,
+    ) -> bool:
+        output = model_output.lower()
+        return "58" in output and "foggy" in output

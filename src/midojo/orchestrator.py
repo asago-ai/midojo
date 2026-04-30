@@ -4,6 +4,7 @@ import asyncio
 import importlib
 import json
 from pathlib import Path
+from typing import NamedTuple
 
 import click
 import httpx
@@ -19,6 +20,12 @@ from midojo.attack import create_attack
 from midojo.suites import get_suite
 
 console = Console()
+
+
+class TaskPair(NamedTuple):
+    user_task_id: str
+    injection_task_id: str
+
 
 def _utility(value: bool) -> Text:
     return Text("✓ task completed", style="bold green") if value else Text("✗ task not completed", style="bold red")
@@ -65,8 +72,8 @@ def _print_banner(
 
 
 def _print_results_table(
-    utility_results: dict[tuple[str, str], bool],
-    security_results: dict[tuple[str, str], bool],
+    utility_results: dict[TaskPair, bool],
+    security_results: dict[TaskPair, bool],
     attack_name: str | None,
     results_file: Path,
 ) -> None:
@@ -78,12 +85,13 @@ def _print_results_table(
     if attack_name:
         table.add_column("Security", justify="center")
 
-    for (ut_id, it_id), util in utility_results.items():
-        sec = security_results.get((ut_id, it_id))
+    for pair, util in utility_results.items():
+        sec = security_results.get(pair)
         if attack_name:
-            table.add_row(ut_id, it_id, _utility(util), _security(sec) if sec is not None else "")
+            sec_cell = _security(sec) if sec is not None else Text("N/A", style="dim")
+            table.add_row(pair.user_task_id, pair.injection_task_id, _utility(util), sec_cell)
         else:
-            table.add_row(ut_id, _utility(util))
+            table.add_row(pair.user_task_id, _utility(util))
 
     table.add_section()
     if utility_results:
@@ -159,14 +167,14 @@ async def run_benchmark(
     suite_info = await _fetch_suite_info(control_url)
     _print_banner(suite_name, suite_info, attack_name, agent_url, protocol, user_tasks_to_run, injection_tasks_to_run)
 
-    utility_results: dict[tuple[str, str], bool] = {}
-    security_results: dict[tuple[str, str], bool] = {}
+    utility_results: dict[TaskPair, bool] = {}
+    security_results: dict[TaskPair, bool] = {}
 
     if attack_name is None:
         for ut_id in user_tasks_to_run:
             console.print(f"  Running [bold]{ut_id}[/bold] ...", end=" ")
             result = await run_task(control_url, agent_client, ut_id, None, {})
-            utility_results[(ut_id, "")] = result["utility"]
+            utility_results[TaskPair(ut_id, "")] = result["utility"]
             console.print(_utility(result["utility"]))
     else:
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -176,24 +184,32 @@ async def run_benchmark(
         attack = create_attack(attack_name, suite, candidates)
         for ut_id in user_tasks_to_run:
             user_task = suite.user_tasks[ut_id]
+            injectable = len(candidates.get(ut_id, [])) > 0
             for it_id in injection_tasks_to_run:
                 injection_task = suite.injection_tasks[it_id]
-                console.print(f"  Running [bold]{ut_id}[/bold] x [bold]{it_id}[/bold] ...", end=" ")
-                injections = attack.attack(user_task, injection_task)
-                result = await run_task(control_url, agent_client, ut_id, it_id, injections)
-                utility_results[(ut_id, it_id)] = result["utility"]
-                security_results[(ut_id, it_id)] = result["security"]
-                console.print(_utility(result["utility"]), " | ", _security(result["security"]))
+                if not injectable:
+                    console.print(f"  Running [bold]{ut_id}[/bold] x [bold]{it_id}[/bold] ...", end=" ")
+                    result = await run_task(control_url, agent_client, ut_id, None, {})
+                    utility_results[TaskPair(ut_id, it_id)] = result["utility"]
+                    console.print(_utility(result["utility"]), " | ", Text("N/A (not injectable)", style="dim"))
+                else:
+                    console.print(f"  Running [bold]{ut_id}[/bold] x [bold]{it_id}[/bold] ...", end=" ")
+                    injections = attack.attack(user_task, injection_task)
+                    result = await run_task(control_url, agent_client, ut_id, it_id, injections)
+                    utility_results[TaskPair(ut_id, it_id)] = result["utility"]
+                    security_results[TaskPair(ut_id, it_id)] = result["security"]
+                    console.print(_utility(result["utility"]), " | ", _security(result["security"]))
 
     console.print()
 
     logdir.mkdir(parents=True, exist_ok=True)
     results_file = logdir / "results.json"
+    all_security = {f"{k.user_task_id},{k.injection_task_id}": security_results.get(k) for k in utility_results}
     with open(results_file, "w") as f:
         json.dump(
             {
-                "utility": {f"{k[0]},{k[1]}": v for k, v in utility_results.items()},
-                "security": {f"{k[0]},{k[1]}": v for k, v in security_results.items()},
+                "utility": {f"{k.user_task_id},{k.injection_task_id}": v for k, v in utility_results.items()},
+                "security": all_security,
             },
             f,
             indent=2,
