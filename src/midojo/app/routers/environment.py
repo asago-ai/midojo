@@ -6,10 +6,20 @@ import yaml
 from agentdojo.task_suite.task_suite import InjectionVector, TaskSuite, read_suite_file
 from fastapi import APIRouter, Depends, status
 
-from ..dependencies import get_suite
-from ..models import InjectionVectorInfo
+from ..dependencies import get_current_eval, get_suite
+from ..models import Evaluation, InjectionVectorInfo
 
 router = APIRouter(prefix="/environment")
+
+
+def register_update_route(env_type: type) -> None:
+    def update_environment(body, evaluation: Annotated[Evaluation, Depends(get_current_eval)]) -> dict:
+        evaluation.environment = body
+        return evaluation.environment.model_dump()
+
+    # Set annotation explicitly so `from __future__ import annotations` doesn't stringify it
+    update_environment.__annotations__["body"] = env_type
+    router.add_api_route("", update_environment, methods=["PUT"])
 
 
 def _get_injection_vectors(suite: TaskSuite) -> dict[str, InjectionVector]:
