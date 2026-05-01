@@ -39,9 +39,16 @@ def _security(value: bool) -> Text:
 
 async def _fetch_suite_info(control_url: str) -> dict:
     async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.get(f"{control_url}/admin/suite")
+        resp = await client.get(f"{control_url}/suite")
         resp.raise_for_status()
         return resp.json()
+
+
+async def _create_run(control_url: str) -> str:
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(f"{control_url}/runs")
+        resp.raise_for_status()
+        return resp.json()["id"]
 
 
 def _print_banner(
@@ -115,36 +122,34 @@ def _print_results_table(
 async def run_task(
     control_url: str,
     agent_client: AgentClient,
+    run_id: str,
     user_task_id: str,
     injection_task_id: str | None,
     injections: dict[str, str],
 ) -> dict:
     async with httpx.AsyncClient(timeout=300.0) as client:
-        setup_resp = await client.post(
-            f"{control_url}/task/setup",
+        eval_resp = await client.post(
+            f"{control_url}/runs/{run_id}/evaluations",
             json={
                 "user_task_id": user_task_id,
                 "injection_task_id": injection_task_id,
                 "injections": injections,
             },
         )
-        setup_resp.raise_for_status()
-
-        prompt_resp = await client.get(f"{control_url}/task/prompt")
-        prompt_resp.raise_for_status()
-        prompt = prompt_resp.json()["prompt"]
+        eval_resp.raise_for_status()
+        eval_data = eval_resp.json()
+        eval_id = eval_data["id"]
+        prompt = eval_data["prompt"]
 
         model_output = await agent_client.send_task(prompt)
 
         complete_resp = await client.post(
-            f"{control_url}/task/complete",
-            json={
-                "model_output": model_output,
-            },
+            f"{control_url}/runs/{run_id}/evaluations/{eval_id}/complete",
+            json={"model_output": model_output},
         )
         complete_resp.raise_for_status()
 
-        grade_resp = await client.post(f"{control_url}/task/grade")
+        grade_resp = await client.post(f"{control_url}/runs/{run_id}/evaluations/{eval_id}/grade")
         grade_resp.raise_for_status()
         return grade_resp.json()
 
@@ -167,18 +172,20 @@ async def run_benchmark(
     suite_info = await _fetch_suite_info(control_url)
     _print_banner(suite_name, suite_info, attack_name, agent_url, protocol, user_tasks_to_run, injection_tasks_to_run)
 
+    run_id = await _create_run(control_url)
+
     utility_results: dict[TaskPair, bool] = {}
     security_results: dict[TaskPair, bool] = {}
 
     if attack_name is None:
         for ut_id in user_tasks_to_run:
             console.print(f"  Running [bold]{ut_id}[/bold] ...", end=" ")
-            result = await run_task(control_url, agent_client, ut_id, None, {})
+            result = await run_task(control_url, agent_client, run_id, ut_id, None, {})
             utility_results[TaskPair(ut_id, "")] = result["utility"]
             console.print(_utility(result["utility"]))
     else:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(f"{control_url}/admin/injection-candidates")
+            resp = await client.get(f"{control_url}/tasks/injection-candidates")
             resp.raise_for_status()
             candidates = resp.json()
         attack = create_attack(attack_name, suite, candidates)
@@ -189,13 +196,13 @@ async def run_benchmark(
                 injection_task = suite.injection_tasks[it_id]
                 if not injectable:
                     console.print(f"  Running [bold]{ut_id}[/bold] x [bold]{it_id}[/bold] ...", end=" ")
-                    result = await run_task(control_url, agent_client, ut_id, None, {})
+                    result = await run_task(control_url, agent_client, run_id, ut_id, None, {})
                     utility_results[TaskPair(ut_id, it_id)] = result["utility"]
                     console.print(_utility(result["utility"]), " | ", Text("N/A (not injectable)", style="dim"))
                 else:
                     console.print(f"  Running [bold]{ut_id}[/bold] x [bold]{it_id}[/bold] ...", end=" ")
                     injections = attack.attack(user_task, injection_task)
-                    result = await run_task(control_url, agent_client, ut_id, it_id, injections)
+                    result = await run_task(control_url, agent_client, run_id, ut_id, it_id, injections)
                     utility_results[TaskPair(ut_id, it_id)] = result["utility"]
                     security_results[TaskPair(ut_id, it_id)] = result["security"]
                     console.print(_utility(result["utility"]), " | ", _security(result["security"]))

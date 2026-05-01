@@ -24,7 +24,7 @@ class ServerCandidatesMixin:
 
     AgentDojo's BaseAttack.get_injection_candidates runs tool functions locally,
     which fails for midojo's forwarding tools (they need the server process).
-    This mixin uses candidates fetched from the server's /admin/injection-candidates
+    This mixin uses candidates fetched from the server's /tasks/injection-candidates
     endpoint instead.
     """
 

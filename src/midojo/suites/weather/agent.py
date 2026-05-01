@@ -145,11 +145,15 @@ weather_skill = AgentSkill(
 @click.command()
 @click.option("--host", default="127.0.0.1", help="Host to bind to.")
 @click.option("--port", default=8000, type=int, help="Port to bind to.", envvar="AGENT_PORT")
-@click.option("--mcp-server-url", default="http://localhost:8080/mcp", help="URL of the MCP server.", envvar="MCP_SERVER_URL")
+@click.option(
+    "--mcp-server-url", default="http://localhost:8080/mcp", help="URL of the MCP server.", envvar="MCP_SERVER_URL"
+)
 @click.option("--litellm-api-key", required=True, help="LiteLLM API key.", envvar="LITELLM_API_KEY")
 @click.option("--litellm-api-url", required=True, help="LiteLLM API URL.", envvar="LITELLM_API_URL")
 @click.option("--litellm-model", required=True, help="LiteLLM model name.", envvar="LITELLM_MODEL")
-def main(host: str, port: int, mcp_server_url: str, litellm_api_key: str, litellm_api_url: str, litellm_model: str) -> None:
+def main(
+    host: str, port: int, mcp_server_url: str, litellm_api_key: str, litellm_api_url: str, litellm_model: str
+) -> None:
     llm = OpenAI(api_key=litellm_api_key, base_url=litellm_api_url)
 
     executor = WeatherAgentExecutor(llm, litellm_model, mcp_server_url)

@@ -1,30 +1,26 @@
 from __future__ import annotations
 
-from types import ModuleType
-
 from agentdojo.task_suite.task_suite import TaskSuite
 from fastapi import FastAPI
 
-from midojo.app.models import SessionHolder
-from midojo.app.routers.admin import create_admin_router
-from midojo.app.routers.mcp import create_mcp_server
-from midojo.app.routers.tasks import create_task_router
+from . import state
+from .routers import environment, runs, suite, tasks, tools
+from .routers.mcp import create_mcp_server
 
 
-def create_app(
-    suite: TaskSuite,
-    suite_module: ModuleType,
-) -> FastAPI:
-    session_holder = SessionHolder()
+def create_app(suite_instance: TaskSuite) -> FastAPI:
+    state.suite = suite_instance
+    state.runs = {}
+    state.current_eval = None
 
-    mcp_server = create_mcp_server(suite.tools, session_holder)
+    mcp_server = create_mcp_server(suite_instance.tools)
     mcp_app = mcp_server.http_app(path="/")
 
-    task_router = create_task_router(session_holder, suite, suite_module)
-    admin_router = create_admin_router(suite, suite_module)
-
     app = FastAPI(lifespan=mcp_app.router.lifespan_context)
-    app.include_router(task_router)
-    app.include_router(admin_router)
+    app.include_router(suite.router)
+    app.include_router(tasks.router)
+    app.include_router(environment.router)
+    app.include_router(tools.router)
+    app.include_router(runs.router)
     app.mount("/mcp", mcp_app)
     return app

@@ -5,17 +5,19 @@ from agentdojo.functions_runtime import FunctionsRuntime
 
 import midojo.suites.weather.injection_tasks
 import midojo.suites.weather.user_tasks  # noqa: F401
-from midojo.app.models import BenchmarkSession, SessionHolder
+from midojo.app import state
+from midojo.app.models import Evaluation
 from midojo.app.routers.mcp import create_mcp_server
 from midojo.forwarding import MCPForwardingClient
 from midojo.suites.weather import task_suite
 
 
-def _setup_session(session_holder: SessionHolder) -> None:
+def _setup_eval() -> None:
     environment = task_suite.load_and_inject_default_environment({})
     pre_environment = environment.model_copy(deep=True)
     runtime = FunctionsRuntime(task_suite.tools)
-    session_holder.session = BenchmarkSession(
+    state.current_eval = Evaluation(
+        id="test",
         user_task_id="user_task_0",
         injection_task_id=None,
         pre_environment=pre_environment,
@@ -32,8 +34,7 @@ def _mock_forward():
 
 
 def test_tool_registration():
-    session_holder = SessionHolder()
-    mcp = create_mcp_server(task_suite.tools, session_holder)
+    mcp = create_mcp_server(task_suite.tools)
     tools = asyncio.run(mcp.list_tools())
     tool_names = {t.name for t in tools}
     assert "get_weather" in tool_names
@@ -43,8 +44,7 @@ def test_tool_registration():
 
 
 def test_tool_schemas_exclude_depends_params():
-    session_holder = SessionHolder()
-    mcp = create_mcp_server(task_suite.tools, session_holder)
+    mcp = create_mcp_server(task_suite.tools)
     tools = asyncio.run(mcp.list_tools())
     tools_by_name = {t.name: t for t in tools}
 
@@ -55,9 +55,8 @@ def test_tool_schemas_exclude_depends_params():
 
 
 def test_tool_call_mutates_environment():
-    session_holder = SessionHolder()
-    mcp = create_mcp_server(task_suite.tools, session_holder)
-    _setup_session(session_holder)
+    mcp = create_mcp_server(task_suite.tools)
+    _setup_eval()
 
     result = asyncio.run(
         mcp.call_tool(
@@ -67,7 +66,7 @@ def test_tool_call_mutates_environment():
     )
     assert result is not None
 
-    alerts = session_holder.session.environment.weather_alerts
+    alerts = state.current_eval.environment.weather_alerts
     assert len(alerts) == 1
     assert alerts[0].city == "Chicago"
     assert alerts[0].message == "Flood warning"
@@ -75,14 +74,13 @@ def test_tool_call_mutates_environment():
 
 def test_tool_call_records_trace():
     _mock_forward()
-    session_holder = SessionHolder()
-    mcp = create_mcp_server(task_suite.tools, session_holder)
-    _setup_session(session_holder)
+    mcp = create_mcp_server(task_suite.tools)
+    _setup_eval()
 
     asyncio.run(mcp.call_tool("get_weather", {"city": "New York"}))
     asyncio.run(mcp.call_tool("get_weather", {"city": "Chicago"}))
 
-    trace = session_holder.session.trace
+    trace = state.current_eval.trace
     assert len(trace) == 2
     assert trace[0].function == "get_weather"
     assert trace[1].function == "get_weather"
@@ -93,11 +91,11 @@ def test_tool_call_records_trace():
 
 
 def test_tool_call_without_session():
-    session_holder = SessionHolder()
-    mcp = create_mcp_server(task_suite.tools, session_holder)
+    state.current_eval = None
+    mcp = create_mcp_server(task_suite.tools)
 
     try:
         asyncio.run(mcp.call_tool("get_weather", {"city": "New York"}))
         assert False, "Should have raised"
     except Exception as e:
-        assert "No task configured" in str(e)
+        assert "No evaluation in progress" in str(e)

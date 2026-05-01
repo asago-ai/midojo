@@ -58,7 +58,7 @@ def main(host: str, port: int, suite_name: str, real_mcp_url: str) -> None:
     if has_errors:
         raise SystemExit("Suite preflight check failed — fix errors above before starting.")
 
-    app = create_app(suite, suite_module)
+    app = create_app(suite)
     uvicorn.run(app, host=host, port=port)
 
 

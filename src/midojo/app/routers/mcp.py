@@ -9,28 +9,30 @@ from agentdojo.functions_runtime import Function
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
-from midojo.app.models import SessionHolder, TraceEntry
 from midojo.forwarding import MCPForwardingClient
 
+from .. import state
+from ..models import TraceEntry
 
-def _make_tool_handler(func: Function, session_holder: SessionHolder):
+
+def _make_tool_handler(func: Function):
     fields = func.parameters.model_fields
 
     async def handler(**kwargs):
-        session = session_holder.session
-        if session is None:
-            raise ToolError("No task configured. Call /task/setup first.")
+        evaluation = state.current_eval
+        if evaluation is None:
+            raise ToolError("No evaluation in progress. Create one via POST /runs/{run_id}/evaluations first.")
 
         if MCPForwardingClient.is_initialized():
             result, error = await asyncio.to_thread(
-                session.runtime.run_function, session.environment, func.name, kwargs
+                evaluation.runtime.run_function, evaluation.environment, func.name, kwargs
             )
         else:
-            result, error = session.runtime.run_function(session.environment, func.name, kwargs)
+            result, error = evaluation.runtime.run_function(evaluation.environment, func.name, kwargs)
 
         result_str = tool_result_to_str(result) if result is not None else ""
 
-        session.trace.append(
+        evaluation.trace.append(
             TraceEntry(
                 function=func.name,
                 args=dict(kwargs),
@@ -61,14 +63,11 @@ def _make_tool_handler(func: Function, session_holder: SessionHolder):
     return handler
 
 
-def create_mcp_server(
-    tools: list[Function],
-    session_holder: SessionHolder,
-) -> FastMCP:
+def create_mcp_server(tools: list[Function]) -> FastMCP:
     mcp = FastMCP("midojo-benchmark")
 
     for func in tools:
-        tool_handler = _make_tool_handler(func, session_holder)
+        tool_handler = _make_tool_handler(func)
         mcp.tool(tool_handler, name=func.name, description=func.description)
 
     return mcp

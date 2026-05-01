@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Generic, TypeVar
@@ -10,36 +11,68 @@ from pydantic import BaseModel
 Env = TypeVar("Env", bound=TaskEnvironment)
 
 
-class SetupRequest(BaseModel):
+def _new_id() -> str:
+    return uuid.uuid4().hex[:8]
+
+
+# --- Run / Evaluation request/response models ---
+
+
+class CreateEvaluationRequest(BaseModel):
     user_task_id: str
     injection_task_id: str | None = None
     injections: dict[str, str] = {}
 
 
-class SetupResponse(BaseModel):
-    status: str
-    user_task_id: str
-    injection_task_id: str | None
+class CreateRunResponse(BaseModel):
+    id: str
 
 
-class StatusResponse(BaseModel):
-    user_task_id: str | None
-    injection_task_id: str | None
-    tool_calls_count: int
-    completed: bool
+class CreateEvaluationResponse(BaseModel):
+    id: str
+    prompt: str
 
 
 class CompleteRequest(BaseModel):
     model_output: str
 
 
+class GradeResponse(BaseModel):
+    utility: bool
+    security: bool
+
+
+class EvaluationSummary(BaseModel):
+    id: str
+    user_task_id: str
+    injection_task_id: str | None
+    completed: bool
+    utility: bool | None
+    security: bool | None
+
+
+class RunResponse(BaseModel):
+    id: str
+    created_at: str
+    evaluations: list[EvaluationSummary]
+
+
+class EvaluationResponse(BaseModel):
+    id: str
+    user_task_id: str
+    injection_task_id: str | None
+    completed: bool
+    utility: bool | None
+    security: bool | None
+    model_output: str | None
+    trace: list[dict]
+
+
 class TraceResponse(BaseModel):
     trace: list[dict]
 
 
-class GradeResponse(BaseModel):
-    utility: bool
-    security: bool
+# --- Suite / task / tool response models ---
 
 
 class UserTaskCheckResult(BaseModel):
@@ -88,6 +121,9 @@ class ToolInfoResponse(BaseModel):
     parameters: dict
 
 
+# --- Internal state ---
+
+
 @dataclass
 class TraceEntry:
     function: str
@@ -98,7 +134,8 @@ class TraceEntry:
 
 
 @dataclass
-class BenchmarkSession(Generic[Env]):
+class Evaluation(Generic[Env]):
+    id: str
     user_task_id: str
     injection_task_id: str | None
     pre_environment: Env
@@ -109,8 +146,12 @@ class BenchmarkSession(Generic[Env]):
     completed: bool = False
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     active_injections: dict[str, str] = field(default_factory=dict)
+    utility: bool | None = None
+    security: bool | None = None
 
 
-class SessionHolder(Generic[Env]):
-    def __init__(self) -> None:
-        self.session: BenchmarkSession[Env] | None = None
+@dataclass
+class Run:
+    id: str
+    evaluations: dict[str, Evaluation] = field(default_factory=dict)
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
