@@ -13,10 +13,12 @@ router = APIRouter(prefix="/environment")
 
 
 def register_update_route(env_type: type) -> None:
-    def update_environment(body: env_type, evaluation: Annotated[Evaluation, Depends(get_current_eval)]) -> dict:  # type: ignore[valid-type]
+    def update_environment(body, evaluation: Annotated[Evaluation, Depends(get_current_eval)]) -> dict:
         evaluation.environment = body
         return evaluation.environment.model_dump()
 
+    # Set annotation explicitly so `from __future__ import annotations` doesn't stringify it
+    update_environment.__annotations__["body"] = env_type
     router.add_api_route("", update_environment, methods=["PUT"])
 
 
