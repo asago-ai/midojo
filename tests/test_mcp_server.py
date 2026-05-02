@@ -3,8 +3,6 @@ from unittest.mock import MagicMock
 
 from agentdojo.functions_runtime import FunctionsRuntime
 
-import midojo.suites.weather.injection_tasks
-import midojo.suites.weather.user_tasks  # noqa: F401
 from midojo.app import state
 from midojo.app.models import Evaluation
 from midojo.app.routers.mcp import create_mcp_server

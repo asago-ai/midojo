@@ -1,7 +1,5 @@
 from agentdojo.functions_runtime import FunctionsRuntime
 
-import midojo.suites.weather.injection_tasks
-import midojo.suites.weather.user_tasks  # noqa: F401
 from midojo.app.models import TraceEntry
 from midojo.grading import grade_task
 from midojo.suites.weather import task_suite

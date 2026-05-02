@@ -2,8 +2,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import midojo.suites.weather.injection_tasks
-import midojo.suites.weather.user_tasks  # noqa: F401
 from midojo.forwarding import MCPForwardingClient
 from midojo.suites.weather import task_suite
 

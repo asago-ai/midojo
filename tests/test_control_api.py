@@ -1,8 +1,6 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-import midojo.suites.weather.injection_tasks
-import midojo.suites.weather.user_tasks  # noqa: F401
 from midojo.app import state
 from midojo.app.models import TraceEntry
 from midojo.app.routers import runs
