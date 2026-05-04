@@ -109,6 +109,7 @@ class SuiteInfoResponse(BaseModel):
     injection_tasks: list[str]
     tools: list[str]
     injection_vectors: dict[str, InjectionVectorInfo]
+    environment: TaskEnvironment
 
 
 class GroundTruthCall(BaseModel):

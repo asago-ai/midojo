@@ -25,6 +25,7 @@ def suite_info(suite: Annotated[YAMLTaskSuite, Depends(get_suite)]):
         injection_tasks=list(suite.injection_tasks.keys()),
         tools=[t.name for t in suite.tools],
         injection_vectors=suite.get_injection_vector_info(),
+        environment=suite.load_and_inject_default_environment({}),
     )
 
 
