@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 from agentdojo.functions_runtime import FunctionsRuntime
 
 from midojo.app import state
-from midojo.app.models import Evaluation
+from midojo.app.state import Evaluation
 from midojo.app.routers.mcp import create_mcp_server
 from midojo.forwarding import MCPForwardingClient
 from midojo.suites.weather import task_suite
@@ -86,8 +86,8 @@ def test_tool_call_records_trace():
     assert fcs[1].args == {"city": "Chicago"}
     assert fcs[0].error is None
     assert fcs[1].error is None
-    assert "cities" in fcs[0].pre_environment
-    assert "cities" in fcs[0].post_environment
+    assert hasattr(fcs[0].pre_environment, "cities")
+    assert hasattr(fcs[0].post_environment, "cities")
 
 
 def test_tool_call_without_session():

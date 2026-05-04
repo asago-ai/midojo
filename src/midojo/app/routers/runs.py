@@ -16,16 +16,13 @@ from ..models import (
     CreateEvaluationRequest,
     CreateEvaluationResponse,
     CreateRunResponse,
-    Evaluation,
     EvaluationResponse,
     EvaluationSummary,
-    FunctionCallResponse,
-    FunctionCallSummary,
+    FunctionCallRecord,
     GradeResponse,
-    Run,
     RunResponse,
-    _new_id,
 )
+from ..state import Evaluation, Run, _new_id
 
 router = APIRouter(prefix="/runs")
 
@@ -89,7 +86,15 @@ def create_evaluation(
     return CreateEvaluationResponse(id=evaluation.id, prompt=prompt)
 
 
-@router.get("/{run_id}/evaluations/{eval_id}", response_model=EvaluationResponse, status_code=status.HTTP_200_OK)
+_FC_ENV_FIELDS = {"pre_environment", "post_environment"}
+
+
+@router.get(
+    "/{run_id}/evaluations/{eval_id}",
+    response_model=EvaluationResponse,
+    response_model_exclude={"function_calls": {"__all__": _FC_ENV_FIELDS}},
+    status_code=status.HTTP_200_OK,
+)
 def retrieve_evaluation(evaluation: Annotated[Evaluation, Depends(get_evaluation)]):
     return EvaluationResponse(
         id=evaluation.id,
@@ -99,12 +104,7 @@ def retrieve_evaluation(evaluation: Annotated[Evaluation, Depends(get_evaluation
         utility=evaluation.utility,
         security=evaluation.security,
         model_output=evaluation.model_output,
-        function_calls=[
-            FunctionCallSummary(
-                function=fc.function, args=fc.args, result=fc.result, error=fc.error, timestamp=fc.timestamp
-            )
-            for fc in evaluation.function_calls
-        ],
+        function_calls=evaluation.function_calls,
     )
 
 
@@ -163,33 +163,20 @@ def register_environment_update_route(env_type: type) -> None:
 
 @router.get(
     "/{run_id}/evaluations/{eval_id}/function-calls",
-    response_model=list[FunctionCallSummary],
+    response_model=list[FunctionCallRecord],
+    response_model_exclude={"__all__": _FC_ENV_FIELDS},
     status_code=status.HTTP_200_OK,
 )
-def list_function_calls(evaluation: Annotated[Evaluation, Depends(get_evaluation)]) -> list[FunctionCallSummary]:
-    return [
-        FunctionCallSummary(
-            function=fc.function, args=fc.args, result=fc.result, error=fc.error, timestamp=fc.timestamp
-        )
-        for fc in evaluation.function_calls
-    ]
+def list_function_calls(evaluation: Annotated[Evaluation, Depends(get_evaluation)]) -> list[FunctionCallRecord]:
+    return evaluation.function_calls
 
 
 @router.get(
     "/{run_id}/evaluations/{eval_id}/function-calls/{idx}",
-    response_model=FunctionCallResponse,
+    response_model=FunctionCallRecord,
     status_code=status.HTTP_200_OK,
 )
-def get_function_call(idx: int, evaluation: Annotated[Evaluation, Depends(get_evaluation)]) -> FunctionCallResponse:
+def get_function_call(idx: int, evaluation: Annotated[Evaluation, Depends(get_evaluation)]) -> FunctionCallRecord:
     if idx < 0 or idx >= len(evaluation.function_calls):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Function call index out of range: {idx}")
-    fc = evaluation.function_calls[idx]
-    return FunctionCallResponse(
-        function=fc.function,
-        args=fc.args,
-        result=fc.result,
-        error=fc.error,
-        timestamp=fc.timestamp,
-        pre_environment=fc.pre_environment,
-        post_environment=fc.post_environment,
-    )
+    return evaluation.function_calls[idx]

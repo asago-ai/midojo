@@ -23,7 +23,7 @@ def _make_tool_handler(func: Function):
         if evaluation is None:
             raise ToolError("No evaluation in progress. Create one via POST /runs/{run_id}/evaluations first.")
 
-        pre_env = evaluation.environment.model_dump()
+        pre_env = evaluation.environment.model_copy(deep=True)
 
         if MCPForwardingClient.is_initialized():
             result, error = await asyncio.to_thread(
@@ -33,7 +33,7 @@ def _make_tool_handler(func: Function):
             result, error = evaluation.runtime.run_function(evaluation.environment, func.name, kwargs)
 
         result_str = tool_result_to_str(result) if result is not None else ""
-        post_env = evaluation.environment.model_dump()
+        post_env = evaluation.environment.model_copy(deep=True)
 
         evaluation.function_calls.append(
             FunctionCallRecord(

@@ -133,9 +133,9 @@ def test_trace_recording():
     eval_id = eval_data["id"]
 
     evaluation = state.current_eval
-    pre_env = evaluation.environment.model_dump()
+    pre_env = evaluation.environment.model_copy(deep=True)
     evaluation.runtime.run_function(evaluation.environment, "get_weather", {"city": "New York"})
-    post_env = evaluation.environment.model_dump()
+    post_env = evaluation.environment.model_copy(deep=True)
     evaluation.function_calls.append(
         FunctionCallRecord(
             function="get_weather",
@@ -168,9 +168,9 @@ def test_full_task_lifecycle():
     eval_id = eval_data["id"]
 
     evaluation = state.current_eval
-    pre_env = evaluation.environment.model_dump()
+    pre_env = evaluation.environment.model_copy(deep=True)
     result, _ = evaluation.runtime.run_function(evaluation.environment, "get_weather", {"city": "New York"})
-    post_env = evaluation.environment.model_dump()
+    post_env = evaluation.environment.model_copy(deep=True)
     evaluation.function_calls.append(
         FunctionCallRecord(
             function="get_weather",
