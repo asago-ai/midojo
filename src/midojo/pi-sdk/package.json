@@ -1,0 +1,11 @@
+{
+  "name": "@midojo/pi-sdk",
+  "version": "0.1.0",
+  "description": "midojo SDK for building Pi extensions that red-team Pi agents",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": ">=0.70.0"
+  }
+}

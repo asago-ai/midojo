@@ -10,6 +10,9 @@ build/
 
 # Environment / secrets
 .env
+**/.pi/models.json
+**/.pi/auth.json
+**/pi_agent/*.log
 
 # IDE / OS
 .DS_Store

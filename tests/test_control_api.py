@@ -1,3 +1,4 @@
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -7,11 +8,13 @@ from midojo.app.routers import runs
 from midojo.suites.weather import task_suite
 
 
-def _make_client() -> TestClient:
+@pytest.fixture()
+def client() -> TestClient:
     state.suite = task_suite
     state.runs = {}
     state.current_eval = None
     app = FastAPI()
+    runs.register_environment_update_route(task_suite.environment_type)
     app.include_router(runs.router)
     return TestClient(app)
 
@@ -29,14 +32,12 @@ def _create_evaluation(client: TestClient, run_id: str, **kwargs) -> dict:
     return resp.json()
 
 
-def test_create_run():
-    client = _make_client()
+def test_create_run(client):
     run_id = _create_run(client)
     assert len(run_id) > 0
 
 
-def test_get_run():
-    client = _make_client()
+def test_get_run(client):
     run_id = _create_run(client)
     resp = client.get(f"/runs/{run_id}")
     assert resp.status_code == 200
@@ -45,14 +46,12 @@ def test_get_run():
     assert data["evaluations"] == []
 
 
-def test_get_run_not_found():
-    client = _make_client()
+def test_get_run_not_found(client):
     resp = client.get("/runs/nonexistent")
     assert resp.status_code == 404
 
 
-def test_create_evaluation():
-    client = _make_client()
+def test_create_evaluation(client):
     run_id = _create_run(client)
     data = _create_evaluation(client, run_id)
     assert "id" in data
@@ -60,8 +59,7 @@ def test_create_evaluation():
     assert "weather" in data["prompt"].lower()
 
 
-def test_create_evaluation_with_injection():
-    client = _make_client()
+def test_create_evaluation_with_injection(client):
     run_id = _create_run(client)
     data = _create_evaluation(
         client,
@@ -73,15 +71,13 @@ def test_create_evaluation_with_injection():
     assert "prompt" in data
 
 
-def test_create_evaluation_unknown_task():
-    client = _make_client()
+def test_create_evaluation_unknown_task(client):
     run_id = _create_run(client)
     resp = client.post(f"/runs/{run_id}/evaluations", json={"user_task_id": "nonexistent"})
     assert resp.status_code == 400
 
 
-def test_get_evaluation():
-    client = _make_client()
+def test_get_evaluation(client):
     run_id = _create_run(client)
     eval_data = _create_evaluation(client, run_id)
     eval_id = eval_data["id"]
@@ -94,8 +90,7 @@ def test_get_evaluation():
     assert data["completed"] is False
 
 
-def test_complete_and_grade_utility_only():
-    client = _make_client()
+def test_complete_and_grade_utility_only(client):
     run_id = _create_run(client)
     eval_data = _create_evaluation(client, run_id)
     eval_id = eval_data["id"]
@@ -116,8 +111,7 @@ def test_complete_and_grade_utility_only():
     assert data["security"] is False
 
 
-def test_grade_before_complete():
-    client = _make_client()
+def test_grade_before_complete(client):
     run_id = _create_run(client)
     eval_data = _create_evaluation(client, run_id)
     eval_id = eval_data["id"]
@@ -126,8 +120,7 @@ def test_grade_before_complete():
     assert resp.status_code == 400
 
 
-def test_trace_recording():
-    client = _make_client()
+def test_trace_recording(client):
     run_id = _create_run(client)
     eval_data = _create_evaluation(client, run_id)
     eval_id = eval_data["id"]
@@ -155,9 +148,8 @@ def test_trace_recording():
     assert fcs[0]["function"] == "get_weather"
 
 
-def test_full_task_lifecycle():
+def test_full_task_lifecycle(client):
     """End-to-end: setup with injection, simulate tool calls, complete, grade."""
-    client = _make_client()
     run_id = _create_run(client)
     eval_data = _create_evaluation(
         client,
@@ -194,8 +186,7 @@ def test_full_task_lifecycle():
     assert data["security"] is False
 
 
-def test_run_aggregates_evaluations():
-    client = _make_client()
+def test_run_aggregates_evaluations(client):
     run_id = _create_run(client)
 
     eval_data = _create_evaluation(client, run_id)
@@ -212,3 +203,56 @@ def test_run_aggregates_evaluations():
     assert data["evaluations"][0]["id"] == eval_id
     assert data["evaluations"][0]["completed"] is True
     assert data["evaluations"][0]["utility"] is True
+
+
+def test_record_function_call_via_post(client):
+    run_id = _create_run(client)
+    eval_data = _create_evaluation(client, run_id)
+    eval_id = eval_data["id"]
+
+    resp = client.post(
+        f"/runs/{run_id}/evaluations/{eval_id}/function-calls",
+        json={"function": "get_weather", "args": {"city": "New York"}, "result": "72°F, sunny", "error": None},
+    )
+    assert resp.status_code == 201
+    record = resp.json()
+    assert record["function"] == "get_weather"
+    assert record["args"] == {"city": "New York"}
+    assert record["result"] == "72°F, sunny"
+    assert record["error"] is None
+    assert "timestamp" in record
+    assert "pre_environment" in record
+    assert "post_environment" in record
+
+    resp = client.get(f"/runs/{run_id}/evaluations/{eval_id}/function-calls")
+    assert resp.status_code == 200
+    assert len(resp.json()) == 1
+
+
+def test_record_function_call_pre_env_chain(client):
+    """pre_environment of each call should match post_environment of the previous call."""
+    run_id = _create_run(client)
+    eval_data = _create_evaluation(client, run_id)
+    eval_id = eval_data["id"]
+
+    initial_env = client.get(f"/runs/{run_id}/evaluations/{eval_id}/environment").json()
+
+    resp1 = client.post(
+        f"/runs/{run_id}/evaluations/{eval_id}/function-calls",
+        json={"function": "get_weather", "args": {"city": "New York"}, "result": "72°F, sunny"},
+    )
+    record1 = resp1.json()
+    assert record1["pre_environment"] == initial_env
+
+    client.put(
+        f"/runs/{run_id}/evaluations/{eval_id}/environment",
+        json={**initial_env, "weather_alerts": [{"city": "New York", "message": "Storm warning"}]},
+    )
+
+    resp2 = client.post(
+        f"/runs/{run_id}/evaluations/{eval_id}/function-calls",
+        json={"function": "send_weather_alert", "args": {"city": "New York", "message": "Storm warning"}, "result": "ok"},
+    )
+    record2 = resp2.json()
+    assert record2["pre_environment"] == record1["post_environment"]
+    assert record2["post_environment"]["weather_alerts"] == [{"city": "New York", "message": "Storm warning"}]

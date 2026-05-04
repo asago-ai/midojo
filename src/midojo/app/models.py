@@ -46,16 +46,19 @@ class RunResponse(BaseModel):
     evaluations: list[EvaluationSummary]
 
 
-class FunctionCallRecord(BaseModel):
+class CreateFunctionCallRecord(BaseModel):
+    function: str
+    args: dict
+    result: str
+    error: str | None = None
+
+
+class FunctionCallRecord(CreateFunctionCallRecord):
     """A recorded function call execution, distinct from agentdojo's
     FunctionCall which represents just the intent (function + args)."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    function: str
-    args: dict
-    result: str
-    error: str | None
     timestamp: str
     pre_environment: SerializeAsAny[TaskEnvironment]
     post_environment: SerializeAsAny[TaskEnvironment]
