@@ -26,6 +26,8 @@ def _new_id() -> str:
 
 @dataclass
 class Evaluation:
+    """A single task execution within a Run. Captures the environment before and after tool execution, the function call trace, and grading results."""
+
     id: str
     user_task_id: str
     injection_task_id: str | None
