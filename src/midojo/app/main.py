@@ -21,6 +21,7 @@ def create_app(suite_instance: YAMLTaskSuite) -> FastAPI:
     app.include_router(suite.router)
     app.include_router(tasks.router)
     app.include_router(tools.router)
+    # registered here because the concrete environment Pydantic type is only available after suite init
     runs.register_environment_update_route(suite_instance.environment_type)
     app.include_router(runs.router)
     app.mount("/mcp", mcp_app)

@@ -12,6 +12,12 @@ def get_suite() -> YAMLTaskSuite:
     return state.suite
 
 
+def get_current_eval() -> Evaluation:
+    if state.current_eval is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No evaluation in progress.")
+    return state.current_eval
+
+
 def get_run(run_id: str) -> Run:
     run = state.runs.get(run_id)
     if run is None:
