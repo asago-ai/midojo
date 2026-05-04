@@ -3,8 +3,9 @@ from __future__ import annotations
 from typing import Annotated
 
 from agentdojo.functions_runtime import FunctionsRuntime
-from agentdojo.task_suite.task_suite import TaskSuite
 from fastapi import APIRouter, Depends, HTTPException, status
+
+from midojo.yaml_task_suite import YAMLTaskSuite
 
 from midojo.grading import grade_task
 
@@ -57,7 +58,7 @@ def retrieve_run(run: Annotated[Run, Depends(get_run)]):
 def create_evaluation(
     req: CreateEvaluationRequest,
     run: Annotated[Run, Depends(get_run)],
-    suite: Annotated[TaskSuite, Depends(get_suite)],
+    suite: Annotated[YAMLTaskSuite, Depends(get_suite)],
 ):
     if req.user_task_id not in suite.user_tasks:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown user task: {req.user_task_id}")
@@ -113,7 +114,7 @@ def complete_evaluation(req: CompleteRequest, evaluation: Annotated[Evaluation, 
 @router.post("/{run_id}/evaluations/{eval_id}/grade", response_model=GradeResponse, status_code=status.HTTP_200_OK)
 def grade_evaluation(
     evaluation: Annotated[Evaluation, Depends(get_evaluation)],
-    suite: Annotated[TaskSuite, Depends(get_suite)],
+    suite: Annotated[YAMLTaskSuite, Depends(get_suite)],
 ):
     if not evaluation.completed:
         raise HTTPException(

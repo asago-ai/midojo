@@ -9,7 +9,7 @@ from typing import NamedTuple
 import click
 import httpx
 from agentdojo.benchmark import SuiteResults
-from agentdojo.task_suite.task_suite import TaskSuite
+from midojo.yaml_task_suite import YAMLTaskSuite
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -159,7 +159,7 @@ async def run_benchmark(
     agent_client: AgentClient,
     agent_url: str,
     protocol: str,
-    suite: TaskSuite,
+    suite: YAMLTaskSuite,
     suite_name: str,
     attack_name: str | None,
     user_task_ids: list[str] | None,

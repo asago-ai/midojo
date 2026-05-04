@@ -3,7 +3,7 @@ from __future__ import annotations
 from agentdojo.attacks.attack_registry import ATTACKS
 from agentdojo.attacks.base_attacks import BaseAttack
 from agentdojo.base_tasks import BaseUserTask
-from agentdojo.task_suite.task_suite import TaskSuite
+from midojo.yaml_task_suite import YAMLTaskSuite
 
 
 class _NullPipeline:
@@ -30,7 +30,7 @@ class ServerCandidatesMixin:
 
     _server_candidates: dict[str, list[str]]
 
-    def __init__(self, task_suite: TaskSuite, candidates: dict[str, list[str]], **kwargs):
+    def __init__(self, task_suite: YAMLTaskSuite, candidates: dict[str, list[str]], **kwargs):
         self._server_candidates = candidates
         super().__init__(task_suite, _NullPipeline(), **kwargs)
 
@@ -38,7 +38,7 @@ class ServerCandidatesMixin:
         return self._server_candidates[user_task.ID]
 
 
-def create_attack(attack_name: str, suite: TaskSuite, candidates: dict[str, list[str]]) -> BaseAttack:
+def create_attack(attack_name: str, suite: YAMLTaskSuite, candidates: dict[str, list[str]]) -> BaseAttack:
     """Create an attack that uses server-fetched injection candidates."""
     base_cls = ATTACKS[attack_name]
     patched_cls = type(f"MiDojo{base_cls.__name__}", (ServerCandidatesMixin, base_cls), {})
