@@ -9,16 +9,12 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Generic, TypeVar
-
 from agentdojo.functions_runtime import FunctionsRuntime, TaskEnvironment
 from pydantic import BaseModel, ConfigDict, Field
 
 from midojo.yaml_task_suite import YAMLTaskSuite
 
 from .models import FunctionCallRecord
-
-Env = TypeVar("Env", bound=TaskEnvironment)
 
 
 def _new_id() -> str:
@@ -29,12 +25,12 @@ def _new_id() -> str:
 
 
 @dataclass
-class Evaluation(Generic[Env]):
+class Evaluation:
     id: str
     user_task_id: str
     injection_task_id: str | None
-    pre_environment: Env
-    environment: Env
+    pre_environment: TaskEnvironment
+    environment: TaskEnvironment
     runtime: FunctionsRuntime
     function_calls: list[FunctionCallRecord] = field(default_factory=list)
     model_output: str | None = None
