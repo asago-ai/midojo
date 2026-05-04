@@ -5,7 +5,7 @@ from fastapi import HTTPException, status
 from midojo.yaml_task_suite import YAMLTaskSuite
 
 from . import state
-from .models import Evaluation, Run
+from .state import Evaluation, Run
 
 
 def get_suite() -> YAMLTaskSuite:

@@ -1,18 +1,7 @@
 from __future__ import annotations
 
-import uuid
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Generic, TypeVar
-
-from agentdojo.functions_runtime import FunctionsRuntime, TaskEnvironment
-from pydantic import BaseModel
-
-Env = TypeVar("Env", bound=TaskEnvironment)
-
-
-def _new_id() -> str:
-    return uuid.uuid4().hex[:8]
+from agentdojo.functions_runtime import TaskEnvironment
+from pydantic import BaseModel, ConfigDict, SerializeAsAny
 
 
 # --- Run / Evaluation request/response models ---
@@ -57,17 +46,19 @@ class RunResponse(BaseModel):
     evaluations: list[EvaluationSummary]
 
 
-class FunctionCallSummary(BaseModel):
+class FunctionCallRecord(BaseModel):
+    """A recorded function call execution, distinct from agentdojo's
+    FunctionCall which represents just the intent (function + args)."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     function: str
     args: dict
     result: str
     error: str | None
     timestamp: str
-
-
-class FunctionCallResponse(FunctionCallSummary):
-    pre_environment: dict
-    post_environment: dict
+    pre_environment: SerializeAsAny[TaskEnvironment]
+    post_environment: SerializeAsAny[TaskEnvironment]
 
 
 class EvaluationResponse(BaseModel):
@@ -78,7 +69,7 @@ class EvaluationResponse(BaseModel):
     utility: bool | None
     security: bool | None
     model_output: str | None
-    function_calls: list[FunctionCallSummary]
+    function_calls: list[FunctionCallRecord]
 
 
 # --- Suite / task / tool response models ---
@@ -129,43 +120,3 @@ class ToolInfoResponse(BaseModel):
     name: str
     description: str
     parameters: dict
-
-
-# --- Internal state ---
-
-
-@dataclass
-class FunctionCallRecord:
-    """A recorded function call execution, distinct from agentdojo's FunctionCall which represents just the intent (function + args)."""
-
-    function: str
-    args: dict
-    result: str
-    error: str | None
-    timestamp: str
-    pre_environment: dict = field(default_factory=dict)
-    post_environment: dict = field(default_factory=dict)
-
-
-@dataclass
-class Evaluation(Generic[Env]):
-    id: str
-    user_task_id: str
-    injection_task_id: str | None
-    pre_environment: Env
-    environment: Env
-    runtime: FunctionsRuntime
-    function_calls: list[FunctionCallRecord] = field(default_factory=list)
-    model_output: str | None = None
-    completed: bool = False
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    active_injections: dict[str, str] = field(default_factory=dict)
-    utility: bool | None = None
-    security: bool | None = None
-
-
-@dataclass
-class Run:
-    id: str
-    evaluations: dict[str, Evaluation] = field(default_factory=dict)
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
