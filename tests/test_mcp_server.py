@@ -78,14 +78,16 @@ def test_tool_call_records_trace():
     asyncio.run(mcp.call_tool("get_weather", {"city": "New York"}))
     asyncio.run(mcp.call_tool("get_weather", {"city": "Chicago"}))
 
-    trace = state.current_eval.trace
-    assert len(trace) == 2
-    assert trace[0].function == "get_weather"
-    assert trace[1].function == "get_weather"
-    assert trace[0].args == {"city": "New York"}
-    assert trace[1].args == {"city": "Chicago"}
-    assert trace[0].error is None
-    assert trace[1].error is None
+    fcs = state.current_eval.function_calls
+    assert len(fcs) == 2
+    assert fcs[0].function == "get_weather"
+    assert fcs[1].function == "get_weather"
+    assert fcs[0].args == {"city": "New York"}
+    assert fcs[1].args == {"city": "Chicago"}
+    assert fcs[0].error is None
+    assert fcs[1].error is None
+    assert "cities" in fcs[0].pre_environment
+    assert "cities" in fcs[0].post_environment
 
 
 def test_tool_call_without_session():

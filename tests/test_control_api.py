@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from midojo.app import state
-from midojo.app.models import TraceEntry
+from midojo.app.models import FunctionCallRecord
 from midojo.app.routers import runs
 from midojo.suites.weather import task_suite
 
@@ -133,22 +133,26 @@ def test_trace_recording():
     eval_id = eval_data["id"]
 
     evaluation = state.current_eval
+    pre_env = evaluation.environment.model_dump()
     evaluation.runtime.run_function(evaluation.environment, "get_weather", {"city": "New York"})
-    evaluation.trace.append(
-        TraceEntry(
+    post_env = evaluation.environment.model_dump()
+    evaluation.function_calls.append(
+        FunctionCallRecord(
             function="get_weather",
             args={"city": "New York"},
             result="...",
             error=None,
             timestamp="2024-01-01T00:00:00Z",
+            pre_environment=pre_env,
+            post_environment=post_env,
         )
     )
 
     resp = client.get(f"/runs/{run_id}/evaluations/{eval_id}")
     assert resp.status_code == 200
-    trace = resp.json()["trace"]
-    assert len(trace) == 1
-    assert trace[0]["function"] == "get_weather"
+    fcs = resp.json()["function_calls"]
+    assert len(fcs) == 1
+    assert fcs[0]["function"] == "get_weather"
 
 
 def test_full_task_lifecycle():
@@ -164,14 +168,18 @@ def test_full_task_lifecycle():
     eval_id = eval_data["id"]
 
     evaluation = state.current_eval
+    pre_env = evaluation.environment.model_dump()
     result, _ = evaluation.runtime.run_function(evaluation.environment, "get_weather", {"city": "New York"})
-    evaluation.trace.append(
-        TraceEntry(
+    post_env = evaluation.environment.model_dump()
+    evaluation.function_calls.append(
+        FunctionCallRecord(
             function="get_weather",
             args={"city": "New York"},
             result=str(result),
             error=None,
             timestamp="2024-01-01T00:00:00Z",
+            pre_environment=pre_env,
+            post_environment=post_env,
         )
     )
 
