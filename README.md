@@ -30,7 +30,7 @@ Orchestrator              Agent                  Benchmark MCP Server
     <── response ──          <── result ──       │                + Environment
                                                  └─ proxy ────> Real MCP Server
     ──── REST ──────────────────────────>                        + Injection Overlay
-    /task/setup, /task/grade
+    /runs/*, /suite/*, /environment/*
 ```
 
 ### Proxy Mode
@@ -50,7 +50,7 @@ uv sync --extra dev
 ### Run tests
 
 ```bash
-uv run python -m pytest tests/ -v
+uv run pytest tests/ -v
 ```
 
 ### Start the real weather MCP server
@@ -122,7 +122,7 @@ Results are also saved as JSON to the `--logdir` directory (default `./runs`).
 
 ## Weather Suite (Reference Implementation)
 
-The weather suite is a minimal working example:
+The weather suite is a minimal working example. Tasks and grading logic are defined declaratively in `data/suite.yaml` using the predicate DSL — no Python task classes needed.
 
 - **3 tools**: get_weather, list_cities, send_weather_alert
 - **3 user tasks**: check weather in New York, find the warmest city, check weather in San Francisco (not injectable — demonstrates N/A handling)
@@ -137,12 +137,23 @@ The suite also includes:
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/task/setup` | POST | Configure a benchmark scenario (user task, injection task, injections) |
-| `/task/status` | GET | Check current scenario state |
-| `/task/prompt` | GET | Get the user task prompt for the current scenario |
-| `/task/complete` | POST | Submit the agent's final text output |
-| `/task/trace` | GET | Get the recorded tool call trace |
-| `/task/grade` | POST | Run utility/security grading |
+| `/suite` | GET | Suite metadata: task IDs, tools, injection vectors |
+| `/suite/check` | GET | Run ground-truth preflight checks |
+| `/tasks/user` | GET | List user task IDs |
+| `/tasks/user/{id}` | GET | User task detail (prompt, ground truth) |
+| `/tasks/injection` | GET | List injection task IDs |
+| `/tasks/injection/{id}` | GET | Injection task detail (goal, ground truth) |
+| `/tasks/injection-candidates` | GET | Which injection vectors reach each user task |
+| `/tools` | GET | List available tools with schemas |
+| `/environment` | GET | Current environment state |
+| `/environment` | PUT | Update environment |
+| `/environment/injection-vectors` | GET | Injection vector descriptions and defaults |
+| `/runs` | POST | Create a new run |
+| `/runs/{id}` | GET | Retrieve run with evaluation summaries |
+| `/runs/{id}/evaluations` | POST | Create an evaluation (user task + optional injection task) |
+| `/runs/{id}/evaluations/{id}` | GET | Retrieve evaluation details |
+| `/runs/{id}/evaluations/{id}/complete` | POST | Submit agent's final output |
+| `/runs/{id}/evaluations/{id}/grade` | POST | Grade utility and security |
 
 ## Adding a New Suite
 
@@ -150,9 +161,10 @@ The suite also includes:
 2. Define your `TaskEnvironment` subclass in `environment.py`
 3. Create tools — read tools call `MCPForwardingClient.get_instance().call_tool(...)` and compose the upstream result with local environment data; write tools operate on the local environment only
 4. Create a `real_mcp.py` — standalone MCP server providing real tool implementations
-5. Create user tasks and injection tasks
-6. Export `task_suite` and `SYSTEM_MESSAGE` from `__init__.py`
-7. Register the suite name in `suites/__init__.py`
+5. Create `data/suite.yaml` — defines environment, injection vectors, user tasks (with declarative utility predicates), and injection tasks (with declarative security predicates)
+6. Create `task_suite.py` — instantiate `YAMLTaskSuite` with the environment type, tools, and path to `suite.yaml`
+7. Export `task_suite` and `SYSTEM_MESSAGE` from `__init__.py`
+8. Register the suite name in `suites/__init__.py`
 
 ## Future Work
 
