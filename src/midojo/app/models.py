@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from agentdojo.functions_runtime import TaskEnvironment
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, SerializeAsAny
 
 
 # --- Run / Evaluation request/response models ---
@@ -57,8 +57,8 @@ class FunctionCallRecord(BaseModel):
     result: str
     error: str | None
     timestamp: str
-    pre_environment: TaskEnvironment
-    post_environment: TaskEnvironment
+    pre_environment: SerializeAsAny[TaskEnvironment]
+    post_environment: SerializeAsAny[TaskEnvironment]
 
 
 class EvaluationResponse(BaseModel):
