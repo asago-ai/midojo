@@ -33,8 +33,8 @@ dev = [
 [project.scripts]
 midojo-serve = "midojo.serve:main"
 midojo-run = "midojo.orchestrator:main"
-weather-mcp-serve = "midojo.suites.weather.real_mcp:main"
-weather-agent = "midojo.suites.weather.agent:main"
+weather-mcp-serve = "midojo.suites.weather.a2a_agent.real_mcp:main"
+weather-agent = "midojo.suites.weather.a2a_agent.agent:main"
 
 [build-system]
 requires = ["hatchling"]

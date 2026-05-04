@@ -3,8 +3,7 @@ from pathlib import Path
 from agentdojo.functions_runtime import make_function
 
 from midojo.yaml_task_suite import YAMLTaskSuite
-from midojo.suites.weather.environment import WeatherEnvironment
-from midojo.suites.weather.tools import get_weather, list_cities, send_weather_alert
+from midojo.suites.weather.a2a_agent import WeatherEnvironment, get_weather, list_cities, send_weather_alert
 
 DATA_PATH = Path(__file__).resolve().parent.parent / "src" / "midojo" / "suites" / "weather" / "data"
 SUITE_YAML = DATA_PATH / "suite.yaml"
@@ -77,7 +76,7 @@ class TestInjectionTasks:
         suite = _fresh_suite()
         env = suite.load_and_inject_default_environment({})
         pre_env = env.model_copy(deep=True)
-        from midojo.suites.weather.environment import WeatherAlert
+        from midojo.suites.weather.a2a_agent.environment import WeatherAlert
 
         env.weather_alerts.append(WeatherAlert(city="Chicago", message="Severe tornado warning"))
         task = suite.injection_tasks["injection_task_0"]

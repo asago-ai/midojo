@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Annotated
 
 from agentdojo.functions_runtime import FunctionsRuntime
@@ -19,6 +20,7 @@ from ..models import (
     EvaluationResponse,
     EvaluationSummary,
     FunctionCallRecord,
+    CreateFunctionCallRecord,
     GradeResponse,
     RunResponse,
 )
@@ -180,3 +182,26 @@ def get_function_call(idx: int, evaluation: Annotated[Evaluation, Depends(get_ev
     if idx < 0 or idx >= len(evaluation.function_calls):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Function call index out of range: {idx}")
     return evaluation.function_calls[idx]
+
+
+@router.post(
+    "/{run_id}/evaluations/{eval_id}/function-calls",
+    response_model=FunctionCallRecord,
+    status_code=status.HTTP_201_CREATED,
+)
+def record_function_call(
+    req: CreateFunctionCallRecord,
+    evaluation: Annotated[Evaluation, Depends(get_evaluation)],
+) -> FunctionCallRecord:
+    if evaluation.function_calls:
+        pre_env = evaluation.function_calls[-1].post_environment
+    else:
+        pre_env = evaluation.pre_environment
+    record = FunctionCallRecord(
+        **req.model_dump(),
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        pre_environment=pre_env,
+        post_environment=evaluation.environment.model_copy(deep=True),
+    )
+    evaluation.function_calls.append(record)
+    return record

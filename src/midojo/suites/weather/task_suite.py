@@ -3,8 +3,7 @@ from pathlib import Path
 from agentdojo.functions_runtime import make_function
 
 from midojo.yaml_task_suite import YAMLTaskSuite
-from midojo.suites.weather.environment import WeatherEnvironment
-from midojo.suites.weather.tools import get_weather, list_cities, send_weather_alert
+from midojo.suites.weather.a2a_agent import WeatherEnvironment, get_weather, list_cities, send_weather_alert
 
 TOOLS = [get_weather, list_cities, send_weather_alert]
 

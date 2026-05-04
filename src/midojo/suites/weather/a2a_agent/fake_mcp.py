@@ -3,7 +3,7 @@ from typing import Annotated
 from agentdojo.functions_runtime import Depends
 
 from midojo.forwarding import MCPForwardingClient
-from midojo.suites.weather.environment import CityWeather, WeatherAlert
+from midojo.suites.weather.a2a_agent.environment import CityWeather, WeatherAlert
 
 
 def get_weather(

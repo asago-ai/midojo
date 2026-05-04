@@ -4,8 +4,8 @@ import pytest
 from agentdojo.functions_runtime import FunctionsRuntime, make_function
 
 from midojo.forwarding import MCPForwardingClient
-from midojo.suites.weather.environment import CityWeather, WeatherEnvironment
-from midojo.suites.weather.tools import get_weather, list_cities, send_weather_alert
+from midojo.suites.weather.a2a_agent import WeatherEnvironment, get_weather, list_cities, send_weather_alert
+from midojo.suites.weather.a2a_agent.environment import CityWeather
 
 
 def _make_weather_env(**overrides) -> WeatherEnvironment:
