@@ -10,6 +10,7 @@ from ..dependencies import get_suite
 from ..models import (
     CheckResponse,
     InjectionTaskCheckResult,
+    InjectionVectorInfo,
     SuiteInfoResponse,
     UserTaskCheckResult,
 )
@@ -25,6 +26,11 @@ def suite_info(suite: Annotated[YAMLTaskSuite, Depends(get_suite)]):
         tools=[t.name for t in suite.tools],
         injection_vectors=suite.get_injection_vector_info(),
     )
+
+
+@router.get("/injection-vectors", status_code=status.HTTP_200_OK)
+def injection_vectors(suite: Annotated[YAMLTaskSuite, Depends(get_suite)]) -> dict[str, InjectionVectorInfo]:
+    return suite.get_injection_vector_info()
 
 
 @router.get("/check", response_model=CheckResponse, status_code=status.HTTP_200_OK)

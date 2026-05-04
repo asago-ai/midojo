@@ -12,7 +12,7 @@ from fastmcp.exceptions import ToolError
 from midojo.forwarding import MCPForwardingClient
 
 from .. import state
-from ..models import TraceEntry
+from ..models import FunctionCallRecord
 
 
 def _make_tool_handler(func: Function):
@@ -23,6 +23,8 @@ def _make_tool_handler(func: Function):
         if evaluation is None:
             raise ToolError("No evaluation in progress. Create one via POST /runs/{run_id}/evaluations first.")
 
+        pre_env = evaluation.environment.model_dump()
+
         if MCPForwardingClient.is_initialized():
             result, error = await asyncio.to_thread(
                 evaluation.runtime.run_function, evaluation.environment, func.name, kwargs
@@ -31,14 +33,17 @@ def _make_tool_handler(func: Function):
             result, error = evaluation.runtime.run_function(evaluation.environment, func.name, kwargs)
 
         result_str = tool_result_to_str(result) if result is not None else ""
+        post_env = evaluation.environment.model_dump()
 
-        evaluation.trace.append(
-            TraceEntry(
+        evaluation.function_calls.append(
+            FunctionCallRecord(
                 function=func.name,
                 args=dict(kwargs),
                 result=result_str,
                 error=error,
                 timestamp=datetime.now(timezone.utc).isoformat(),
+                pre_environment=pre_env,
+                post_environment=post_env,
             )
         )
         if error:

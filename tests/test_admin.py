@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from midojo.app import state
-from midojo.app.routers import environment, suite, tasks, tools
+from midojo.app.routers import suite, tasks, tools
 from midojo.suites.weather import task_suite
 
 
@@ -11,7 +11,6 @@ def _make_client() -> TestClient:
     app = FastAPI()
     app.include_router(suite.router)
     app.include_router(tasks.router)
-    app.include_router(environment.router)
     app.include_router(tools.router)
     return TestClient(app)
 
@@ -40,17 +39,9 @@ def test_suite_info():
     assert "default" in first_vector
 
 
-def test_environment():
-    client = _make_client()
-    resp = client.get("/environment")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "cities" in data
-
-
 def test_injection_vectors():
     client = _make_client()
-    resp = client.get("/environment/injection-vectors")
+    resp = client.get("/suite/injection-vectors")
     assert resp.status_code == 200
     data = resp.json()
     assert len(data) > 0

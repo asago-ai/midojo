@@ -57,6 +57,19 @@ class RunResponse(BaseModel):
     evaluations: list[EvaluationSummary]
 
 
+class FunctionCallSummary(BaseModel):
+    function: str
+    args: dict
+    result: str
+    error: str | None
+    timestamp: str
+
+
+class FunctionCallResponse(FunctionCallSummary):
+    pre_environment: dict
+    post_environment: dict
+
+
 class EvaluationResponse(BaseModel):
     id: str
     user_task_id: str
@@ -65,11 +78,7 @@ class EvaluationResponse(BaseModel):
     utility: bool | None
     security: bool | None
     model_output: str | None
-    trace: list[dict]
-
-
-class TraceResponse(BaseModel):
-    trace: list[dict]
+    function_calls: list[FunctionCallSummary]
 
 
 # --- Suite / task / tool response models ---
@@ -125,12 +134,16 @@ class ToolInfoResponse(BaseModel):
 
 
 @dataclass
-class TraceEntry:
+class FunctionCallRecord:
+    """A recorded function call execution, distinct from agentdojo's FunctionCall which represents just the intent (function + args)."""
+
     function: str
     args: dict
     result: str
     error: str | None
     timestamp: str
+    pre_environment: dict = field(default_factory=dict)
+    post_environment: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -141,7 +154,7 @@ class Evaluation(Generic[Env]):
     pre_environment: Env
     environment: Env
     runtime: FunctionsRuntime
-    trace: list[TraceEntry] = field(default_factory=list)
+    function_calls: list[FunctionCallRecord] = field(default_factory=list)
     model_output: str | None = None
     completed: bool = False
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())

@@ -19,6 +19,8 @@ from ..models import (
     Evaluation,
     EvaluationResponse,
     EvaluationSummary,
+    FunctionCallResponse,
+    FunctionCallSummary,
     GradeResponse,
     Run,
     RunResponse,
@@ -97,9 +99,11 @@ def retrieve_evaluation(evaluation: Annotated[Evaluation, Depends(get_evaluation
         utility=evaluation.utility,
         security=evaluation.security,
         model_output=evaluation.model_output,
-        trace=[
-            {"function": e.function, "args": e.args, "result": e.result, "error": e.error, "timestamp": e.timestamp}
-            for e in evaluation.trace
+        function_calls=[
+            FunctionCallSummary(
+                function=fc.function, args=fc.args, result=fc.result, error=fc.error, timestamp=fc.timestamp
+            )
+            for fc in evaluation.function_calls
         ],
     )
 
@@ -128,8 +132,64 @@ def grade_evaluation(
         model_output=evaluation.model_output or "",
         pre_environment=evaluation.pre_environment,
         post_environment=evaluation.environment,
-        trace=evaluation.trace,
+        function_calls=evaluation.function_calls,
     )
     evaluation.utility = result["utility"]
     evaluation.security = result["security"]
     return GradeResponse(**result)
+
+
+# --- Environment endpoints (nested under evaluation) ---
+
+
+@router.get("/{run_id}/evaluations/{eval_id}/environment", status_code=status.HTTP_200_OK)
+def get_environment(evaluation: Annotated[Evaluation, Depends(get_evaluation)]) -> dict:
+    return evaluation.environment.model_dump()
+
+
+def register_environment_update_route(env_type: type) -> None:
+    def update_environment(body, evaluation: Annotated[Evaluation, Depends(get_evaluation)]) -> dict:
+        evaluation.environment = body
+        return evaluation.environment.model_dump()
+
+    update_environment.__annotations__["body"] = env_type
+    router.add_api_route(
+        "/{run_id}/evaluations/{eval_id}/environment", update_environment, methods=["PUT"]
+    )
+
+
+# --- Function call endpoints ---
+
+
+@router.get(
+    "/{run_id}/evaluations/{eval_id}/function-calls",
+    response_model=list[FunctionCallSummary],
+    status_code=status.HTTP_200_OK,
+)
+def list_function_calls(evaluation: Annotated[Evaluation, Depends(get_evaluation)]) -> list[FunctionCallSummary]:
+    return [
+        FunctionCallSummary(
+            function=fc.function, args=fc.args, result=fc.result, error=fc.error, timestamp=fc.timestamp
+        )
+        for fc in evaluation.function_calls
+    ]
+
+
+@router.get(
+    "/{run_id}/evaluations/{eval_id}/function-calls/{idx}",
+    response_model=FunctionCallResponse,
+    status_code=status.HTTP_200_OK,
+)
+def get_function_call(idx: int, evaluation: Annotated[Evaluation, Depends(get_evaluation)]) -> FunctionCallResponse:
+    if idx < 0 or idx >= len(evaluation.function_calls):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Function call index out of range: {idx}")
+    fc = evaluation.function_calls[idx]
+    return FunctionCallResponse(
+        function=fc.function,
+        args=fc.args,
+        result=fc.result,
+        error=fc.error,
+        timestamp=fc.timestamp,
+        pre_environment=fc.pre_environment,
+        post_environment=fc.post_environment,
+    )
