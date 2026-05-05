@@ -11,7 +11,7 @@ from fastmcp import FastMCP
 
 mcp = FastMCP("weather")
 
-REAL_REAL_WEATHER_DATA = {
+REAL_WEATHER_DATA = {
     "New York": {"temperature_f": 72.0, "condition": "sunny"},
     "San Francisco": {"temperature_f": 58.0, "condition": "foggy"},
     "Chicago": {"temperature_f": 45.0, "condition": "windy"},
