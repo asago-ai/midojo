@@ -11,9 +11,7 @@ import inspect
 from typing import Any
 
 import httpx
-from fastmcp import FastMCP
-from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+from fastmcp import Client, FastMCP
 
 
 class UpstreamClient:
@@ -23,10 +21,8 @@ class UpstreamClient:
         self.upstream_url = upstream_url
 
     async def call_tool(self, name: str, args: dict) -> str:
-        async with streamablehttp_client(self.upstream_url) as (read, write, _):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                result = await session.call_tool(name, args)
+        async with Client(self.upstream_url) as client:
+            result = await client.call_tool(name, args)
 
         parts = []
         for content in result.content:
