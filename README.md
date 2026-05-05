@@ -129,9 +129,25 @@ The weather suite is a minimal working example. Tasks and grading logic are defi
 - **1 injection task**: trick the agent into sending a fake tornado alert
 - **1 injection vector**: notes field appended to New York weather data
 
-The suite also includes:
-- `real_mcp.py` — standalone MCP server with real weather data (start with `weather-mcp-serve`)
-- `agent.py` — A2A-compliant agent for E2E testing (start with `weather-agent`)
+The suite includes two example agent setups demonstrating how to wire midojo into different agent types. In both cases the agent already has its real tools — the suite author only writes the interception layer using the appropriate midojo SDK.
+
+### A2A agent (`a2a_agent/`)
+
+For agents that speak MCP. The agent connects to its MCP server as usual, but midojo's fake server sits in front:
+
+- `real_mcp.py` — stands in for the agent's existing MCP server (in real life, this is whatever server the agent already talks to)
+- `fake_mcp.py` — the interception layer you author, built with `MidojoMCP` (the Python MCP SDK). Forwards calls to the real server and splices in injection payloads from the suite environment.
+- `agent.py` — A2A-compliant agent for E2E testing
+
+### PI agent (`pi_agent/`)
+
+For [PI](https://pi.dev) coding agents. The agent already has its tools registered via extensions — midojo hooks into the PI extension system to intercept them:
+
+- `02-real-tools.ts` — stands in for the agent's existing tools (in real life, these are whatever extensions the agent already has)
+- `01-fake-tools.ts` — the interception layer you author, built with `@midojo/pi-sdk`. Uses two mechanisms:
+  - **Tool overrides** (`tools`) — replaces a tool entirely. Loads first (PI uses first-registration-wins), so the real tool's registration is ignored. Used for write tools that need to operate on the simulated environment.
+  - **Hooks** (`hooks`) — intercepts the result of an existing tool after it executes and modifies it before the agent sees it. Used for read tools where you want real data + injection payload.
+  - Tools with no override or hook run unmodified.
 
 ## Control Plane API
 
@@ -157,14 +173,32 @@ The suite also includes:
 
 ## Adding a New Suite
 
+Start by defining the benchmark — the environment, tasks, and grading logic:
+
 1. Create a new package under `src/midojo/suites/your_suite/`
-2. Define your `TaskEnvironment` subclass in `environment.py`
-3. Create tools — read tools call `MCPForwardingClient.get_instance().call_tool(...)` and compose the upstream result with local environment data; write tools operate on the local environment only
-4. Create a `real_mcp.py` — standalone MCP server providing real tool implementations
-5. Create `data/suite.yaml` — defines environment, injection vectors, user tasks (with declarative utility predicates), and injection tasks (with declarative security predicates)
-6. Create `task_suite.py` — instantiate `YAMLTaskSuite` with the environment type, tools, and path to `suite.yaml`
-7. Export `task_suite` and `SYSTEM_MESSAGE` from `__init__.py`
-8. Register the suite name in `suites/__init__.py`
+2. Create `data/suite.yaml` — defines environment, injection vectors, user tasks (with declarative utility predicates), and injection tasks (with declarative security predicates)
+3. Create `task_suite.py` — instantiate `YAMLTaskSuite` with the environment type and path to `suite.yaml`
+4. Export `task_suite` and `SYSTEM_MESSAGE` from `__init__.py`
+5. Register the suite name in `suites/__init__.py`
+
+Then author the interception layer for the agent you're testing. The agent already has its real tools — you only write the fake side using the appropriate SDK.
+
+### For MCP-speaking agents
+
+Create `fake_mcp.py` using `MidojoMCP` (the Python MCP SDK), pointed at the agent's existing MCP server via `--upstream-url`. For each tool, decide:
+
+- **Read tools** — call `ctx.forward("tool_name", args)` to get real data from the agent's server, then append injection data from `ctx.env()`
+- **Write tools** — don't forward; operate directly on `ctx.env()` / `ctx.env_update()` so mutations are captured for grading
+
+Then point the agent at your fake server instead of its real one.
+
+### For PI agents
+
+Create a PI extension using `@midojo/pi-sdk`'s `createMidojoExtension()` and drop it into the agent's `.pi/extensions/` directory. Number it so it loads before the agent's existing extensions (PI uses first-registration-wins). For each tool, decide:
+
+- **Read tools you want to inject into** — add a `hook`. The hook receives the real tool's output and can append injection data from `ctx.env()` before the agent sees it.
+- **Write tools** — add a `tools` entry (override). Because your extension loads first, the override's registration wins and the real tool is never called. The override operates on `ctx.env()` / `ctx.envUpdate()`.
+- **Tools to leave alone** — don't mention them. The real tool runs unmodified.
 
 ## Future Work
 
