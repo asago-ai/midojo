@@ -14,17 +14,4 @@ router = APIRouter()
 
 @router.get("/tools", response_model=list[ToolInfoResponse], status_code=status.HTTP_200_OK)
 def tools(suite: Annotated[YAMLTaskSuite, Depends(get_suite)]):
-    return [
-        ToolInfoResponse(
-            name=t.name,
-            description=t.description or "",
-            parameters={
-                "properties": {
-                    name: {"type": f.annotation.__name__ if hasattr(f.annotation, "__name__") else str(f.annotation)}
-                    for name, f in t.parameters.model_fields.items()
-                },
-                "required": [name for name, f in t.parameters.model_fields.items() if f.is_required()],
-            },
-        )
-        for t in suite.tools
-    ]
+    return suite.get_tool_definitions()

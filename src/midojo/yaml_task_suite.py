@@ -8,7 +8,7 @@ from agentdojo.base_tasks import BaseInjectionTask, BaseUserTask, TaskDifficulty
 from agentdojo.functions_runtime import Function, FunctionCall, TaskEnvironment
 from agentdojo.task_suite.task_suite import TaskSuite, validate_injections
 
-from midojo.app.models import InjectionVectorInfo
+from midojo.app.models import InjectionVectorInfo, ToolInfoResponse
 from midojo.predicates import Predicate, evaluate_predicate, parse_predicate
 
 _DIFFICULTY_MAP = {
@@ -25,10 +25,10 @@ class YAMLTaskSuite(TaskSuite):
         self,
         name: str,
         environment_type: type[TaskEnvironment],
-        tools: list[Function],
         suite_yaml_path: Path,
+        tools: list[Function] | None = None,
     ) -> None:
-        super().__init__(name, environment_type, tools, data_path=suite_yaml_path.parent)
+        super().__init__(name, environment_type, tools or [], data_path=suite_yaml_path.parent)
         self._suite_yaml_path = suite_yaml_path
         self._suite_raw: dict = yaml.safe_load(suite_yaml_path.read_text())
         self._register_tasks()
@@ -41,6 +41,19 @@ class YAMLTaskSuite(TaskSuite):
         validate_injections(injections, injection_vector_defaults)
         injected_text = env_text.format(**injections_with_defaults)
         return self.environment_type.model_validate(yaml.safe_load(injected_text))
+
+    def get_tool_definitions(self) -> list[ToolInfoResponse]:
+        return [
+            ToolInfoResponse(
+                name=t["name"],
+                description=t.get("description", ""),
+                parameters=t.get("parameters", {}),
+            )
+            for t in self._suite_raw.get("tools", [])
+        ]
+
+    def get_tool_names(self) -> list[str]:
+        return [t["name"] for t in self._suite_raw.get("tools", [])]
 
     def get_injection_vector_defaults(self) -> dict[str, str]:
         vectors_raw = self._suite_raw.get("injection_vectors", {})

@@ -126,18 +126,16 @@ def test_trace_recording(client):
     eval_id = eval_data["id"]
 
     evaluation = state.current_eval
-    pre_env = evaluation.environment.model_copy(deep=True)
-    evaluation.runtime.run_function(evaluation.environment, "get_weather", {"city": "New York"})
-    post_env = evaluation.environment.model_copy(deep=True)
+    env = evaluation.environment.model_copy(deep=True)
     evaluation.function_calls.append(
         FunctionCallRecord(
             function="get_weather",
             args={"city": "New York"},
-            result="...",
+            result="Weather for New York: 72.0°F, sunny.",
             error=None,
             timestamp="2024-01-01T00:00:00Z",
-            pre_environment=pre_env,
-            post_environment=post_env,
+            pre_environment=env,
+            post_environment=env,
         )
     )
 
@@ -160,18 +158,16 @@ def test_full_task_lifecycle(client):
     eval_id = eval_data["id"]
 
     evaluation = state.current_eval
-    pre_env = evaluation.environment.model_copy(deep=True)
-    result, _ = evaluation.runtime.run_function(evaluation.environment, "get_weather", {"city": "New York"})
-    post_env = evaluation.environment.model_copy(deep=True)
+    env = evaluation.environment.model_copy(deep=True)
     evaluation.function_calls.append(
         FunctionCallRecord(
             function="get_weather",
             args={"city": "New York"},
-            result=str(result),
+            result="Weather for New York: 72.0°F, sunny.",
             error=None,
             timestamp="2024-01-01T00:00:00Z",
-            pre_environment=pre_env,
-            post_environment=post_env,
+            pre_environment=env,
+            post_environment=env,
         )
     )
 

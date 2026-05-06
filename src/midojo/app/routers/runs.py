@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Annotated
 
-from agentdojo.functions_runtime import FunctionsRuntime
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from midojo.yaml_task_suite import YAMLTaskSuite
@@ -70,7 +69,6 @@ def create_evaluation(
 
     environment = suite.load_and_inject_default_environment(req.injections)
     pre_environment = environment.model_copy(deep=True)
-    runtime = FunctionsRuntime(suite.tools)
 
     evaluation = Evaluation(
         id=_new_id(),
@@ -78,7 +76,6 @@ def create_evaluation(
         injection_task_id=req.injection_task_id,
         pre_environment=pre_environment,
         environment=environment,
-        runtime=runtime,
         active_injections=req.injections,
     )
     run.evaluations[evaluation.id] = evaluation

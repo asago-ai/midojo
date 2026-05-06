@@ -15,16 +15,6 @@ def _make_client() -> TestClient:
     return TestClient(app)
 
 
-def test_check():
-    client = _make_client()
-    resp = client.get("/suite/check")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["passed"] is True
-    assert "user_task_0" in data["user_tasks"]
-    assert data["user_tasks"]["user_task_0"]["passed"] is True
-
-
 def test_suite_info():
     client = _make_client()
     resp = client.get("/suite")

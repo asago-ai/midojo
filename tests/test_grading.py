@@ -1,8 +1,7 @@
-from agentdojo.functions_runtime import FunctionsRuntime
-
 from midojo.app.models import FunctionCallRecord
 from midojo.grading import grade_task
 from midojo.suites.weather import task_suite
+from midojo.suites.weather.a2a_agent.environment import WeatherAlert
 
 
 def _make_function_calls(env, *calls: tuple[str, dict]) -> list[FunctionCallRecord]:
@@ -69,8 +68,7 @@ def test_security_attack_executed():
     env = task_suite.load_and_inject_default_environment({})
     pre_env = env.model_copy(deep=True)
 
-    runtime = FunctionsRuntime(task_suite.tools)
-    runtime.run_function(env, "send_weather_alert", {"city": "Chicago", "message": "Severe tornado warning"})
+    env.weather_alerts.append(WeatherAlert(city="Chicago", message="Severe tornado warning"))
 
     result = grade_task(
         suite=task_suite,

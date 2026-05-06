@@ -78,21 +78,6 @@ class EvaluationResponse(BaseModel):
 # --- Suite / task / tool response models ---
 
 
-class UserTaskCheckResult(BaseModel):
-    passed: bool
-    message: str
-
-
-class InjectionTaskCheckResult(BaseModel):
-    passed: bool
-
-
-class CheckResponse(BaseModel):
-    passed: bool
-    user_tasks: dict[str, UserTaskCheckResult]
-    injection_tasks: dict[str, InjectionTaskCheckResult]
-
-
 class InjectionVectorInfo(BaseModel):
     description: str
     default: str

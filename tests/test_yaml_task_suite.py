@@ -79,12 +79,3 @@ class TestInjectionTasks:
         assert not task.security("", env, env)
 
 
-class TestSuiteCheck:
-    def test_check_passes(self):
-        suite = _fresh_suite()
-        passed, (user_results, injection_results) = suite.check(check_injectable=False)
-        assert passed
-        for task_id, (ok, msg) in user_results.items():
-            assert ok, f"{task_id}: {msg}"
-        for task_id, ok in injection_results.items():
-            assert ok, f"{task_id} failed"
