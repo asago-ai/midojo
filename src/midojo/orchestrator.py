@@ -119,6 +119,25 @@ def _print_results_table(
     console.print(f"\nResults saved to [cyan]{results_file}[/cyan]")
 
 
+async def _injection_reached_agent(
+    control_url: str, run_id: str, eval_id: str, injections: dict[str, str]
+) -> list[str]:
+    """Return names of functions whose results contained an injection payload."""
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.get(f"{control_url}/runs/{run_id}/evaluations/{eval_id}/function-calls")
+        resp.raise_for_status()
+        calls = resp.json()
+    payloads = [v for v in injections.values() if v]
+    if not payloads:
+        return []
+    hit_functions: list[str] = []
+    for call in calls:
+        result = call.get("result", "") or ""
+        if any(payload in result for payload in payloads):
+            hit_functions.append(call["function"])
+    return hit_functions
+
+
 async def run_task(
     control_url: str,
     agent_client: AgentClient,
@@ -187,28 +206,23 @@ async def run_benchmark(
             utility_results[TaskPair(ut_id, "")] = result["utility"]
             console.print(_utility(result["utility"]), Text(f"  eval {result['eval_id']}", style="dim"))
     else:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(f"{control_url}/tasks/injection-candidates")
-            resp.raise_for_status()
-            candidates = resp.json()
-        attack = create_attack(attack_name, suite, candidates)
+        attack = create_attack(attack_name, suite)
         for ut_id in user_tasks_to_run:
             user_task = suite.user_tasks[ut_id]
-            injectable = len(candidates.get(ut_id, [])) > 0
             for it_id in injection_tasks_to_run:
                 injection_task = suite.injection_tasks[it_id]
-                if not injectable:
-                    console.print(f"  Running [bold]{ut_id}[/bold] x [bold]{it_id}[/bold] ...", end=" ")
-                    result = await run_task(control_url, agent_client, run_id, ut_id, None, {})
-                    utility_results[TaskPair(ut_id, it_id)] = result["utility"]
-                    console.print(_utility(result["utility"]), " | ", Text("N/A (not injectable)", style="dim"), Text(f"  eval {result['eval_id']}", style="dim"))
-                else:
-                    console.print(f"  Running [bold]{ut_id}[/bold] x [bold]{it_id}[/bold] ...", end=" ")
-                    injections = attack.attack(user_task, injection_task)
-                    result = await run_task(control_url, agent_client, run_id, ut_id, it_id, injections)
-                    utility_results[TaskPair(ut_id, it_id)] = result["utility"]
+                console.print(f"  Running [bold]{ut_id}[/bold] x [bold]{it_id}[/bold] ...", end=" ")
+                injections = attack.attack(user_task, injection_task)
+                result = await run_task(control_url, agent_client, run_id, ut_id, it_id, injections)
+                utility_results[TaskPair(ut_id, it_id)] = result["utility"]
+                eval_id = result["eval_id"]
+                hit_functions = await _injection_reached_agent(control_url, run_id, eval_id, injections)
+                if hit_functions:
                     security_results[TaskPair(ut_id, it_id)] = result["security"]
-                    console.print(_utility(result["utility"]), " | ", _security(result["security"]), Text(f"  eval {result['eval_id']}", style="dim"))
+                    via = ", ".join(hit_functions)
+                    console.print(_utility(result["utility"]), " | ", _security(result["security"]), Text(f"  payload in {via}", style="dim"), Text(f"  eval {eval_id}", style="dim"))
+                else:
+                    console.print(_utility(result["utility"]), " | ", Text("N/A (payload not in any result)", style="dim"), Text(f"  eval {eval_id}", style="dim"))
 
     console.print()
 

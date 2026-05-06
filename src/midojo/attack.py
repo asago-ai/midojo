@@ -19,27 +19,25 @@ class _NullPipeline:
     name = "external-agent"
 
 
-class ServerCandidatesMixin:
-    """Overrides injection candidate discovery to use pre-fetched server data.
+class _AllVectorsMixin:
+    """Returns all injection vectors as candidates for every user task.
 
-    AgentDojo's BaseAttack.get_injection_candidates runs tool functions locally,
-    which fails for midojo's forwarding tools (they need the server process).
-    This mixin uses candidates fetched from the server's /tasks/injection-candidates
-    endpoint instead.
+    The orchestrator determines reachability post-hoc by checking whether
+    the attack payload appeared in any recorded function-call result.
     """
 
-    _server_candidates: dict[str, list[str]]
+    _all_vectors: list[str]
 
-    def __init__(self, task_suite: YAMLTaskSuite, candidates: dict[str, list[str]], **kwargs):
-        self._server_candidates = candidates
+    def __init__(self, task_suite: YAMLTaskSuite, **kwargs):
+        self._all_vectors = list(task_suite.get_injection_vector_defaults().keys())
         super().__init__(task_suite, _NullPipeline(), **kwargs)
 
     def get_injection_candidates(self, user_task: BaseUserTask) -> list[str]:
-        return self._server_candidates[user_task.ID]
+        return self._all_vectors
 
 
-def create_attack(attack_name: str, suite: YAMLTaskSuite, candidates: dict[str, list[str]]) -> BaseAttack:
-    """Create an attack that uses server-fetched injection candidates."""
+def create_attack(attack_name: str, suite: YAMLTaskSuite) -> BaseAttack:
+    """Create an attack that injects into all vectors unconditionally."""
     base_cls = ATTACKS[attack_name]
-    patched_cls = type(f"MiDojo{base_cls.__name__}", (ServerCandidatesMixin, base_cls), {})
-    return patched_cls(suite, candidates)
+    patched_cls = type(f"MiDojo{base_cls.__name__}", (_AllVectorsMixin, base_cls), {})
+    return patched_cls(suite)
