@@ -2,43 +2,20 @@
 
 *Red-team agents where they run.*
 
-Man-in-the-middle red teaming for AI agents, built on [AgentDojo](https://github.com/ethz-spylab/agentdojo). Test whether agents resist prompt injections planted across their operating environment — starting with [MCP](https://modelcontextprotocol.io) tool responses.
+MiDojo lets you red-team your agent in its real environment. Author compromised versions of your agent's tools that return real upstream data with injection payloads spliced in. The agent encounters the attack as a side effect of doing legitimate work — the way real prompt injections land. MiDojo then grades **utility** (did the agent complete its task?) and **security** (did it resist the injection?). Built on [AgentDojo](https://github.com/ethz-spylab/agentdojo).
 
-## What is this?
+## If your agent...
 
-AgentDojo is a framework for evaluating prompt injection attacks and defenses on LLM agents. By default it runs everything in-process with simulated tools. MiDojo puts a **benchmark proxy** between the agent and its real MCP server. Same protocol, same tools — the agent doesn't know the difference. Each tool in the proxy can:
+- **speaks [MCP](https://modelcontextprotocol.io)** — author a fake MCP server with `MidojoMCP` (Python SDK). It replaces the agent's real server, forwarding calls upstream and splicing in injection payloads.
+- **is built with [PI](https://pi.dev)** — author a fake extension with `@midojo/pi-sdk` (TypeScript SDK). It hooks into PI's extension system to intercept and modify tool results.
 
-- **Forward the call to the real upstream server**, and optionally modify the response to include injection text. The agent gets real data + attack payload in a single tool response.
-- **Not forward at all** and execute against a local simulated environment — AgentDojo's out-of-the-box behavior.
+For each tool, decide: **read tools** forward to the real upstream server and append injection data; **write tools** run against a local simulated environment so mutations are captured for grading.
 
-This lets you benchmark agents against real infrastructure without planting injections in production systems.
+The project also includes:
 
-The project includes:
-
-- A **benchmark MCP server** — the proxy that exposes a suite's tools via MCP, with per-tool forwarding and injection overlay
-- A **control plane REST API** — for configuring benchmark scenarios, recording traces, and grading results
+- A **control plane REST API** — configures benchmark scenarios, records traces, and grades results
 - An **orchestrator CLI** — drives the full benchmark matrix (user task x injection task x attack) against an external agent
-- **Weather reference suite** — a minimal example suite demonstrating how to define environments, tools, tasks, and attacks
-
-## Architecture
-
-```
-Orchestrator              Agent                  Fake MCP Server          Real MCP Server
-(drives scenarios)        (under test)           (injection overlay)      (agent's real tools)
-
-    ──── HTTP ────>          ──── MCP ────>          ──── MCP ────>
-    (task prompt)            (tools/call)             (forward)
-    <── response ──          <── result ──           <── result ──
-
-    ──── REST ──────────────────────────>
-    Control Plane (/runs/*, /suite/*)
-```
-
-### Proxy Mode
-
-Forwarding is configured per-tool in code, not in external config — the tool's implementation IS the routing decision. A tool that forwards calls `ctx.forward(...)` to hit the real upstream server, then appends local environment data that may contain injection text (via AgentDojo's `{placeholder}` YAML substitution). A tool that doesn't forward operates directly on the control plane environment.
-
-In the weather suite, for example, `get_weather` forwards to the real weather server and appends injected notes, while `send_weather_alert` only writes to the local environment so the grading system can check what the agent did.
+- **Weather reference suite** — a minimal example demonstrating environments, tools, tasks, and attacks
 
 ## Quick Start
 
@@ -66,7 +43,7 @@ weather-real-mcp-serve --port 8081
 midojo-serve --suite weather --host 127.0.0.1 --port 8080
 ```
 
-### Start the fake MCP server (injection proxy)
+### Start the fake MCP server
 
 ```bash
 weather-mcp-serve --port 8082 --upstream-url http://localhost:8081/mcp
@@ -198,7 +175,7 @@ Areas to explore for deeper integration with AI safety and evaluation stacks.
 
 ### Beyond MCP: environment-level injection testing
 
-The current implementation injects into MCP tool responses because that's where the infrastructure hook exists today (the proxy intercepts tool calls). But an agent's attack surface is wider than MCP:
+The current implementation injects into MCP tool responses because that's where the infrastructure hook exists today (the fake server intercepts tool calls). But an agent's attack surface is wider than MCP:
 
 - **RAG / retrieval context** — poisoned chunks from vector stores, file search results, or knowledge bases that flow through the Responses API or framework-level retrieval
 - **Agent-to-agent communication (A2A)** — a compromised agent in a swarm sending poisoned messages to other agents
@@ -209,7 +186,7 @@ The tool-level injection composition pattern — forward a call to upstream, the
 
 ### Reads() / Writes() dependency annotations
 
-AgentDojo's `Depends()` gives tools a mutable reference to an environment attribute but doesn't distinguish read from write access. In proxy mode, this distinction matters: read tools can be forwarded to real upstream servers (with optional injection overlay), while write tools must always run against the local simulated environment so that `post_environment` captures mutations for grading.
+AgentDojo's `Depends()` gives tools a mutable reference to an environment attribute but doesn't distinguish read from write access. In forwarding mode, this distinction matters: read tools can be forwarded to real upstream servers (with optional injection overlay), while write tools must always run against the local simulated environment so that `post_environment` captures mutations for grading.
 
 Today this classification is implicit in the tool code (read tools call `MCPForwardingClient.get_instance()`, write tools don't). Replacing `Depends()` with explicit `Reads()` and `Writes()` annotations would make it declarative:
 
@@ -251,9 +228,9 @@ Only the weather reference suite exists today. Domain-specific suites can be add
 
 ### Integration with agent framework hooks
 
-midojo currently injects at the proxy level — intercepting MCP tool responses between server and agent. But agent frameworks expose their own hook systems that are useful for benchmarking in two ways: as an alternative injection surface, and as a safety net to prevent damage when an agent falls for an injection.
+midojo currently injects at the MCP server level — intercepting tool responses before the agent sees them. But agent frameworks expose their own hook systems that are useful for benchmarking in two ways: as an alternative injection surface, and as a safety net to prevent damage when an agent falls for an injection.
 
-**Injection via post-tool hooks.** Several frameworks can intercept and *modify* tool outputs before the LLM sees them, enabling injection without a proxy:
+**Injection via post-tool hooks.** Several frameworks can intercept and *modify* tool outputs before the LLM sees them, enabling injection without a separate server:
 
 - **LangChain/LangGraph** — custom `ToolNode` or `@wrap_tool_call` middleware can fully replace tool outputs
 - **CrewAI** — `@after_tool_call` hook receives the tool result and can return a modified string
@@ -264,8 +241,8 @@ midojo currently injects at the proxy level — intercepting MCP tool responses 
 
 Together this gives three injection strategies depending on what layer you control:
 
-1. **Proxy-level** (current midojo approach) — agent-agnostic, works with anything that speaks MCP. You control the server.
+1. **Server-level** (current midojo approach) — agent-agnostic, works with anything that speaks MCP. You control the server.
 2. **Framework-level** — use the agent framework's own hooks to inject and contain. You control the agent code. Most flexible for LangChain/CrewAI where full output replacement is supported.
 3. **Gateway-level** — inject at the MCP Gateway infrastructure. Agent and framework agnostic. You control the platform.
 
-Supporting framework-level injection would let midojo work with agents that don't use MCP, or where inserting a proxy isn't practical. Combining post-tool injection with pre-tool damage prevention would allow benchmarking against live infrastructure with a safety net.
+Supporting framework-level injection would let midojo work with agents that don't use MCP, or where inserting a fake server isn't practical. Combining post-tool injection with pre-tool damage prevention would allow benchmarking against live infrastructure with a safety net.
