@@ -1,5 +1,7 @@
 # MiDojo
 
+*Red-team agents where they run.*
+
 Man-in-the-middle red teaming for AI agents, built on [AgentDojo](https://github.com/ethz-spylab/agentdojo). Test whether agents resist prompt injections planted across their operating environment — starting with [MCP](https://modelcontextprotocol.io) tool responses.
 
 ## What is this?
@@ -21,21 +23,20 @@ The project includes:
 ## Architecture
 
 ```
-Orchestrator              Agent                  Benchmark MCP Server
-(drives scenarios)        (any MCP-capable       (simulated or proxied tools +
-                           agent)                 control plane)
+Orchestrator              Agent                  Fake MCP Server          Real MCP Server
+(drives scenarios)        (under test)           (injection overlay)      (agent's real tools)
 
-    ──── HTTP ────>          ──── MCP ────>
-    (task prompt)            (tools/call)        ┌─ simulate ──> FunctionsRuntime
-    <── response ──          <── result ──       │                + Environment
-                                                 └─ proxy ────> Real MCP Server
-    ──── REST ──────────────────────────>                        + Injection Overlay
-    /runs/*, /suite/*, /environment/*
+    ──── HTTP ────>          ──── MCP ────>          ──── MCP ────>
+    (task prompt)            (tools/call)             (forward)
+    <── response ──          <── result ──           <── result ──
+
+    ──── REST ──────────────────────────>
+    Control Plane (/runs/*, /suite/*)
 ```
 
 ### Proxy Mode
 
-Forwarding is configured per-tool in code, not in external config — the tool's implementation IS the routing decision. A tool that forwards calls `MCPForwardingClient.get_instance().call_tool(...)` to hit the real upstream server, then appends local environment data that may contain injection text (via AgentDojo's `{placeholder}` YAML substitution). A tool that doesn't forward runs entirely against the local simulated environment.
+Forwarding is configured per-tool in code, not in external config — the tool's implementation IS the routing decision. A tool that forwards calls `ctx.forward(...)` to hit the real upstream server, then appends local environment data that may contain injection text (via AgentDojo's `{placeholder}` YAML substitution). A tool that doesn't forward operates directly on the control plane environment.
 
 In the weather suite, for example, `get_weather` forwards to the real weather server and appends injected notes, while `send_weather_alert` only writes to the local environment so the grading system can check what the agent did.
 
@@ -56,19 +57,20 @@ uv run pytest tests/ -v
 ### Start the real weather MCP server
 
 ```bash
-weather-mcp-serve --port 8081
+weather-real-mcp-serve --port 8081
 ```
 
-### Start the benchmark server
+### Start the control plane
 
 ```bash
-midojo-serve \
-    --suite weather \
-    --real-mcp-url http://localhost:8081/mcp \
-    --host 127.0.0.1 --port 8080
+midojo-serve --suite weather --host 127.0.0.1 --port 8080
 ```
 
-This starts both the MCP server (at `/mcp`) and the control plane (at `/task/*`).
+### Start the fake MCP server (injection proxy)
+
+```bash
+weather-mcp-serve --port 8082 --upstream-url http://localhost:8081/mcp
+```
 
 ### Run benchmarks against an agent
 
