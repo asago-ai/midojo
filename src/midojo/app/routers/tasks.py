@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from agentdojo.agent_pipeline.ground_truth_pipeline import GroundTruthPipeline
-from agentdojo.functions_runtime import FunctionsRuntime
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from midojo.yaml_task_suite import YAMLTaskSuite
@@ -12,32 +10,6 @@ from ..dependencies import get_suite
 from ..models import GroundTruthCall, TaskDetailResponse
 
 router = APIRouter(prefix="/tasks")
-
-
-def _get_injection_candidates(suite: YAMLTaskSuite) -> dict[str, list[str]]:
-    defaults = suite.get_injection_vector_defaults()
-    canary_injections = {key: f"---CANARY_{key}---" for key in defaults}
-    environment = suite.load_and_inject_default_environment(canary_injections)
-
-    result: dict[str, list[str]] = {}
-    for task_id, user_task in suite.user_tasks.items():
-        pipeline = GroundTruthPipeline(user_task)
-        runtime = FunctionsRuntime(suite.tools)
-        _, _, _, responses, _ = pipeline.query(user_task.PROMPT, runtime, environment.model_copy(deep=True))
-
-        tool_text = ""
-        for msg in responses:
-            if msg["role"] == "tool":
-                for block in msg["content"]:
-                    if isinstance(block, dict) and "content" in block:
-                        tool_text += block["content"]
-                    elif hasattr(block, "text"):
-                        tool_text += block.text
-
-        visible = [key for key, canary in canary_injections.items() if canary in tool_text]
-        result[task_id] = visible
-
-    return result
 
 
 @router.get("/user", status_code=status.HTTP_200_OK)
@@ -80,6 +52,3 @@ def get_injection_task(task_id: str, suite: Annotated[YAMLTaskSuite, Depends(get
     )
 
 
-@router.get("/injection-candidates", status_code=status.HTTP_200_OK)
-def injection_candidates(suite: Annotated[YAMLTaskSuite, Depends(get_suite)]) -> dict[str, list[str]]:
-    return _get_injection_candidates(suite)

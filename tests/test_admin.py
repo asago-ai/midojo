@@ -50,15 +50,6 @@ def test_injection_vectors():
     assert "default" in first_vector
 
 
-def test_injection_candidates():
-    client = _make_client()
-    resp = client.get("/tasks/injection-candidates")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "user_task_0" in data
-    assert isinstance(data["user_task_0"], list)
-
-
 def test_list_user_tasks():
     client = _make_client()
     resp = client.get("/tasks/user")
