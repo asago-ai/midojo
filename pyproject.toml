@@ -33,6 +33,7 @@ dev = [
 [project.scripts]
 midojo-serve = "midojo.serve:main"
 midojo-run = "midojo.orchestrator:main"
+midojo-check = "midojo.check:main"
 weather-mcp-serve = "midojo.suites.weather.a2a_agent.fake_mcp:main"
 weather-real-mcp-serve = "midojo.suites.weather.a2a_agent.real_mcp:main"
 weather-agent = "midojo.suites.weather.a2a_agent.agent:main"

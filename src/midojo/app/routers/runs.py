@@ -28,6 +28,17 @@ from ..state import Evaluation, Run, _new_id
 router = APIRouter(prefix="/runs")
 
 
+@router.get("/current-eval", status_code=status.HTTP_200_OK)
+def get_current_eval():
+    if state.current_eval is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No active evaluation")
+    run_id = next(
+        (rid for rid, run in state.runs.items() if state.current_eval.id in run.evaluations),
+        None,
+    )
+    return {"run_id": run_id, "eval_id": state.current_eval.id}
+
+
 @router.post("", response_model=CreateRunResponse, status_code=status.HTTP_201_CREATED)
 def create_run():
     run = Run(id=_new_id())

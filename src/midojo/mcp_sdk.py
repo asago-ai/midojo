@@ -72,23 +72,38 @@ class ControlPlaneClient:
         *,
         http: httpx.AsyncClient | None = None,
     ) -> None:
-        base = base_url.rstrip("/")
-        self._base_url = f"{base}/runs/{run_id}/evaluations/{eval_id}"
+        self._control_base = base_url.rstrip("/")
+        self._dynamic = not run_id or not eval_id
+        if self._dynamic:
+            self._base_url = ""
+        else:
+            self._base_url = f"{self._control_base}/runs/{run_id}/evaluations/{eval_id}"
         self._http = http or httpx.AsyncClient()
         self._env_cache: dict[str, Any] | None = None
+
+    async def _resolve_base_url(self) -> str:
+        if not self._dynamic:
+            return self._base_url
+        resp = await self._http.get(f"{self._control_base}/runs/current-eval")
+        resp.raise_for_status()
+        data = resp.json()
+        self._env_cache = None
+        return f"{self._control_base}/runs/{data['run_id']}/evaluations/{data['eval_id']}"
 
     async def get_environment(self) -> dict[str, Any]:
         if self._env_cache is not None:
             return self._env_cache
-        resp = await self._http.get(f"{self._base_url}/environment")
+        base = await self._resolve_base_url()
+        resp = await self._http.get(f"{base}/environment")
         resp.raise_for_status()
         self._env_cache = resp.json()
         return self._env_cache
 
     async def put_environment(self, env: dict[str, Any]) -> None:
         self._env_cache = env
+        base = await self._resolve_base_url()
         resp = await self._http.put(
-            f"{self._base_url}/environment",
+            f"{base}/environment",
             json=env,
         )
         resp.raise_for_status()
@@ -102,8 +117,9 @@ class ControlPlaneClient:
         error: str | None = None,
     ) -> None:
         try:
+            base = await self._resolve_base_url()
             await self._http.post(
-                f"{self._base_url}/function-calls",
+                f"{base}/function-calls",
                 json={
                     "function": function,
                     "args": args,
