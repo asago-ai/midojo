@@ -4,6 +4,8 @@
 
 MiDojo lets you red-team your agent in its real environment. Author compromised versions of your agent's tools that return real upstream data with injection payloads spliced in. The agent encounters the attack as a side effect of doing legitimate work — the way real prompt injections land. MiDojo then grades **utility** (did the agent complete its task?) and **security** (did it resist the injection?). Built on [AgentDojo](https://github.com/ethz-spylab/agentdojo).
 
+![MiDojo architecture](docs/midojo-diagram.jpg)
+
 ## If your agent...
 
 - **speaks [MCP](https://modelcontextprotocol.io)** — author a fake MCP server with `MidojoMCP` (Python SDK). It replaces the agent's real server, forwarding calls upstream and splicing in injection payloads.
