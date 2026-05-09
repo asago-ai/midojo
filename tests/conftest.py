@@ -1,6 +1,6 @@
 import pytest
 
-from midojo.suites.weather import task_suite
+from suites.weather import task_suite
 
 
 @pytest.fixture

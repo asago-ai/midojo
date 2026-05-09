@@ -88,7 +88,7 @@ Run the benchmark (PI agents use a directory path, not a URL):
 
 ```bash
 uv run --env-file .env midojo-run \
-    --agent-url src/midojo/suites/weather/pi_agent \
+    --agent-url suites/weather/pi_agent \
     --protocol pi \
     --suite weather \
     --attack direct
@@ -102,7 +102,7 @@ The orchestrator displays a startup banner, per-task progress with injection rea
 ╭──────────────────────── midojo orchestrator ─────────────────────────╮
 │  Suite       weather                                                 │
 │  Attack      direct                                                  │
-│  Agent       src/midojo/suites/weather/pi_agent (pi)                 │
+│  Agent       suites/weather/pi_agent (pi)                            │
 │  Tasks       3 user x 1 injection                                    │
 │  Tools       get_weather, list_cities, send_weather_alert            │
 │  Vectors     injection_weather_notes                                 │
@@ -141,11 +141,10 @@ Results are also saved as JSON to the `--logdir` directory (default `./runs`).
 
 Start by defining the benchmark — the environment, tasks, and grading logic:
 
-1. Create a new package under `src/midojo/suites/your_suite/`
+1. Create a new package under `suites/your_suite/` (or anywhere on the Python path — `--suite your.module.path` will load it)
 2. Create `data/suite.yaml` — defines environment, injection vectors, user tasks (with declarative utility predicates), and injection tasks (with declarative security predicates)
 3. Create `task_suite.py` — instantiate `YAMLTaskSuite` with the environment type and path to `suite.yaml`
 4. Export `task_suite` and `SYSTEM_MESSAGE` from `__init__.py`
-5. Register the suite name in `suites/__init__.py`
 
 Then author the interception layer for the agent you're testing. The agent already has its real tools — you only write the fake side using the appropriate SDK.
 
