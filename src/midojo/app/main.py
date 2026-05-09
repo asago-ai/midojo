@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from midojo.yaml_task_suite import YAMLTaskSuite
 
 from . import state
-from .routers import current, runs, suite, tasks, tools
+from .routers import runs, suite, tasks, tools
 
 
 def create_app(suite_instance: YAMLTaskSuite) -> FastAPI:
@@ -20,6 +20,5 @@ def create_app(suite_instance: YAMLTaskSuite) -> FastAPI:
     app.include_router(tools.router)
     runs.register_environment_update_route(suite_instance.environment_type)
     app.include_router(runs.router)
-    current.register_environment_update_route(suite_instance.environment_type)
-    app.include_router(current.router)
+    app.include_router(runs.current_router)
     return app

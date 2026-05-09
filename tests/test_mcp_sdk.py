@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from midojo.app import state
-from midojo.app.routers import current, runs
+from midojo.app.routers import runs
 from midojo.mcp_sdk import ControlPlaneClient, MidojoMCP, ToolContext
 from suites.weather import task_suite
 
@@ -21,8 +21,7 @@ def _make_app() -> FastAPI:
     app = FastAPI()
     runs.register_environment_update_route(task_suite.environment_type)
     app.include_router(runs.router)
-    current.register_environment_update_route(task_suite.environment_type)
-    app.include_router(current.router)
+    app.include_router(runs.current_router)
     return app
 
 

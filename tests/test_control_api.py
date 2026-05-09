@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 
 from midojo.app import state
 from midojo.app.models import FunctionCallRecord
-from midojo.app.routers import current, runs
+from midojo.app.routers import runs
 from suites.weather import task_suite
 
 
@@ -17,8 +17,7 @@ def client() -> TestClient:
     app = FastAPI()
     runs.register_environment_update_route(task_suite.environment_type)
     app.include_router(runs.router)
-    current.register_environment_update_route(task_suite.environment_type)
-    app.include_router(current.router)
+    app.include_router(runs.current_router)
     return TestClient(app)
 
 

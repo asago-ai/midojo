@@ -10,7 +10,7 @@ from midojo.yaml_task_suite import YAMLTaskSuite
 from midojo.grading import grade_task
 
 from .. import state
-from ..dependencies import get_evaluation, get_run, get_suite
+from ..dependencies import get_current_eval, get_evaluation, get_run, get_suite
 from ..models import (
     CompleteRequest,
     CreateEvaluationRequest,
@@ -26,6 +26,11 @@ from ..models import (
 from ..state import Evaluation, Run, _new_id
 
 router = APIRouter(prefix="/runs")
+
+# Mirrors of the per-eval environment + function-call endpoints that resolve
+# the active eval from state. Used by long-lived MCP servers / PI extensions
+# that don't have a run/eval ID at construction time. See dependencies.get_current_eval.
+current_router = APIRouter(prefix="/current")
 
 
 @router.post("", response_model=CreateRunResponse, status_code=status.HTTP_201_CREATED)
@@ -158,6 +163,13 @@ def register_environment_update_route(env_type: type) -> None:
         "/{run_id}/evaluations/{eval_id}/environment", update_environment, methods=["PUT"]
     )
 
+    def update_current_environment(body, evaluation: Annotated[Evaluation, Depends(get_current_eval)]) -> dict:
+        evaluation.environment = body
+        return evaluation.environment.model_dump()
+
+    update_current_environment.__annotations__["body"] = env_type
+    current_router.add_api_route("/environment", update_current_environment, methods=["PUT"])
+
 
 # --- Function call endpoints ---
 
@@ -183,15 +195,7 @@ def get_function_call(idx: int, evaluation: Annotated[Evaluation, Depends(get_ev
     return evaluation.function_calls[idx]
 
 
-@router.post(
-    "/{run_id}/evaluations/{eval_id}/function-calls",
-    response_model=FunctionCallRecord,
-    status_code=status.HTTP_201_CREATED,
-)
-def record_function_call(
-    req: CreateFunctionCallRecord,
-    evaluation: Annotated[Evaluation, Depends(get_evaluation)],
-) -> FunctionCallRecord:
+def _append_function_call(req: CreateFunctionCallRecord, evaluation: Evaluation) -> FunctionCallRecord:
     if evaluation.function_calls:
         pre_env = evaluation.function_calls[-1].post_environment
     else:
@@ -204,3 +208,60 @@ def record_function_call(
     )
     evaluation.function_calls.append(record)
     return record
+
+
+@router.post(
+    "/{run_id}/evaluations/{eval_id}/function-calls",
+    response_model=FunctionCallRecord,
+    status_code=status.HTTP_201_CREATED,
+)
+def record_function_call(
+    req: CreateFunctionCallRecord,
+    evaluation: Annotated[Evaluation, Depends(get_evaluation)],
+) -> FunctionCallRecord:
+    return _append_function_call(req, evaluation)
+
+
+# --- /current mirrors ---
+
+
+@current_router.get("/environment", status_code=status.HTTP_200_OK)
+def get_current_environment(evaluation: Annotated[Evaluation, Depends(get_current_eval)]) -> dict:
+    return evaluation.environment.model_dump()
+
+
+@current_router.get(
+    "/function-calls",
+    response_model=list[FunctionCallRecord],
+    response_model_exclude={"__all__": _FC_ENV_FIELDS},
+    status_code=status.HTTP_200_OK,
+)
+def list_current_function_calls(
+    evaluation: Annotated[Evaluation, Depends(get_current_eval)],
+) -> list[FunctionCallRecord]:
+    return evaluation.function_calls
+
+
+@current_router.get(
+    "/function-calls/{idx}",
+    response_model=FunctionCallRecord,
+    status_code=status.HTTP_200_OK,
+)
+def get_current_function_call(
+    idx: int, evaluation: Annotated[Evaluation, Depends(get_current_eval)]
+) -> FunctionCallRecord:
+    if idx < 0 or idx >= len(evaluation.function_calls):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Function call index out of range: {idx}")
+    return evaluation.function_calls[idx]
+
+
+@current_router.post(
+    "/function-calls",
+    response_model=FunctionCallRecord,
+    status_code=status.HTTP_201_CREATED,
+)
+def record_current_function_call(
+    req: CreateFunctionCallRecord,
+    evaluation: Annotated[Evaluation, Depends(get_current_eval)],
+) -> FunctionCallRecord:
+    return _append_function_call(req, evaluation)
