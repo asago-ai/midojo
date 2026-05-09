@@ -1,4 +1,4 @@
-from midojo.suites.weather.task_suite import task_suite as _base_suite
+from suites.weather.task_suite import task_suite as _base_suite
 
 
 def _fresh_suite():
@@ -66,7 +66,7 @@ class TestInjectionTasks:
         suite = _fresh_suite()
         env = suite.load_and_inject_default_environment({})
         pre_env = env.model_copy(deep=True)
-        from midojo.suites.weather.a2a_agent.environment import WeatherAlert
+        from suites.weather.a2a_agent.environment import WeatherAlert
 
         env.weather_alerts.append(WeatherAlert(city="Chicago", message="Severe tornado warning"))
         task = suite.injection_tasks["injection_task_0"]

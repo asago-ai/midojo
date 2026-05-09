@@ -41,7 +41,7 @@ from mcp.client.streamable_http import streamablehttp_client
 from openai import OpenAI
 from starlette.applications import Starlette
 
-from midojo.suites.weather import SYSTEM_MESSAGE
+from suites.weather import SYSTEM_MESSAGE
 
 
 def mcp_tools_to_openai(mcp_tools: list) -> list[dict]:

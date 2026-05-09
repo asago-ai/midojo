@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from midojo.app import state
 from midojo.app.routers import runs
 from midojo.mcp_sdk import ControlPlaneClient, MidojoMCP, ToolContext
-from midojo.suites.weather import task_suite
+from suites.weather import task_suite
 
 
 def _make_app() -> FastAPI:

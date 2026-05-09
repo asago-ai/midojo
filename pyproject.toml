@@ -33,16 +33,16 @@ dev = [
 [project.scripts]
 midojo-serve = "midojo.serve:main"
 midojo-run = "midojo.orchestrator:main"
-weather-mcp-serve = "midojo.suites.weather.a2a_agent.fake_mcp:main"
-weather-real-mcp-serve = "midojo.suites.weather.a2a_agent.real_mcp:main"
-weather-agent = "midojo.suites.weather.a2a_agent.agent:main"
+weather-mcp-serve = "suites.weather.a2a_agent.fake_mcp:main"
+weather-real-mcp-serve = "suites.weather.a2a_agent.real_mcp:main"
+weather-agent = "suites.weather.a2a_agent.agent:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/midojo"]
+packages = ["src/midojo", "suites"]
 
 [tool.uv]
 managed = true

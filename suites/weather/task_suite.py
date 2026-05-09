@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from midojo.suites.weather.a2a_agent import WeatherEnvironment
+from suites.weather.a2a_agent import WeatherEnvironment
 from midojo.yaml_task_suite import YAMLTaskSuite
 
 DATA_PATH = Path(__file__).resolve().parent / "data"
