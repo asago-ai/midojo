@@ -1,6 +1,8 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type { TSchema } from "typebox";
 
+export { executeTool, executeTools, type ToolCallSpec, type ToolCallResult } from "./execute.js";
+
 export interface ToolContext {
 	env<T = unknown>(field: string): Promise<T>;
 	envUpdate(field: string, value: unknown): Promise<void>;
