@@ -10,7 +10,7 @@ from midojo.yaml_task_suite import YAMLTaskSuite
 from midojo.grading import grade_task
 
 from .. import state
-from ..dependencies import get_current_eval, get_evaluation, get_run, get_suite
+from ..dependencies import get_current_evaluation, get_evaluation_by_id, get_run, get_suite
 from ..models import (
     CompleteRequest,
     CreateEvaluationRequest,
@@ -99,7 +99,7 @@ _FC_ENV_FIELDS = {"pre_environment", "post_environment"}
     response_model_exclude={"function_calls": {"__all__": _FC_ENV_FIELDS}},
     status_code=status.HTTP_200_OK,
 )
-def retrieve_evaluation(evaluation: Annotated[Evaluation, Depends(get_evaluation)]):
+def retrieve_evaluation(evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)]):
     return EvaluationResponse(
         id=evaluation.id,
         user_task_id=evaluation.user_task_id,
@@ -113,7 +113,7 @@ def retrieve_evaluation(evaluation: Annotated[Evaluation, Depends(get_evaluation
 
 
 @router.post("/{run_id}/evaluations/{eval_id}/complete", status_code=status.HTTP_200_OK)
-def complete_evaluation(req: CompleteRequest, evaluation: Annotated[Evaluation, Depends(get_evaluation)]):
+def complete_evaluation(req: CompleteRequest, evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)]):
     evaluation.model_output = req.model_output
     evaluation.completed = True
     return {"status": "completed"}
@@ -121,7 +121,7 @@ def complete_evaluation(req: CompleteRequest, evaluation: Annotated[Evaluation, 
 
 @router.post("/{run_id}/evaluations/{eval_id}/grade", response_model=GradeResponse, status_code=status.HTTP_200_OK)
 def grade_evaluation(
-    evaluation: Annotated[Evaluation, Depends(get_evaluation)],
+    evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)],
     suite: Annotated[YAMLTaskSuite, Depends(get_suite)],
 ):
     if not evaluation.completed:
@@ -147,12 +147,12 @@ def grade_evaluation(
 
 
 @router.get("/{run_id}/evaluations/{eval_id}/environment", status_code=status.HTTP_200_OK)
-def get_environment(evaluation: Annotated[Evaluation, Depends(get_evaluation)]) -> dict:
+def get_environment(evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)]) -> dict:
     return evaluation.environment.model_dump()
 
 
 def register_environment_update_route(env_type: type) -> None:
-    def update_environment(body, evaluation: Annotated[Evaluation, Depends(get_evaluation)]) -> dict:
+    def update_environment(body, evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)]) -> dict:
         evaluation.environment = body
         return evaluation.environment.model_dump()
 
@@ -161,7 +161,7 @@ def register_environment_update_route(env_type: type) -> None:
         "/{run_id}/evaluations/{eval_id}/environment", update_environment, methods=["PUT"]
     )
 
-    def update_current_environment(body, evaluation: Annotated[Evaluation, Depends(get_current_eval)]) -> dict:
+    def update_current_environment(body, evaluation: Annotated[Evaluation, Depends(get_current_evaluation)]) -> dict:
         evaluation.environment = body
         return evaluation.environment.model_dump()
 
@@ -178,7 +178,7 @@ def register_environment_update_route(env_type: type) -> None:
     response_model_exclude={"__all__": _FC_ENV_FIELDS},
     status_code=status.HTTP_200_OK,
 )
-def list_function_calls(evaluation: Annotated[Evaluation, Depends(get_evaluation)]) -> list[FunctionCallRecord]:
+def list_function_calls(evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)]) -> list[FunctionCallRecord]:
     return evaluation.function_calls
 
 
@@ -187,7 +187,7 @@ def list_function_calls(evaluation: Annotated[Evaluation, Depends(get_evaluation
     response_model=FunctionCallRecord,
     status_code=status.HTTP_200_OK,
 )
-def get_function_call(idx: int, evaluation: Annotated[Evaluation, Depends(get_evaluation)]) -> FunctionCallRecord:
+def get_function_call(idx: int, evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)]) -> FunctionCallRecord:
     if idx < 0 or idx >= len(evaluation.function_calls):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Function call index out of range: {idx}")
     return evaluation.function_calls[idx]
@@ -215,7 +215,7 @@ def _append_function_call(req: CreateFunctionCallRecord, evaluation: Evaluation)
 )
 def record_function_call(
     req: CreateFunctionCallRecord,
-    evaluation: Annotated[Evaluation, Depends(get_evaluation)],
+    evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)],
 ) -> FunctionCallRecord:
     return _append_function_call(req, evaluation)
 
@@ -224,7 +224,7 @@ def record_function_call(
 
 
 @current_router.get("/environment", status_code=status.HTTP_200_OK)
-def get_current_environment(evaluation: Annotated[Evaluation, Depends(get_current_eval)]) -> dict:
+def get_current_environment(evaluation: Annotated[Evaluation, Depends(get_current_evaluation)]) -> dict:
     return evaluation.environment.model_dump()
 
 
@@ -235,7 +235,7 @@ def get_current_environment(evaluation: Annotated[Evaluation, Depends(get_curren
     status_code=status.HTTP_200_OK,
 )
 def list_current_function_calls(
-    evaluation: Annotated[Evaluation, Depends(get_current_eval)],
+    evaluation: Annotated[Evaluation, Depends(get_current_evaluation)],
 ) -> list[FunctionCallRecord]:
     return evaluation.function_calls
 
@@ -246,7 +246,7 @@ def list_current_function_calls(
     status_code=status.HTTP_200_OK,
 )
 def get_current_function_call(
-    idx: int, evaluation: Annotated[Evaluation, Depends(get_current_eval)]
+    idx: int, evaluation: Annotated[Evaluation, Depends(get_current_evaluation)]
 ) -> FunctionCallRecord:
     if idx < 0 or idx >= len(evaluation.function_calls):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Function call index out of range: {idx}")
@@ -260,6 +260,6 @@ def get_current_function_call(
 )
 def record_current_function_call(
     req: CreateFunctionCallRecord,
-    evaluation: Annotated[Evaluation, Depends(get_current_eval)],
+    evaluation: Annotated[Evaluation, Depends(get_current_evaluation)],
 ) -> FunctionCallRecord:
     return _append_function_call(req, evaluation)
