@@ -152,6 +152,14 @@ def get_environment(evaluation: Annotated[Evaluation, Depends(get_evaluation_by_
 
 
 def register_environment_update_route(env_type: type) -> None:
+    """Register PUT routes for environment updates using the suite's concrete environment type.
+
+    Each suite defines its own Pydantic environment model (e.g. WeatherEnvironment).
+    FastAPI needs the concrete type annotation on the request body to validate and
+    deserialize it, but the router module doesn't know which suite is loaded. So we
+    register these routes at startup once the suite type is known, patching __annotations__
+    on the handler to give FastAPI the right body type.
+    """
     def update_environment(body, evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)]) -> dict:
         evaluation.environment = body
         return evaluation.environment.model_dump()
