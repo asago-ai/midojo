@@ -37,8 +37,6 @@ current_router = APIRouter(prefix="/current")
 def create_run():
     run = Run(id=_new_id())
     state.runs[run.id] = run
-    state.current_run = run
-    state.current_eval = None
     return CreateRunResponse(id=run.id)
 
 

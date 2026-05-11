@@ -54,5 +54,6 @@ class Run(BaseModel):
 
 suite: YAMLTaskSuite = None  # type: ignore[assignment]
 runs: dict[str, Run] = {}
-current_run: Run | None = None
+# Only one eval is active at a time — the orchestrator runs tasks sequentially.
+# Concurrent evals would clobber this; use explicit /runs/{id}/evaluations/{id}/* routes instead.
 current_eval: Evaluation | None = None

@@ -7,32 +7,12 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from midojo.app import state
-from midojo.app.routers import runs
 from midojo.mcp_sdk import ControlPlaneClient, MidojoMCP, ToolContext
-from suites.weather import task_suite
-
-
-def _make_app() -> FastAPI:
-    state.suite = task_suite
-    state.runs = {}
-    state.current_run = None
-    state.current_eval = None
-    app = FastAPI()
-    runs.register_environment_update_route(task_suite.environment_type)
-    app.include_router(runs.router)
-    app.include_router(runs.current_router)
-    return app
 
 
 @pytest.fixture()
-def app() -> FastAPI:
-    return _make_app()
-
-
-@pytest.fixture()
-def control_plane(app) -> TestClient:
-    return TestClient(app)
+def control_plane(client) -> TestClient:
+    return client
 
 
 @pytest.fixture()

@@ -1,24 +1,7 @@
-import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from midojo.app import state
 from midojo.app.models import FunctionCallRecord
-from midojo.app.routers import runs
-from suites.weather import task_suite
-
-
-@pytest.fixture()
-def client() -> TestClient:
-    state.suite = task_suite
-    state.runs = {}
-    state.current_run = None
-    state.current_eval = None
-    app = FastAPI()
-    runs.register_environment_update_route(task_suite.environment_type)
-    app.include_router(runs.router)
-    app.include_router(runs.current_router)
-    return TestClient(app)
 
 
 def _create_run(client: TestClient) -> str:

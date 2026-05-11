@@ -11,7 +11,6 @@ from .routers import runs, suite, tasks, tools
 def create_app(suite_instance: YAMLTaskSuite) -> FastAPI:
     state.suite = suite_instance
     state.runs = {}
-    state.current_run = None
     state.current_eval = None
 
     app = FastAPI()
