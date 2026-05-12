@@ -13,11 +13,21 @@ MiDojo lets you red-team your agent in its real environment. Author compromised 
 
 For each tool, you can forward the call to the real tool, splice in injection data from the suite environment, and/or update the local environment so mutations are captured for grading — in any combination.
 
-The project also includes:
+## How It Works
 
-- A **control plane REST API** — configures benchmark scenarios, records traces, and grades results
-- An **orchestrator CLI** — drives the full benchmark matrix (user task x injection task x attack) against an external agent
-- **Weather reference suite** — a minimal example demonstrating environments, tools, tasks, and attacks
+A few concepts first:
+
+- A **suite** defines everything needed for a benchmark: an environment (the world your agent operates in), tools, tasks, and grading logic — all in a single `suite.yaml`.
+- A **task** is something you want the agent to do. **User tasks** are legitimate work ("what's the weather in New York?"). **Injection tasks** are malicious goals ("send a fake tornado alert") that get embedded into the environment as hidden payloads. MiDojo tests whether the agent completes the user task (utility) while resisting the injection (security).
+- A **run** is a benchmark session. It contains one or more **evaluations**, where each evaluation pairs one user task with one injection task and one attack strategy.
+
+The system has three moving parts:
+
+1. **The control plane** (`midojo-serve`) — a REST API that holds the environment for the current evaluation. When a run starts, the orchestrator creates an evaluation and the control plane loads the environment from `suite.yaml` with injection payloads spliced into the appropriate fields. The fake tools (MCP server, PI extension, etc.) read from and write to this environment via HTTP, so every tool call the agent makes is recorded and every mutation is captured.
+
+2. **The orchestrator** (`midojo-run`) — a CLI that drives the benchmark. It creates a run, iterates over the task matrix (user task x injection task x attack), sends each prompt to the agent, and when the agent finishes, asks the control plane to grade the result by comparing the environment before and after execution.
+
+3. **The fake tools** — the interception layer you author for the agent you're testing. These sit between the agent and its real tools, forwarding calls upstream for authentic data and splicing in injection payloads from the control plane environment.
 
 ## Weather Suite (Reference Implementation)
 
