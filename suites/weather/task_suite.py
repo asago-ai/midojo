@@ -3,8 +3,7 @@ from pathlib import Path
 from suites.weather.a2a_agent import WeatherEnvironment
 from midojo.yaml_task_suite import YAMLTaskSuite
 
-DATA_PATH = Path(__file__).resolve().parent / "data"
-SUITE_YAML = DATA_PATH / "suite.yaml"
+SUITE_YAML = Path(__file__).resolve().parent / "suite.yaml"
 
 task_suite = YAMLTaskSuite(
     "weather",
