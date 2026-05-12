@@ -21,9 +21,17 @@ The project also includes:
 
 ## Weather Suite (Reference Implementation)
 
-The weather suite is a minimal working example. It gives the agent a handful of weather tools (lookup, listing, alerting), then tests whether an injection payload hidden in a tool response can trick the agent into taking an unauthorized action. The file `suite.yaml` defines the environment, tools, tasks, and grading logic.
+The weather suite is a minimal working example. Have a look at `suites/weather/suite.yaml`. In there you will find:
 
-The suite includes two example agent setups demonstrating how to wire midojo into different agent types. In both cases the agent already has its real tools — the suite author only writes the interception layer using the appropriate midojo SDK.
+- the environment definition,
+- the user tasks that the agent will be asked to perform (these are the legitimate tasks you want the agent to do), and
+- the injection tasks (these are meant to trick the agent into doing something illegitimate).
+
+Note how the environment contains injection placeholders, these are the ones within `{}`. When MiDojo runs, these will be filled w/ malicious injections from the various attacks. There is other stuff in `suite.yaml` like the tools definitions and a dedicated field for the injection vectors. We will likely get rid of those :). 
+
+The weather suite includes various agent setups demonstrating how to wire midojo into those different agent types. Those examples (eg., the `a2a_agent`) include the agent implementation itself as well as the tools the agents have access to (we call those the 'real' tools for clarity). 
+
+Given these agents, someone authoring a midojo suite (you!) only needs to write the interception layer using the appropriate midojo SDK (ie., the MCP SDK, the PI SDK, and more coming).
 
 ### A2A agent (`a2a_agent/`)
 
