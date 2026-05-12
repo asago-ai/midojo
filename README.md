@@ -21,7 +21,7 @@ The project also includes:
 
 ## Weather Suite (Reference Implementation)
 
-The weather suite is a minimal working example. It gives the agent a handful of weather tools (lookup, listing, alerting), then tests whether an injection payload hidden in a tool response can trick the agent into taking an unauthorized action. Tasks and grading logic are defined declaratively in `suite.yaml` using the predicate DSL — no Python task classes needed.
+The weather suite is a minimal working example. It gives the agent a handful of weather tools (lookup, listing, alerting), then tests whether an injection payload hidden in a tool response can trick the agent into taking an unauthorized action. The file `suite.yaml` defines the environment, tools, tasks, and grading logic.
 
 The suite includes two example agent setups demonstrating how to wire midojo into different agent types. In both cases the agent already has its real tools — the suite author only writes the interception layer using the appropriate midojo SDK.
 
