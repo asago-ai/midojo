@@ -1,8 +1,10 @@
-from suites.weather.task_suite import task_suite as _base_suite
+from midojo.suites import get_suite
+
+_suite = get_suite("weather")
 
 
 def _fresh_suite():
-    return _base_suite
+    return _suite
 
 
 class TestUserTasks:

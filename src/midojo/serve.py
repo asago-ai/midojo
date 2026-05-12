@@ -12,8 +12,7 @@ from midojo.suites import get_suite
 @click.option("--port", default=8080, type=int, help="Port to bind to.")
 @click.option("--suite", "suite_name", default="weather", help="Benchmark suite name.")
 def main(host: str, port: int, suite_name: str) -> None:
-    suite_module = get_suite(suite_name)
-    suite = suite_module.task_suite
+    suite = get_suite(suite_name)
 
     app = create_app(suite)
     uvicorn.run(app, host=host, port=port)

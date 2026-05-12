@@ -1,6 +1,8 @@
 from midojo.app.models import FunctionCallRecord
 from midojo.grading import grade_task
-from suites.weather import task_suite
+from midojo.suites import get_suite
+
+task_suite = get_suite("weather")
 
 
 def _make_function_calls(env, *calls: tuple[str, dict]) -> list[FunctionCallRecord]:

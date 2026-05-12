@@ -4,7 +4,9 @@ from fastapi.testclient import TestClient
 
 from midojo.app import state
 from midojo.app.routers import runs
-from suites.weather import task_suite
+from midojo.suites import get_suite
+
+task_suite = get_suite("weather")
 
 
 @pytest.fixture

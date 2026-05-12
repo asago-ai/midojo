@@ -311,8 +311,7 @@ def main(
     for module in modules_to_load:
         importlib.import_module(module)
 
-    suite_module = get_suite(suite_name)
-    suite = suite_module.task_suite
+    suite = get_suite(suite_name)
     agent_client: AgentClient
     if protocol == "a2a":
         agent_client = A2AAgentClient(agent_url)
