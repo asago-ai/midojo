@@ -51,13 +51,17 @@ For [PI](https://pi.dev) coding agents. The agent already has its tools register
   - **Hooks** (`hooks`) — intercepts the result of an existing tool after it executes and modifies it before the agent sees it. Used for read tools where you want real data + injection payload.
   - Tools with no override or hook run unmodified.
 
+### OGX agent (`ogx_agent/`)
+
+For agents running on [OGX (Llama Stack)](https://github.com/ogx-ai/ogx). The OGX agent uses the Responses API, which runs the tool loop server-side. This is a special case of MCP — the same real and fake MCP servers from the A2A setup are used here. The suite includes `run.yaml`, an OGX distribution config for the example.
+
 ## Quick Start
 
 ```bash
 uv sync --extra dev
 ```
 
-The weather suite ships with two example agents. Pick the one that matches your setup.
+The weather suite ships with example agents. Pick the one that matches your setup.
 
 ### With an A2A agent
 
@@ -93,6 +97,32 @@ Run the benchmark (PI agents use a directory path, not a URL):
 uv run --env-file .env midojo-run \
     --agent-url suites/weather/pi_agent \
     --protocol pi \
+    --suite weather \
+    --attack direct
+```
+
+### With an OGX agent
+
+Start three processes — the real MCP server, the control plane, and the fake MCP server (same as the A2A setup):
+
+```bash
+weather-real-mcp-serve --port 8081
+midojo-serve --suite weather --host 127.0.0.1 --port 8080
+weather-fake-mcp-serve --port 8082 --upstream-url http://localhost:8081/mcp
+```
+
+Start the OGX server:
+
+```bash
+LITELLM_API_KEY=... LITELLM_API_URL=... ogx run suites/weather/ogx_agent/run.yaml
+```
+
+Run the benchmark:
+
+```bash
+midojo-run \
+    --agent-url http://localhost:8321 \
+    --protocol ogx \
     --suite weather \
     --attack direct
 ```
