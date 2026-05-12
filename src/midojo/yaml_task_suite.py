@@ -9,6 +9,7 @@ from agentdojo.functions_runtime import Function, FunctionCall, TaskEnvironment
 from agentdojo.task_suite.task_suite import TaskSuite, validate_injections
 
 from midojo.app.models import InjectionVectorInfo, ToolInfoResponse
+from midojo.env_inference import infer_environment_type
 from midojo.predicates import Predicate, evaluate_predicate, parse_predicate
 
 _DIFFICULTY_MAP = {
@@ -24,13 +25,15 @@ class YAMLTaskSuite(TaskSuite):
     def __init__(
         self,
         name: str,
-        environment_type: type[TaskEnvironment],
         suite_yaml_path: Path,
+        environment_type: type[TaskEnvironment] | None = None,
         tools: list[Function] | None = None,
     ) -> None:
-        super().__init__(name, environment_type, tools or [], data_path=suite_yaml_path.parent)
         self._suite_yaml_path = suite_yaml_path
         self._suite_raw: dict = yaml.safe_load(suite_yaml_path.read_text())
+        if environment_type is None:
+            environment_type = infer_environment_type(name, self._suite_raw["environment"])
+        super().__init__(name, environment_type, tools or [], data_path=suite_yaml_path.parent)
         self._register_tasks()
 
     def load_and_inject_default_environment(self, injections: dict[str, str]) -> TaskEnvironment:

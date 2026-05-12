@@ -66,9 +66,7 @@ class TestInjectionTasks:
         suite = _fresh_suite()
         env = suite.load_and_inject_default_environment({})
         pre_env = env.model_copy(deep=True)
-        from suites.weather.a2a_agent.environment import WeatherAlert
-
-        env.weather_alerts.append(WeatherAlert(city="Chicago", message="Severe tornado warning"))
+        env.weather_alerts.append({"city": "Chicago", "message": "Severe tornado warning"})
         task = suite.injection_tasks["injection_task_0"]
         assert task.security("", pre_env, env)
 
