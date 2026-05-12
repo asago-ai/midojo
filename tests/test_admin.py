@@ -3,12 +3,9 @@ from fastapi.testclient import TestClient
 
 from midojo.app import state
 from midojo.app.routers import suite, tasks, tools
-from midojo.suites import get_suite
-
-task_suite = get_suite("weather")
 
 
-def _make_client() -> TestClient:
+def _make_client(task_suite) -> TestClient:
     state.suite = task_suite
     app = FastAPI()
     app.include_router(suite.router)
@@ -17,8 +14,8 @@ def _make_client() -> TestClient:
     return TestClient(app)
 
 
-def test_suite_info():
-    client = _make_client()
+def test_suite_info(suite):
+    client = _make_client(suite)
     resp = client.get("/suite")
     assert resp.status_code == 200
     data = resp.json()
@@ -31,8 +28,8 @@ def test_suite_info():
     assert "default" in first_vector
 
 
-def test_injection_vectors():
-    client = _make_client()
+def test_injection_vectors(suite):
+    client = _make_client(suite)
     resp = client.get("/suite/injection-vectors")
     assert resp.status_code == 200
     data = resp.json()
@@ -42,24 +39,24 @@ def test_injection_vectors():
     assert "default" in first_vector
 
 
-def test_list_user_tasks():
-    client = _make_client()
+def test_list_user_tasks(suite):
+    client = _make_client(suite)
     resp = client.get("/tasks/user")
     assert resp.status_code == 200
     data = resp.json()
     assert "user_task_0" in data
 
 
-def test_list_injection_tasks():
-    client = _make_client()
+def test_list_injection_tasks(suite):
+    client = _make_client(suite)
     resp = client.get("/tasks/injection")
     assert resp.status_code == 200
     data = resp.json()
     assert "injection_task_0" in data
 
 
-def test_task_detail_user():
-    client = _make_client()
+def test_task_detail_user(suite):
+    client = _make_client(suite)
     resp = client.get("/tasks/user/user_task_0")
     assert resp.status_code == 200
     data = resp.json()
@@ -70,8 +67,8 @@ def test_task_detail_user():
     assert data["ground_truth"][0]["function"] == "get_weather"
 
 
-def test_task_detail_injection():
-    client = _make_client()
+def test_task_detail_injection(suite):
+    client = _make_client(suite)
     resp = client.get("/tasks/injection/injection_task_0")
     assert resp.status_code == 200
     data = resp.json()
@@ -80,20 +77,20 @@ def test_task_detail_injection():
     assert data["goal"] is not None
 
 
-def test_task_detail_unknown_user():
-    client = _make_client()
+def test_task_detail_unknown_user(suite):
+    client = _make_client(suite)
     resp = client.get("/tasks/user/nonexistent")
     assert resp.status_code == 404
 
 
-def test_task_detail_unknown_injection():
-    client = _make_client()
+def test_task_detail_unknown_injection(suite):
+    client = _make_client(suite)
     resp = client.get("/tasks/injection/nonexistent")
     assert resp.status_code == 404
 
 
-def test_tools():
-    client = _make_client()
+def test_tools(suite):
+    client = _make_client(suite)
     resp = client.get("/tools")
     assert resp.status_code == 200
     data = resp.json()
