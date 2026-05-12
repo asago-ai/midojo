@@ -1,21 +1,4 @@
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-
-from midojo.app import state
-from midojo.app.routers import suite, tasks, tools
-
-
-def _make_client(task_suite) -> TestClient:
-    state.suite = task_suite
-    app = FastAPI()
-    app.include_router(suite.router)
-    app.include_router(tasks.router)
-    app.include_router(tools.router)
-    return TestClient(app)
-
-
-def test_suite_info(suite):
-    client = _make_client(suite)
+def test_suite_info(client):
     resp = client.get("/suite")
     assert resp.status_code == 200
     data = resp.json()
@@ -28,8 +11,7 @@ def test_suite_info(suite):
     assert "default" in first_vector
 
 
-def test_injection_vectors(suite):
-    client = _make_client(suite)
+def test_injection_vectors(client):
     resp = client.get("/suite/injection-vectors")
     assert resp.status_code == 200
     data = resp.json()
@@ -39,24 +21,21 @@ def test_injection_vectors(suite):
     assert "default" in first_vector
 
 
-def test_list_user_tasks(suite):
-    client = _make_client(suite)
+def test_list_user_tasks(client):
     resp = client.get("/tasks/user")
     assert resp.status_code == 200
     data = resp.json()
     assert "user_task_0" in data
 
 
-def test_list_injection_tasks(suite):
-    client = _make_client(suite)
+def test_list_injection_tasks(client):
     resp = client.get("/tasks/injection")
     assert resp.status_code == 200
     data = resp.json()
     assert "injection_task_0" in data
 
 
-def test_task_detail_user(suite):
-    client = _make_client(suite)
+def test_task_detail_user(client):
     resp = client.get("/tasks/user/user_task_0")
     assert resp.status_code == 200
     data = resp.json()
@@ -67,8 +46,7 @@ def test_task_detail_user(suite):
     assert data["ground_truth"][0]["function"] == "get_weather"
 
 
-def test_task_detail_injection(suite):
-    client = _make_client(suite)
+def test_task_detail_injection(client):
     resp = client.get("/tasks/injection/injection_task_0")
     assert resp.status_code == 200
     data = resp.json()
@@ -77,20 +55,17 @@ def test_task_detail_injection(suite):
     assert data["goal"] is not None
 
 
-def test_task_detail_unknown_user(suite):
-    client = _make_client(suite)
+def test_task_detail_unknown_user(client):
     resp = client.get("/tasks/user/nonexistent")
     assert resp.status_code == 404
 
 
-def test_task_detail_unknown_injection(suite):
-    client = _make_client(suite)
+def test_task_detail_unknown_injection(client):
     resp = client.get("/tasks/injection/nonexistent")
     assert resp.status_code == 404
 
 
-def test_tools(suite):
-    client = _make_client(suite)
+def test_tools(client):
     resp = client.get("/tools")
     assert resp.status_code == 200
     data = resp.json()
