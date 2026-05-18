@@ -49,10 +49,13 @@ class A2AAgentClient(AgentClient):
         self.timeout = timeout
 
     async def send_task(self, prompt: str) -> str:
-        from a2a.client import create_client
+        from a2a.client import ClientConfig, create_client
         from a2a.types import Message, Part, Role, SendMessageRequest
 
-        client = await create_client(self.agent_url)
+        config = ClientConfig(
+            httpx_client=httpx.AsyncClient(timeout=self.timeout),
+        )
+        client = await create_client(self.agent_url, client_config=config)
         try:
             request = SendMessageRequest(
                 message=Message(
