@@ -10,11 +10,9 @@ from agentdojo.functions_runtime import Function, FunctionCall, TaskEnvironment
 from agentdojo.task_suite.task_suite import TaskSuite
 
 from midojo.app.models import ToolInfoResponse
+from midojo.attack_types import wrap_payload
 from midojo.env_inference import infer_environment_type
 from midojo.predicates import Predicate, evaluate_predicate, parse_predicate
-
-
-SUPPORTED_ATTACK_TYPES = frozenset({"verbatim"})
 
 
 class MiDojoInjectionTask(BaseInjectionTask):
@@ -24,13 +22,10 @@ class MiDojoInjectionTask(BaseInjectionTask):
     DESCRIPTION is human-readable documentation of what the injection aims to
     do (not consumed by code).
 
-    PROBES maps probe_id to the literal payload string. The active task's
-    probes are merged into the injections dict at orchestration time and
-    substituted into `{task_id:probe_id}` placeholders in the environment.
-
-    `attack_type` on a probe is parsed and validated at suite-load time but
-    only `verbatim` is currently supported — the placeholder is for future
-    wrapping strategies (e.g. `important_instructions`).
+    PROBES maps probe_id to the final payload string — already wrapped by the
+    probe's `attack_type` vehicle. Stored ready-to-substitute. The active
+    task's probes are merged into the injections dict at orchestration time
+    and substituted into `{task_id:probe_id}` placeholders in the environment.
 
     NOTE: subclassing agentdojo's BaseInjectionTask is awkward now that the
     attack layer is gone — what we inherit is mostly bureaucratic (numeric
@@ -173,12 +168,11 @@ class YAMLTaskSuite(TaskSuite):
             if "payload" not in probe_raw:
                 raise ValueError(f"Probe '{task_id}:{probe_id}' is missing required 'payload' field")
             attack_type = probe_raw.get("attack_type", "verbatim")
-            if attack_type not in SUPPORTED_ATTACK_TYPES:
-                raise ValueError(
-                    f"Probe '{task_id}:{probe_id}' has unsupported attack_type "
-                    f"'{attack_type}'. Supported: {sorted(SUPPORTED_ATTACK_TYPES)}"
-                )
-            probes[probe_id] = probe_raw["payload"]
+            try:
+                probes[probe_id] = wrap_payload(probe_raw["payload"], attack_type)
+            except ValueError as e:
+                # Re-raise with the probe context so suite authors can locate the typo.
+                raise ValueError(f"Probe '{task_id}:{probe_id}': {e}") from None
         return probes
 
     @staticmethod

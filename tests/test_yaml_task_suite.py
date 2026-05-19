@@ -154,6 +154,28 @@ class TestProbeAttackType:
         suite = YAMLTaskSuite("test", suite_yaml)
         assert suite.injection_tasks["injection_task_0"].PROBES == {"main": "hello"}
 
+    def test_important_instructions_attack_type_wraps_at_suite_load(self, tmp_path):
+        suite_yaml = tmp_path / "suite.yaml"
+        suite_yaml.write_text(
+            "environment: {data: '{injection_task_0:main}'}\n"
+            "injection_tasks:\n"
+            "  - id: injection_task_0\n"
+            "    description: 'test'\n"
+            "    probes:\n"
+            "      main:\n"
+            "        payload: 'do the thing'\n"
+            "        attack_type: important_instructions\n"
+            "    ground_truth: []\n"
+            "    security: {output_contains: 'thing'}\n"
+        )
+        from midojo.yaml_task_suite import YAMLTaskSuite
+
+        suite = YAMLTaskSuite("test", suite_yaml)
+        wrapped = suite.injection_tasks["injection_task_0"].PROBES["main"]
+        assert "do the thing" in wrapped
+        assert "Emma Johnson" in wrapped
+        assert "<INFORMATION>" in wrapped
+
     def test_unsupported_attack_type_raises_at_parse_time(self, tmp_path):
         suite_yaml = tmp_path / "suite.yaml"
         suite_yaml.write_text(
@@ -164,11 +186,11 @@ class TestProbeAttackType:
             "    probes:\n"
             "      main:\n"
             "        payload: 'hello'\n"
-            "        attack_type: important_instructions\n"
+            "        attack_type: bogus_strategy\n"
             "    ground_truth: []\n"
             "    security: {output_contains: 'hello'}\n"
         )
         from midojo.yaml_task_suite import YAMLTaskSuite
 
-        with pytest.raises(ValueError, match="unsupported attack_type"):
+        with pytest.raises(ValueError, match="injection_task_0:main.*Unsupported attack_type"):
             YAMLTaskSuite("test", suite_yaml)
