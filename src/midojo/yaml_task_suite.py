@@ -6,7 +6,7 @@ from typing import Any, cast
 
 import yaml
 from agentdojo.base_tasks import BaseInjectionTask, BaseUserTask
-from agentdojo.functions_runtime import Function, FunctionCall, TaskEnvironment
+from agentdojo.functions_runtime import FunctionCall, TaskEnvironment
 from agentdojo.task_suite.task_suite import TaskSuite
 
 from midojo.app.models import ToolInfoResponse
@@ -53,13 +53,15 @@ class YAMLTaskSuite(TaskSuite):
         name: str,
         suite_yaml_path: Path,
         environment_type: type[TaskEnvironment] | None = None,
-        tools: list[Function] | None = None,
     ) -> None:
         self._suite_yaml_path = suite_yaml_path
         self._suite_raw: dict = yaml.safe_load(suite_yaml_path.read_text())
         if environment_type is None:
             environment_type = infer_environment_type(name, self._suite_raw["environment"])
-        super().__init__(name, environment_type, tools or [], data_path=suite_yaml_path.parent)
+        # `tools` is a required positional arg on agentdojo's TaskSuite. We
+        # don't model agent-callable tool *functions* (only their YAML-declared
+        # names, for display), so we always pass [].
+        super().__init__(name, environment_type, [], data_path=suite_yaml_path.parent)
         self._register_tasks()
 
     @property
