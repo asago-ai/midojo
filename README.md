@@ -89,11 +89,33 @@ Run the benchmark against your A2A agent:
 midojo-run \
     --agent-url http://my-agent:8000 \
     --protocol a2a \
-    --suite weather \
-    --attack direct
+    --suite weather
 ```
 
 ### With a PI agent
+
+PI agents run as local subprocesses (the orchestrator spawns `pi` per task), so a few things have to be in place before the benchmark can talk to a model:
+
+1. **Install the `pi` CLI** — see [pi.dev](https://pi.dev) for install options (npm, pnpm, bun, or the curl install script).
+2. **Per-agent config** — each PI agent in a suite ships a `.pi/settings.json` declaring its `defaultProvider` and `defaultModel`. The weather suite's agent at `suites/weather/pi_agent/.pi/settings.json` already does this:
+    ```json
+    { "defaultProvider": "litellm", "defaultModel": "llama-scout-17b" }
+    ```
+3. **Global model registry** — `pi` resolves providers from `~/.pi/agent/models.json`. The provider name there must match what the agent's `settings.json` references. For a LiteLLM proxy:
+    ```json
+    {
+      "providers": {
+        "litellm": {
+          "baseUrl": "https://your-litellm-proxy.example.com/v1",
+          "api": "openai-completions",
+          "apiKey": "LITELLM_API_KEY",
+          "models": [{ "id": "llama-scout-17b" }]
+        }
+      }
+    }
+    ```
+    The `apiKey` value is the **name** of an environment variable, not the key itself. For built-in providers (Anthropic, OpenAI, Gemini, etc.) you can skip `models.json` and just set the corresponding env var (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, ...) — see [the pi providers docs](https://pi.dev) for the full list.
+4. **Credentials in `.env`** — `uv run --env-file .env` loads them into the orchestrator's process, which forwards them to the spawned `pi` subprocess.
 
 Start the control plane:
 
@@ -107,8 +129,7 @@ Run the benchmark (PI agents use a directory path, not a URL):
 uv run --env-file .env midojo-run \
     --agent-url suites/weather/pi_agent \
     --protocol pi \
-    --suite weather \
-    --attack direct
+    --suite weather
 ```
 
 ### With an OGX agent
@@ -133,8 +154,7 @@ Run the benchmark:
 midojo-run \
     --agent-url http://localhost:8321 \
     --protocol ogx \
-    --suite weather \
-    --attack direct
+    --suite weather
 ```
 
 ### Results
