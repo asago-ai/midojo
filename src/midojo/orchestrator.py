@@ -230,6 +230,7 @@ async def run_benchmark(
             for it_id in injection_tasks_to_run:
                 injection_task = suite.injection_tasks[it_id]
                 injections = attack.attack(user_task, injection_task)
+                injections.update(suite.get_probes_for_task(it_id))
                 result = await run_task(control_url, agent_client, run_id, ut_id, it_id, injections)
                 utility_results[TaskPair(ut_id, it_id)] = result["utility"]
                 eval_id = result["eval_id"]

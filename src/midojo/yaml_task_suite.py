@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,11 @@ _DIFFICULTY_MAP = {
     "medium": TaskDifficulty.MEDIUM,
     "hard": TaskDifficulty.HARD,
 }
+
+# Matches `{task_id:probe_id}` placeholders. Identifiers only (letters, digits,
+# underscore), so this won't collide with YAML content that happens to contain
+# braces.
+_PROBE_PLACEHOLDER_RE = re.compile(r"\{([A-Za-z_]\w*):([A-Za-z_]\w*)\}")
 
 
 class YAMLTaskSuite(TaskSuite):
@@ -39,11 +45,36 @@ class YAMLTaskSuite(TaskSuite):
     def load_and_inject_default_environment(self, injections: dict[str, str]) -> TaskEnvironment:
         env_raw = self._suite_raw["environment"]
         env_text = yaml.dump(env_raw, default_flow_style=False)
+
+        # Split into vector-style ({vector}) and probe-style ({task:probe}) keys.
+        probe_injections = {k: v for k, v in injections.items() if ":" in k}
+        vector_injections = {k: v for k, v in injections.items() if ":" not in k}
+
+        # Probe placeholders use `:` which collides with str.format's format-spec
+        # separator, so resolve them by regex first. Unmatched `{task:probe}`
+        # tokens collapse to "" (mirrors the empty-default behavior of vectors
+        # for non-active injection tasks).
+        env_text = _PROBE_PLACEHOLDER_RE.sub(
+            lambda m: probe_injections.get(f"{m.group(1)}:{m.group(2)}", ""),
+            env_text,
+        )
+
         injection_vector_defaults = self.get_injection_vector_defaults()
-        injections_with_defaults = dict(injection_vector_defaults, **injections)
-        validate_injections(injections, injection_vector_defaults)
+        injections_with_defaults = dict(injection_vector_defaults, **vector_injections)
+        validate_injections(vector_injections, injection_vector_defaults)
         injected_text = env_text.format(**injections_with_defaults)
         return self.environment_type.model_validate(yaml.safe_load(injected_text))
+
+    def get_probes_for_task(self, task_id: str) -> dict[str, str]:
+        """Return probe payloads for an injection task, keyed as `task_id:probe_id`.
+
+        Ready to merge into the injections dict consumed by
+        `load_and_inject_default_environment`.
+        """
+        if task_id not in self.injection_tasks:
+            return {}
+        probes: dict[str, str] = getattr(self.injection_tasks[task_id], "PROBES", {})
+        return {f"{task_id}:{probe_id}": payload for probe_id, payload in probes.items()}
 
     def get_tool_definitions(self) -> list[ToolInfoResponse]:
         return [
@@ -93,6 +124,7 @@ class YAMLTaskSuite(TaskSuite):
             difficulty = _DIFFICULTY_MAP.get(task_raw.get("difficulty", "easy"), TaskDifficulty.EASY)
             gt_calls = self._parse_ground_truth_calls(task_raw.get("ground_truth", []))
             predicate = parse_predicate(task_raw["security"])
+            probes = self._parse_probes(task_raw.get("probes", {}))
 
             cls = self._make_injection_task_class(
                 class_name=class_name,
@@ -100,6 +132,7 @@ class YAMLTaskSuite(TaskSuite):
                 difficulty=difficulty,
                 gt_calls=gt_calls,
                 predicate=predicate,
+                probes=probes,
             )
             self.register_injection_task(cls)
 
@@ -113,6 +146,15 @@ class YAMLTaskSuite(TaskSuite):
             )
             for item in raw_list
         ]
+
+    @staticmethod
+    def _parse_probes(raw: dict[str, dict]) -> dict[str, str]:
+        probes: dict[str, str] = {}
+        for probe_id, probe_raw in raw.items():
+            if "payload" not in probe_raw:
+                raise ValueError(f"Probe '{probe_id}' is missing required 'payload' field")
+            probes[probe_id] = probe_raw["payload"]
+        return probes
 
     @staticmethod
     def _task_id_to_class_name(task_id: str, prefix: str) -> str:
@@ -159,6 +201,7 @@ class YAMLTaskSuite(TaskSuite):
         difficulty: TaskDifficulty,
         gt_calls: list[FunctionCall],
         predicate: Predicate,
+        probes: dict[str, str],
     ) -> type[BaseInjectionTask]:
         def ground_truth(self: Any, pre_environment: TaskEnvironment) -> list[FunctionCall]:
             return list(gt_calls)
@@ -177,6 +220,7 @@ class YAMLTaskSuite(TaskSuite):
             {
                 "GOAL": goal,
                 "DIFFICULTY": difficulty,
+                "PROBES": probes,
                 "ground_truth": ground_truth,
                 "security": security,
             },
