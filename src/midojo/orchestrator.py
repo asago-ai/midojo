@@ -32,11 +32,13 @@ def _utility(value: bool) -> Text:
     return Text("✅ task completed", style="bold green") if value else Text("❌ task not completed", style="bold red")
 
 
-def _print_agent_output(output: str, max_len: int = 200) -> None:
-    text = (output or "").replace("\n", " ").strip()
+def _print_agent_text(label: str, text: str, max_len: int = 200) -> None:
+    text = (text or "").replace("\n", " ").strip()
     if len(text) > max_len:
         text = text[:max_len] + "…"
-    console.print(f"    [dim]agent output:[/dim] {text}")
+    line = Text(f"    {label}: ", style="dim")
+    line.append(text, style="italic")
+    console.print(line)
 
 
 def _security(value: bool) -> Text:
@@ -185,6 +187,7 @@ async def run_task(
         grade_resp.raise_for_status()
         result = grade_resp.json()
         result["eval_id"] = eval_id
+        result["prompt"] = prompt
         result["model_output"] = agent_output
         return result
 
@@ -199,7 +202,6 @@ async def run_benchmark(
     user_task_ids: list[str] | None,
     injection_task_ids: list[str] | None,
     logdir: Path,
-    show_output: bool = False,
 ) -> SuiteResults:
     user_tasks_to_run = user_task_ids or list(suite.user_tasks.keys())
     injection_tasks_to_run: list[str]
@@ -220,26 +222,21 @@ async def run_benchmark(
     utility_results: dict[TaskPair, bool] = {}
     security_results: dict[TaskPair, bool] = {}
 
-    if not injection_tasks_to_run:
-        for ut_id in user_tasks_to_run:
-            result = await run_task(control_url, agent_client, run_id, ut_id, None, {})
-            utility_results[TaskPair(ut_id, "")] = result["utility"]
-            console.print(f"  [dim]\\[eval: [cyan]{result['eval_id']}[/cyan]][/dim] [bold]{ut_id}[/bold]")
-            if show_output:
-                _print_agent_output(result["model_output"])
+    it_ids_to_run: list[str | None] = injection_tasks_to_run or [None]
+    for ut_id in user_tasks_to_run:
+        for it_id in it_ids_to_run:
+            injections = suite.get_probes_for_task(it_id) if it_id else {}
+            result = await run_task(control_url, agent_client, run_id, ut_id, it_id, injections)
+            utility_results[TaskPair(ut_id, it_id or "")] = result["utility"]
+            eval_id = result["eval_id"]
+            eval_url = f"{control_url}/runs/{run_id}/evaluations/{eval_id}"
+            label = f"[bold]{ut_id}[/bold] x [bold]{it_id}[/bold]" if it_id else f"[bold]{ut_id}[/bold]"
+            console.print(f"  [dim]\\[eval: [link={eval_url}][cyan]{eval_id}[/cyan][/link]][/dim] {label}")
+            _print_agent_text("agent input", result["prompt"])
+            _print_agent_text("agent output", result["model_output"])
             console.print("    ", _utility(result["utility"]))
-    else:
-        for ut_id in user_tasks_to_run:
-            for it_id in injection_tasks_to_run:
-                injections = suite.get_probes_for_task(it_id)
-                result = await run_task(control_url, agent_client, run_id, ut_id, it_id, injections)
-                utility_results[TaskPair(ut_id, it_id)] = result["utility"]
-                eval_id = result["eval_id"]
+            if it_id:
                 hit_functions = await _injection_reached_agent(control_url, run_id, eval_id, injections)
-                console.print(f"  [dim]\\[eval: [cyan]{eval_id}[/cyan]][/dim] [bold]{ut_id}[/bold] x [bold]{it_id}[/bold]")
-                if show_output:
-                    _print_agent_output(result["model_output"])
-                console.print("    ", _utility(result["utility"]))
                 if hit_functions:
                     security_results[TaskPair(ut_id, it_id)] = result["security"]
                     counts = Counter(hit_functions)
@@ -294,7 +291,6 @@ async def run_benchmark(
 @click.option(
     "--ogx-shield", default=None, envvar="OGX_SHIELD_ID", help="Shield ID for OGX guardrails (ogx protocol only)."
 )
-@click.option("--show-agent-output", is_flag=True, default=False, help="Print agent output for each task.")
 def main(
     control_url: str,
     agent_url: str,
@@ -306,7 +302,6 @@ def main(
     protocol: str,
     ogx_model: str | None,
     ogx_shield: str | None,
-    show_agent_output: bool,
 ) -> None:
     for module in modules_to_load:
         importlib.import_module(module)
@@ -340,7 +335,6 @@ def main(
             user_task_ids=list(user_tasks) if user_tasks else None,
             injection_task_ids=list(injection_tasks) if injection_tasks else None,
             logdir=logdir,
-            show_output=show_agent_output,
         )
     )
 
