@@ -1,6 +1,5 @@
 from agentdojo.functions_runtime import FunctionCall, TaskEnvironment
 from midojo.yaml_task_suite import YAMLTaskSuite
-from agentdojo.types import text_content_block_from_string
 
 from midojo.app.models import FunctionCallRecord
 
@@ -18,7 +17,9 @@ def grade_task(
     post_environment: TaskEnvironment,
     function_calls: list[FunctionCallRecord],
 ) -> dict[str, bool]:
-    output_content = [text_content_block_from_string(model_output)]
+    # agentdojo's _check_task_result expects a list of MessageContentBlock
+    # TypedDicts; at runtime that's just a plain dict with type + content keys.
+    output_content = [{"type": "text", "content": model_output}]
     agentdojo_calls = _to_agentdojo_function_calls(function_calls)
 
     user_task = suite.user_tasks[user_task_id]
