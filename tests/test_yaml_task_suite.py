@@ -1,3 +1,6 @@
+import pytest
+
+
 class TestUserTasks:
     def test_three_user_tasks_loaded(self, suite):
         assert len(suite.user_tasks) == 3
@@ -81,8 +84,9 @@ class TestProbeLinkedPlaceholders:
     def test_get_probes_for_task_empty_for_legacy_task(self, suite):
         assert suite.get_probes_for_task("injection_task_0") == {}
 
-    def test_get_probes_for_unknown_task(self, suite):
-        assert suite.get_probes_for_task("nonexistent") == {}
+    def test_get_probes_for_unknown_task_raises(self, suite):
+        with pytest.raises(KeyError):
+            suite.get_probes_for_task("nonexistent")
 
     def test_active_probes_substituted_into_env(self, suite):
         probes = suite.get_probes_for_task("injection_task_2")

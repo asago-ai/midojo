@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 from agentdojo.base_tasks import BaseInjectionTask, BaseUserTask, TaskDifficulty
@@ -12,6 +12,17 @@ from agentdojo.task_suite.task_suite import TaskSuite, validate_injections
 from midojo.app.models import InjectionVectorInfo, ToolInfoResponse
 from midojo.env_inference import infer_environment_type
 from midojo.predicates import Predicate, evaluate_predicate, parse_predicate
+
+
+class MiDojoInjectionTask(BaseInjectionTask):
+    """MiDojo's injection task base. Adds PROBES on top of agentdojo's contract.
+
+    PROBES maps probe_id to inline payload text. The active injection task's
+    probes are merged into the injections dict at orchestration time and
+    substituted into `{task_id:probe_id}` placeholders in the environment.
+    """
+
+    PROBES: dict[str, str] = {}
 
 _DIFFICULTY_MAP = {
     "easy": TaskDifficulty.EASY,
@@ -41,6 +52,15 @@ class YAMLTaskSuite(TaskSuite):
             environment_type = infer_environment_type(name, self._suite_raw["environment"])
         super().__init__(name, environment_type, tools or [], data_path=suite_yaml_path.parent)
         self._register_tasks()
+
+    @property
+    def injection_tasks(self) -> dict[str, MiDojoInjectionTask]:  # type: ignore[override]
+        # Narrowing the value type from agentdojo's BaseInjectionTask to
+        # MiDojoInjectionTask. dict is invariant so this isn't strictly
+        # Liskov-safe, but every task we register goes through
+        # _make_injection_task_class which produces MiDojoInjectionTask
+        # instances, so the cast is sound in practice.
+        return cast("dict[str, MiDojoInjectionTask]", super().injection_tasks)
 
     def load_and_inject_default_environment(self, injections: dict[str, str]) -> TaskEnvironment:
         env_raw = self._suite_raw["environment"]
@@ -73,9 +93,7 @@ class YAMLTaskSuite(TaskSuite):
         Ready to merge into the injections dict consumed by
         `load_and_inject_default_environment`.
         """
-        if task_id not in self.injection_tasks:
-            return {}
-        probes: dict[str, str] = getattr(self.injection_tasks[task_id], "PROBES", {})
+        probes = self.injection_tasks[task_id].PROBES
         return {f"{task_id}:{probe_id}": payload for probe_id, payload in probes.items()}
 
     def get_tool_definitions(self) -> list[ToolInfoResponse]:
@@ -204,7 +222,7 @@ class YAMLTaskSuite(TaskSuite):
         gt_calls: list[FunctionCall],
         predicate: Predicate,
         probes: dict[str, str],
-    ) -> type[BaseInjectionTask]:
+    ) -> type[MiDojoInjectionTask]:
         def ground_truth(self: Any, pre_environment: TaskEnvironment) -> list[FunctionCall]:
             return list(gt_calls)
 
@@ -218,7 +236,7 @@ class YAMLTaskSuite(TaskSuite):
 
         return type(
             class_name,
-            (BaseInjectionTask,),
+            (MiDojoInjectionTask,),
             {
                 "GOAL": goal,
                 "DIFFICULTY": difficulty,
