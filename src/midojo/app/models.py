@@ -78,16 +78,10 @@ class EvaluationResponse(BaseModel):
 # --- Suite / task / tool response models ---
 
 
-class InjectionVectorInfo(BaseModel):
-    description: str
-    default: str
-
-
 class SuiteInfoResponse(BaseModel):
     user_tasks: list[str]
     injection_tasks: list[str]
     tools: list[str]
-    injection_vectors: dict[str, InjectionVectorInfo]
     environment: TaskEnvironment
 
 

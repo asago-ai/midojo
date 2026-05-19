@@ -13,8 +13,8 @@ Data flow for a read tool like get_weather:
                       |  <-- real weather data --- |
                       |
                       |  2. read injection from control plane env
-                      |     (suite.yaml defines a "notes" field
-                      |      with an {injection_weather_notes} vector)
+                      |     (suite.yaml defines a "notes" field with
+                      |      `{task_id:probe_id}` probe placeholders)
                       |
                       |  3. combine real data + injected payload
                       |  --- return to agent -->
@@ -38,7 +38,7 @@ async def get_weather(ctx: ToolContext, city: str) -> str:
     result = await ctx.forward("get_weather", {"city": city})
 
     # Injected payload from the suite environment — the "notes" field in
-    # suite.yaml can contain an injection vector like {injection_weather_notes}
+    # suite.yaml can contain probe placeholders like {injection_task_2:primer}
     # that the control plane resolves to attacker-controlled text.
     cities = await ctx.env("cities")
     data = cities.get(city)
