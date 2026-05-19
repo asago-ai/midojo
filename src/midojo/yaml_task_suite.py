@@ -7,9 +7,9 @@ from typing import Any, cast
 import yaml
 from agentdojo.base_tasks import BaseInjectionTask, BaseUserTask, TaskDifficulty
 from agentdojo.functions_runtime import Function, FunctionCall, TaskEnvironment
-from agentdojo.task_suite.task_suite import TaskSuite, validate_injections
+from agentdojo.task_suite.task_suite import TaskSuite
 
-from midojo.app.models import InjectionVectorInfo, ToolInfoResponse
+from midojo.app.models import ToolInfoResponse
 from midojo.env_inference import infer_environment_type
 from midojo.predicates import Predicate, evaluate_predicate, parse_predicate
 
@@ -82,29 +82,20 @@ class YAMLTaskSuite(TaskSuite):
         return cast("dict[str, MiDojoInjectionTask]", super().injection_tasks)
 
     def load_and_inject_default_environment(self, injections: dict[str, str]) -> TaskEnvironment:
+        """Render the env template with probe payloads substituted in.
+
+        `injections` is a dict keyed by `"task_id:probe_id"`. Probes are
+        scoped to a single injection task — `{task_id:probe_id}` placeholders
+        for any task whose probe isn't in the dict collapse to "". (Typo
+        detection — a `{task:probe}` pointing at nothing — is deferred.)
+        """
         env_raw = self._suite_raw["environment"]
         env_text = yaml.dump(env_raw, default_flow_style=False)
-
-        # Split into vector-style ({vector}) and probe-style ({task:probe}) keys.
-        probe_injections = {k: v for k, v in injections.items() if ":" in k}
-        vector_injections = {k: v for k, v in injections.items() if ":" not in k}
-
-        # Probe placeholders use `:` which collides with str.format's format-spec
-        # separator, so resolve them by regex first. Probes are scoped to a
-        # single injection task — placeholders for any other task collapse to ""
-        # so e.g. injection_task_2's primer doesn't leak into a run of
-        # injection_task_0. (Typo detection — a `{task:probe}` pointing at
-        # nothing — is deferred.)
         env_text = _PROBE_PLACEHOLDER_RE.sub(
-            lambda m: probe_injections.get(f"{m.group(1)}:{m.group(2)}", ""),
+            lambda m: injections.get(f"{m.group(1)}:{m.group(2)}", ""),
             env_text,
         )
-
-        injection_vector_defaults = self.get_injection_vector_defaults()
-        injections_with_defaults = dict(injection_vector_defaults, **vector_injections)
-        validate_injections(vector_injections, injection_vector_defaults)
-        injected_text = env_text.format(**injections_with_defaults)
-        return self.environment_type.model_validate(yaml.safe_load(injected_text))
+        return self.environment_type.model_validate(yaml.safe_load(env_text))
 
     def get_probes_for_task(self, task_id: str) -> dict[str, str]:
         """Return probe payloads for an injection task, keyed as `task_id:probe_id`.
@@ -127,17 +118,6 @@ class YAMLTaskSuite(TaskSuite):
 
     def get_tool_names(self) -> list[str]:
         return [t["name"] for t in self._suite_raw.get("tools", [])]
-
-    def get_injection_vector_defaults(self) -> dict[str, str]:
-        vectors_raw = self._suite_raw.get("injection_vectors", {})
-        return {vid: vinfo["default"] for vid, vinfo in vectors_raw.items()}
-
-    def get_injection_vectors_raw(self) -> dict[str, dict[str, str]]:
-        return self._suite_raw.get("injection_vectors", {})
-
-    def get_injection_vector_info(self) -> dict[str, InjectionVectorInfo]:
-        raw = self.get_injection_vectors_raw()
-        return {vid: InjectionVectorInfo(description=v["description"], default=v["default"]) for vid, v in raw.items()}
 
     def _register_tasks(self) -> None:
         for task_raw in self._suite_raw.get("user_tasks", []):

@@ -5,13 +5,6 @@ def test_suite_info(client):
     assert "user_task_0" in data["user_tasks"]
     assert "injection_task_0" in data["injection_tasks"]
     assert "get_weather" in data["tools"]
-    assert "injection_vectors" in data
-
-
-def test_injection_vectors(client):
-    resp = client.get("/suite/injection-vectors")
-    assert resp.status_code == 200
-    assert isinstance(resp.json(), dict)
 
 
 def test_list_user_tasks(client):
