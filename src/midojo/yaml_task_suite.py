@@ -51,9 +51,11 @@ class YAMLTaskSuite(TaskSuite):
         vector_injections = {k: v for k, v in injections.items() if ":" not in k}
 
         # Probe placeholders use `:` which collides with str.format's format-spec
-        # separator, so resolve them by regex first. Unmatched `{task:probe}`
-        # tokens collapse to "" (mirrors the empty-default behavior of vectors
-        # for non-active injection tasks).
+        # separator, so resolve them by regex first. Probes are scoped to a
+        # single injection task — placeholders for any other task collapse to ""
+        # so e.g. injection_task_2's primer doesn't leak into a run of
+        # injection_task_0. (Typo detection — a `{task:probe}` pointing at
+        # nothing — is deferred.)
         env_text = _PROBE_PLACEHOLDER_RE.sub(
             lambda m: probe_injections.get(f"{m.group(1)}:{m.group(2)}", ""),
             env_text,
