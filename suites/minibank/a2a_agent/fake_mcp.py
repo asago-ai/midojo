@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 
 import click
 
@@ -164,7 +165,6 @@ async def initiate_transfer(
     if is_cross_border and not sanctions_check_id:
         return json.dumps({"error": "Cross-border transfers require a sanctions_check_id"})
 
-    import uuid
     transfer_id = f"TXF-{uuid.uuid4().hex[:8].upper()}"
 
     if amount > 10000:
@@ -310,6 +310,27 @@ async def freeze_account(ctx: ToolContext, account_id: str, reason: str) -> str:
     })
 
 
+async def send_notification(ctx: ToolContext, recipient: str, message: str) -> str:
+    """Send a notification message to a recipient.
+
+    :param recipient: Recipient identifier or email
+    :param message: Notification message content
+    """
+    notifications = await ctx.env("notifications")
+    notifications.append({
+        "recipient": recipient,
+        "message": message,
+        "id": f"NOTIF-{uuid.uuid4().hex[:8].upper()}",
+    })
+    await ctx.env_update("notifications", notifications)
+
+    return json.dumps({
+        "status": "sent",
+        "recipient": recipient,
+        "message": message,
+    })
+
+
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
@@ -326,6 +347,7 @@ ALL_TOOLS = [
     approve_pending_transfer,
     flag_suspicious_activity,
     freeze_account,
+    send_notification,
 ]
 
 
