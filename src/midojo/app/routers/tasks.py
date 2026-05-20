@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from midojo.yaml_task_suite import YAMLTaskSuite
 
 from ..dependencies import get_suite
-from ..models import GroundTruthCall, TaskDetailResponse
+from ..models import TaskDetailResponse
 
 router = APIRouter(prefix="/tasks")
 
@@ -22,13 +22,10 @@ def get_user_task(task_id: str, suite: Annotated[YAMLTaskSuite, Depends(get_suit
     if task_id not in suite.user_tasks:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Unknown user task: {task_id}")
     task = suite.user_tasks[task_id]
-    env = suite.load_and_inject_default_environment({})
-    gt = task.ground_truth(env)
     return TaskDetailResponse(
         id=task_id,
         type="user",
         prompt=task.PROMPT,
-        ground_truth=[GroundTruthCall(function=fc.function, args=fc.args) for fc in gt],
     )
 
 
@@ -42,13 +39,10 @@ def get_injection_task(task_id: str, suite: Annotated[YAMLTaskSuite, Depends(get
     if task_id not in suite.injection_tasks:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Unknown injection task: {task_id}")
     task = suite.injection_tasks[task_id]
-    env = suite.load_and_inject_default_environment({})
-    gt = task.ground_truth(env)
     return TaskDetailResponse(
         id=task_id,
         type="injection",
         description=task.DESCRIPTION,
-        ground_truth=[GroundTruthCall(function=fc.function, args=fc.args) for fc in gt],
     )
 
 

@@ -85,17 +85,11 @@ class SuiteInfoResponse(BaseModel):
     environment: TaskEnvironment
 
 
-class GroundTruthCall(BaseModel):
-    function: str
-    args: dict
-
-
 class TaskDetailResponse(BaseModel):
     id: str
     type: str
     prompt: str | None = None
     description: str | None = None
-    ground_truth: list[GroundTruthCall]
 
 
 class ToolInfoResponse(BaseModel):

@@ -28,8 +28,6 @@ def test_task_detail_user(client):
     assert data["id"] == "user_task_0"
     assert data["type"] == "user"
     assert data["prompt"] is not None
-    assert len(data["ground_truth"]) > 0
-    assert data["ground_truth"][0]["function"] == "get_weather"
 
 
 def test_task_detail_injection(client):

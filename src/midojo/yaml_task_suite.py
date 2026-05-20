@@ -6,7 +6,7 @@ from typing import Any, cast
 
 import yaml
 from agentdojo.base_tasks import BaseInjectionTask, BaseUserTask
-from agentdojo.functions_runtime import FunctionCall, TaskEnvironment
+from agentdojo.functions_runtime import TaskEnvironment
 from agentdojo.task_suite.task_suite import TaskSuite
 
 from midojo.app.models import ToolInfoResponse
@@ -115,14 +115,11 @@ class YAMLTaskSuite(TaskSuite):
         for task_raw in self._suite_raw.get("user_tasks", []):
             task_id = task_raw["id"]
             class_name = self._task_id_to_class_name(task_id, "UserTask")
-            gt_calls = self._parse_ground_truth_calls(task_raw.get("ground_truth", []))
             predicate = parse_predicate(task_raw["utility"])
 
             cls = self._make_user_task_class(
                 class_name=class_name,
                 prompt=task_raw["prompt"],
-                ground_truth_output=task_raw.get("ground_truth_output", ""),
-                gt_calls=gt_calls,
                 predicate=predicate,
             )
             self.register_user_task(cls)
@@ -130,29 +127,16 @@ class YAMLTaskSuite(TaskSuite):
         for task_raw in self._suite_raw.get("injection_tasks", []):
             task_id = task_raw["id"]
             class_name = self._task_id_to_class_name(task_id, "InjectionTask")
-            gt_calls = self._parse_ground_truth_calls(task_raw.get("ground_truth", []))
             predicate = parse_predicate(task_raw["security"])
             probes = self._parse_probes(task_id, task_raw.get("probes", {}))
 
             cls = self._make_injection_task_class(
                 class_name=class_name,
                 description=task_raw["description"],
-                gt_calls=gt_calls,
                 predicate=predicate,
                 probes=probes,
             )
             self.register_injection_task(cls)
-
-    @staticmethod
-    def _parse_ground_truth_calls(raw_list: list[dict]) -> list[FunctionCall]:
-        return [
-            FunctionCall(
-                function=item["function"],
-                args=item.get("args", {}),
-                placeholder_args=item.get("placeholder_args"),
-            )
-            for item in raw_list
-        ]
 
     @staticmethod
     def _parse_probes(task_id: str, raw: dict[str, dict]) -> dict[str, str]:
@@ -177,12 +161,10 @@ class YAMLTaskSuite(TaskSuite):
     def _make_user_task_class(
         class_name: str,
         prompt: str,
-        ground_truth_output: str,
-        gt_calls: list[FunctionCall],
         predicate: Predicate,
     ) -> type[BaseUserTask]:
-        def ground_truth(self: Any, pre_environment: TaskEnvironment) -> list[FunctionCall]:
-            return list(gt_calls)
+        def ground_truth(self: Any, pre_environment: TaskEnvironment) -> list:
+            return []
 
         def utility(
             self: Any,
@@ -198,7 +180,6 @@ class YAMLTaskSuite(TaskSuite):
             (BaseUserTask,),
             {
                 "PROMPT": prompt,
-                "GROUND_TRUTH_OUTPUT": ground_truth_output,
                 "ground_truth": ground_truth,
                 "utility": utility,
             },
@@ -208,12 +189,11 @@ class YAMLTaskSuite(TaskSuite):
     def _make_injection_task_class(
         class_name: str,
         description: str,
-        gt_calls: list[FunctionCall],
         predicate: Predicate,
         probes: dict[str, str],
     ) -> type[MiDojoInjectionTask]:
-        def ground_truth(self: Any, pre_environment: TaskEnvironment) -> list[FunctionCall]:
-            return list(gt_calls)
+        def ground_truth(self: Any, pre_environment: TaskEnvironment) -> list:
+            return []
 
         def security(
             self: Any,

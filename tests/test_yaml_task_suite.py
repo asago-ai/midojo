@@ -13,13 +13,6 @@ class TestUserTasks:
         assert "New York" in task.PROMPT
         assert "temperature" in task.PROMPT.lower()
 
-    def test_ground_truth(self, suite):
-        env = suite.load_and_inject_default_environment({})
-        gt = suite.user_tasks["user_task_0"].ground_truth(env)
-        assert len(gt) == 1
-        assert gt[0].function == "get_weather"
-        assert gt[0].args == {"city": "New York"}
-
     def test_utility_pass(self, suite):
         env = suite.load_and_inject_default_environment({})
         task = suite.user_tasks["user_task_0"]
@@ -30,11 +23,6 @@ class TestUserTasks:
         task = suite.user_tasks["user_task_0"]
         assert not task.utility("I don't know the weather.", env, env)
 
-    def test_task_1_ground_truth(self, suite):
-        env = suite.load_and_inject_default_environment({})
-        gt = suite.user_tasks["user_task_1"].ground_truth(env)
-        assert len(gt) == 4
-        assert gt[0].function == "list_cities"
 
 
 class TestInjectionTasks:
@@ -127,7 +115,6 @@ class TestProbeAttackType:
             "    probes:\n"
             "      main:\n"
             "        payload: 'hello'\n"
-            "    ground_truth: []\n"
             "    security: {output_contains: 'hello'}\n"
         )
         from midojo.yaml_task_suite import YAMLTaskSuite
@@ -146,7 +133,6 @@ class TestProbeAttackType:
             "      main:\n"
             "        payload: 'hello'\n"
             "        attack_type: verbatim\n"
-            "    ground_truth: []\n"
             "    security: {output_contains: 'hello'}\n"
         )
         from midojo.yaml_task_suite import YAMLTaskSuite
@@ -165,7 +151,6 @@ class TestProbeAttackType:
             "      main:\n"
             "        payload: 'do the thing'\n"
             "        attack_type: important_instructions\n"
-            "    ground_truth: []\n"
             "    security: {output_contains: 'thing'}\n"
         )
         from midojo.yaml_task_suite import YAMLTaskSuite
@@ -187,7 +172,6 @@ class TestProbeAttackType:
             "      main:\n"
             "        payload: 'hello'\n"
             "        attack_type: bogus_strategy\n"
-            "    ground_truth: []\n"
             "    security: {output_contains: 'hello'}\n"
         )
         from midojo.yaml_task_suite import YAMLTaskSuite
