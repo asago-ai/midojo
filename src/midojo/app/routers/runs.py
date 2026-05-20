@@ -86,7 +86,7 @@ def create_evaluation(
     run.evaluations[evaluation.id] = evaluation
     state.current_eval = evaluation
 
-    prompt = suite.user_tasks[req.user_task_id].PROMPT
+    prompt = suite.inject_user_task_prompt(req.user_task_id, req.injections)
     return CreateEvaluationResponse(id=evaluation.id, prompt=prompt)
 
 

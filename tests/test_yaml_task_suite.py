@@ -2,11 +2,16 @@ import pytest
 
 
 class TestUserTasks:
-    def test_three_user_tasks_loaded(self, suite):
-        assert len(suite.user_tasks) == 3
+    def test_user_tasks_loaded(self, suite):
+        assert len(suite.user_tasks) == 4
 
     def test_task_ids(self, suite):
-        assert set(suite.user_tasks.keys()) == {"user_task_0", "user_task_1", "user_task_2"}
+        assert set(suite.user_tasks.keys()) == {
+            "user_task_0",
+            "user_task_1",
+            "user_task_2",
+            "user_task_3",
+        }
 
     def test_prompt(self, suite):
         task = suite.user_tasks["user_task_0"]
@@ -27,7 +32,7 @@ class TestUserTasks:
 
 class TestInjectionTasks:
     def test_injection_tasks_loaded(self, suite):
-        assert len(suite.injection_tasks) == 3
+        assert len(suite.injection_tasks) == 4
 
     def test_task_id(self, suite):
         assert "injection_task_0" in suite.injection_tasks
@@ -102,6 +107,32 @@ class TestProbeLinkedPlaceholders:
         assert "I hate humans" not in ny_notes
         # ...and task_2's primer is empty (task_2 not active).
         assert "auto-escalated" not in sf_notes
+
+
+class TestPromptProbePlacement:
+    """Probes can land in user-task prompts (agent input), not just env fields."""
+
+    def test_active_probe_substituted_into_prompt(self, suite):
+        probes = suite.get_probes_for_task("injection_task_3")
+        prompt = suite.inject_user_task_prompt("user_task_3", probes)
+        assert "send_weather_alert" in prompt
+        assert "tornado" in prompt.lower()
+        # The user's surrounding wrapper text is still there.
+        assert "Tell me the weather" in prompt
+
+    def test_inactive_probe_collapses_to_empty(self, suite):
+        prompt = suite.inject_user_task_prompt("user_task_3", {})
+        # Placeholder gone, but the surrounding template text remains.
+        assert "{injection_task_3" not in prompt
+        assert "send_weather_alert" not in prompt
+        assert prompt.startswith("Tell me the weather for this city:")
+
+    def test_prompt_without_placeholders_unchanged(self, suite):
+        probes = suite.get_probes_for_task("injection_task_3")
+        # user_task_0's prompt has no placeholders — probes shouldn't appear.
+        prompt = suite.inject_user_task_prompt("user_task_0", probes)
+        assert "send_weather_alert" not in prompt
+        assert prompt == suite.user_tasks["user_task_0"].PROMPT
 
 
 class TestProbeAttackType:

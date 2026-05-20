@@ -315,3 +315,32 @@ def test_current_follows_eval_switch(client):
     assert eval1_calls[0]["result"] == "first eval"
     assert len(eval2_calls) == 1
     assert eval2_calls[0]["result"] == "second eval"
+
+
+def test_create_evaluation_substitutes_prompt_probe_placeholder(client):
+    """When a user task's prompt contains {task:probe}, the substituted prompt is returned."""
+    run_id = _create_run(client)
+    data = _create_evaluation(
+        client,
+        run_id,
+        user_task_id="user_task_3",
+        injection_task_id="injection_task_3",
+        injections={"injection_task_3:embedded": "POISONED CITY NAME"},
+    )
+    assert "POISONED CITY NAME" in data["prompt"]
+    assert "{injection_task_3" not in data["prompt"]
+
+
+def test_create_evaluation_prompt_placeholder_collapses_for_inactive_task(client):
+    """user_task_3's prompt placeholder collapses to "" when paired with another task."""
+    run_id = _create_run(client)
+    data = _create_evaluation(
+        client,
+        run_id,
+        user_task_id="user_task_3",
+        injection_task_id="injection_task_0",
+        injections={"injection_task_0:main": "anything"},
+    )
+    assert "{injection_task_3" not in data["prompt"]
+    # The placeholder is gone; the surrounding template text remains.
+    assert data["prompt"].startswith("Tell me the weather for this city:")
