@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List
 
-from suites.minibank.bank_state import (
+from suites.minibank.real_environment.bank_state import (
     BankState, PendingTransfer, Transaction,
     DUAL_AUTH_THRESHOLD, SANCTIONS_COUNTRIES, SANCTIONS_ENTITIES,
 )

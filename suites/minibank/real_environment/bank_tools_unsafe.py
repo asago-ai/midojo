@@ -23,7 +23,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List
 
-from suites.minibank.bank_state import (
+from suites.minibank.real_environment.bank_state import (
     BankState, PendingTransfer, Transaction,
     DUAL_AUTH_THRESHOLD, SANCTIONS_COUNTRIES, SANCTIONS_ENTITIES,
 )
@@ -31,7 +31,7 @@ from suites.minibank.bank_state import (
 
 def get_tool_definitions() -> List[dict]:
     """Same schema as safe version — model sees identical tools."""
-    from suites.minibank.bank_tools import get_tool_definitions as _get
+    from suites.minibank.real_environment.bank_tools import get_tool_definitions as _get
     return _get()
 
 

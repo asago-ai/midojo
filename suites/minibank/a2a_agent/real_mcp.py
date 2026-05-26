@@ -16,7 +16,7 @@ from typing import Optional
 import click
 from fastmcp import FastMCP
 
-from suites.minibank.bank_state import BankState
+from suites.minibank.real_environment.bank_state import BankState
 
 mcp = FastMCP("MiniBank")
 
@@ -27,7 +27,7 @@ _executor = None  # initialized in main() based on --unsafe flag
 def _get_executor():
     global _executor
     if _executor is None:
-        from suites.minibank.bank_tools import BankToolExecutor
+        from suites.minibank.real_environment.bank_tools import BankToolExecutor
         _executor = BankToolExecutor(_state)
     return _executor
 
@@ -234,9 +234,9 @@ def main(host: str, port: int, unsafe: bool) -> None:
 
     global _executor
     if unsafe:
-        from suites.minibank.bank_tools_unsafe import BankToolExecutor
+        from suites.minibank.real_environment.bank_tools_unsafe import BankToolExecutor
     else:
-        from suites.minibank.bank_tools import BankToolExecutor
+        from suites.minibank.real_environment.bank_tools import BankToolExecutor
     _executor = BankToolExecutor(_state)
 
     app = mcp.http_app(path="/mcp")
