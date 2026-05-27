@@ -54,8 +54,7 @@ class CreateFunctionCallRecord(BaseModel):
 
 
 class FunctionCallRecord(CreateFunctionCallRecord):
-    """A recorded function call execution, distinct from agentdojo's
-    FunctionCall which represents just the intent (function + args)."""
+    """A recorded function call execution (function + args + result + env snapshots)."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

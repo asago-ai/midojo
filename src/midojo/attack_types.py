@@ -6,13 +6,12 @@ of available vehicles.
 
 A vehicle is just `Callable[[str], str]` — take a payload, return a wrapped
 payload. Wrapping happens once at suite-load time inside
-`YAMLTaskSuite._parse_probes`, so `MiDojoInjectionTask.PROBES` already holds
-final, ready-to-substitute strings.
+`_parse_probes`, so `InjectionTask.probes` already holds final,
+ready-to-substitute strings.
 
 Templates that would otherwise need runtime context (the target model name,
 the user's name, the user task) use hardcoded generic stand-ins like
-``"Emma Johnson"`` and ``"the AI language model"``. This mirrors agentdojo's
-``ImportantInstructionsAttackNoModelName`` / ``...NoUserName`` variants.
+``"Emma Johnson"`` and ``"the AI language model"``.
 """
 
 from __future__ import annotations

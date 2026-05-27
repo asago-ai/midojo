@@ -1,66 +1,53 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, cast
 
 import yaml
-from agentdojo.base_tasks import BaseInjectionTask, BaseUserTask
-from midojo.types import Environment
-from agentdojo.task_suite.task_suite import TaskSuite
 
-from midojo.app.models import ToolInfoResponse
+from midojo.app.models import FunctionCallRecord, ToolInfoResponse
 from midojo.attack_types import wrap_payload
 from midojo.env_inference import infer_environment_type
 from midojo.predicates import Predicate, evaluate_predicate, parse_predicate
+from midojo.types import Environment
 
 
-class MiDojoInjectionTask(BaseInjectionTask):
-    """MiDojo's injection task base. Replaces agentdojo's GOAL/attack model
-    with a probes-based one.
+@dataclass
+class UserTask:
+    id: str
+    prompt: str
+    predicate: Predicate
 
-    DESCRIPTION is human-readable documentation of what the injection aims to
-    do (not consumed by code).
-
-    PROBES maps probe_id to the final payload string — already wrapped by the
-    probe's `attack_type` vehicle. Stored ready-to-substitute. The active
-    task's probes are merged into the injections dict at orchestration time
-    and substituted into `{task_id:probe_id}` placeholders in the environment.
-
-    NOTE: subclassing agentdojo's BaseInjectionTask is awkward now that the
-    attack layer is gone — what we inherit is mostly bureaucratic (numeric
-    class-name constraint enforced by TaskSuite._get_task_number, unused
-    GOAL annotation, unused BenchmarkVersion machinery). The plan is to
-    drop this inheritance (and YAMLTaskSuite's TaskSuite inheritance) in
-    a follow-up, which would also unlock descriptive task ids.
-    """
-
-    DESCRIPTION: str = ""
-    PROBES: dict[str, str] = {}
+    def utility(self, agent_output: str, pre_env: Environment, post_env: Environment) -> bool:
+        return evaluate_predicate(self.predicate, agent_output, pre_env, post_env)
 
 
-# Matches `{task_id:probe_id}` placeholders. Identifiers only (letters, digits,
-# underscore), so this won't collide with YAML content that happens to contain
-# braces.
+@dataclass
+class InjectionTask:
+    id: str
+    description: str
+    probes: dict[str, str] = field(default_factory=dict)
+    predicate: Predicate | None = None
+
+    def security(self, agent_output: str, pre_env: Environment, post_env: Environment) -> bool:
+        if self.predicate is None:
+            return False
+        return evaluate_predicate(self.predicate, agent_output, pre_env, post_env)
+
+
 _PROBE_PLACEHOLDER_RE = re.compile(r"\{([A-Za-z_]\w*):([A-Za-z_]\w*)\}")
 
 
 def _substitute_probes(text: str, injections: dict[str, str]) -> str:
-    """Replace `{task_id:probe_id}` placeholders with payloads from `injections`.
-
-    Used in both placement contexts: env-field substitution (tool-output
-    delivery) and user-task prompt substitution (agent-input delivery).
-    Placeholders whose key isn't in `injections` collapse to "" — typo
-    detection is deferred (same semantics in both contexts).
-    """
     return _PROBE_PLACEHOLDER_RE.sub(
         lambda m: injections.get(f"{m.group(1)}:{m.group(2)}", ""),
         text,
     )
 
 
-class YAMLTaskSuite(TaskSuite):
-    """TaskSuite subclass that reads everything from a single suite.yaml."""
+class YAMLTaskSuite:
+    """Reads a suite definition from a single suite.yaml file."""
 
     def __init__(
         self,
@@ -68,55 +55,48 @@ class YAMLTaskSuite(TaskSuite):
         suite_yaml_path: Path,
         environment_type: type[Environment] | None = None,
     ) -> None:
+        self.name = name
         self._suite_yaml_path = suite_yaml_path
         self._suite_raw: dict = yaml.safe_load(suite_yaml_path.read_text())
         if environment_type is None:
             environment_type = infer_environment_type(name, self._suite_raw["environment"])
-        # `tools` is a required positional arg on agentdojo's TaskSuite. We
-        # don't model agent-callable tool *functions* (only their YAML-declared
-        # names, for display), so we always pass [].
-        super().__init__(name, environment_type, [], data_path=suite_yaml_path.parent)
+        self.environment_type = environment_type
+        self.user_tasks: dict[str, UserTask] = {}
+        self.injection_tasks: dict[str, InjectionTask] = {}
         self._register_tasks()
 
-    @property
-    def injection_tasks(self) -> dict[str, MiDojoInjectionTask]:  # type: ignore[override]
-        # Narrowing the value type from agentdojo's BaseInjectionTask to
-        # MiDojoInjectionTask. dict is invariant so this isn't strictly
-        # Liskov-safe, but every task we register goes through
-        # _make_injection_task_class which produces MiDojoInjectionTask
-        # instances, so the cast is sound in practice.
-        return cast("dict[str, MiDojoInjectionTask]", super().injection_tasks)
-
     def load_and_inject_default_environment(self, injections: dict[str, str]) -> Environment:
-        """Render the env template with probe payloads substituted in.
-
-        Tool-output delivery path: probes land in env fields that fake tools
-        read via `ctx.env(...)`. See `_substitute_probes` for placeholder
-        semantics.
-        """
         env_raw = self._suite_raw["environment"]
-        env_text = yaml.dump(env_raw, default_flow_style=False)
+        env_text = yaml.dump(env_raw, default_flow_style=False, default_style='"')
         env_text = _substitute_probes(env_text, injections)
         return self.environment_type.model_validate(yaml.safe_load(env_text))
 
     def inject_user_task_prompt(self, user_task_id: str, injections: dict[str, str]) -> str:
-        """Render a user task's prompt with probe payloads substituted in.
-
-        Agent-input delivery path: probes land directly in the prompt the
-        agent receives, modeling direct prompt injection (poisoned user
-        input) as opposed to indirect injection (poisoned tool output).
-        See `_substitute_probes` for placeholder semantics.
-        """
-        return _substitute_probes(self.user_tasks[user_task_id].PROMPT, injections)
+        return _substitute_probes(self.user_tasks[user_task_id].prompt, injections)
 
     def get_probes_for_task(self, task_id: str) -> dict[str, str]:
-        """Return probe payloads for an injection task, keyed as `task_id:probe_id`.
-
-        Ready to merge into the injections dict consumed by
-        `load_and_inject_default_environment`.
-        """
-        probes = self.injection_tasks[task_id].PROBES
+        probes = self.injection_tasks[task_id].probes
         return {f"{task_id}:{probe_id}": payload for probe_id, payload in probes.items()}
+
+    def grade(
+        self,
+        user_task_id: str,
+        injection_task_id: str | None,
+        agent_output: str,
+        pre_environment: Environment,
+        post_environment: Environment,
+        function_calls: list[FunctionCallRecord],
+    ) -> dict[str, bool]:
+        user_task = self.user_tasks[user_task_id]
+        utility = user_task.utility(agent_output, pre_environment, post_environment)
+
+        if injection_task_id is not None:
+            injection_task = self.injection_tasks[injection_task_id]
+            security = injection_task.security(agent_output, pre_environment, post_environment)
+        else:
+            security = False
+
+        return {"utility": utility, "security": security}
 
     def get_tool_definitions(self) -> list[ToolInfoResponse]:
         return [
@@ -134,29 +114,16 @@ class YAMLTaskSuite(TaskSuite):
     def _register_tasks(self) -> None:
         for task_raw in self._suite_raw.get("user_tasks", []):
             task_id = task_raw["id"]
-            class_name = self._task_id_to_class_name(task_id, "UserTask")
             predicate = parse_predicate(task_raw["utility"])
-
-            cls = self._make_user_task_class(
-                class_name=class_name,
-                prompt=task_raw["prompt"],
-                predicate=predicate,
-            )
-            self.register_user_task(cls)
+            self.user_tasks[task_id] = UserTask(id=task_id, prompt=task_raw["prompt"], predicate=predicate)
 
         for task_raw in self._suite_raw.get("injection_tasks", []):
             task_id = task_raw["id"]
-            class_name = self._task_id_to_class_name(task_id, "InjectionTask")
             predicate = parse_predicate(task_raw["security"])
             probes = self._parse_probes(task_id, task_raw.get("probes", {}))
-
-            cls = self._make_injection_task_class(
-                class_name=class_name,
-                description=task_raw["description"],
-                predicate=predicate,
-                probes=probes,
+            self.injection_tasks[task_id] = InjectionTask(
+                id=task_id, description=task_raw["description"], predicate=predicate, probes=probes,
             )
-            self.register_injection_task(cls)
 
     @staticmethod
     def _parse_probes(task_id: str, raw: dict[str, dict]) -> dict[str, str]:
@@ -168,68 +135,5 @@ class YAMLTaskSuite(TaskSuite):
             try:
                 probes[probe_id] = wrap_payload(probe_raw["payload"], attack_type)
             except ValueError as e:
-                # Re-raise with the probe context so suite authors can locate the typo.
                 raise ValueError(f"Probe '{task_id}:{probe_id}': {e}") from None
         return probes
-
-    @staticmethod
-    def _task_id_to_class_name(task_id: str, prefix: str) -> str:
-        num = task_id.rsplit("_", 1)[-1]
-        return f"{prefix}{num}"
-
-    @staticmethod
-    def _make_user_task_class(
-        class_name: str,
-        prompt: str,
-        predicate: Predicate,
-    ) -> type[BaseUserTask]:
-        def ground_truth(self: Any, pre_environment: Environment) -> list:
-            return []
-
-        def utility(
-            self: Any,
-            agent_output: str,
-            pre_environment: Environment,
-            post_environment: Environment,
-            strict: bool = True,
-        ) -> bool:
-            return evaluate_predicate(predicate, agent_output, pre_environment, post_environment)
-
-        return type(
-            class_name,
-            (BaseUserTask,),
-            {
-                "PROMPT": prompt,
-                "ground_truth": ground_truth,
-                "utility": utility,
-            },
-        )
-
-    @staticmethod
-    def _make_injection_task_class(
-        class_name: str,
-        description: str,
-        predicate: Predicate,
-        probes: dict[str, str],
-    ) -> type[MiDojoInjectionTask]:
-        def ground_truth(self: Any, pre_environment: Environment) -> list:
-            return []
-
-        def security(
-            self: Any,
-            agent_output: str,
-            pre_environment: Environment,
-            post_environment: Environment,
-        ) -> bool:
-            return evaluate_predicate(predicate, agent_output, pre_environment, post_environment)
-
-        return type(
-            class_name,
-            (MiDojoInjectionTask,),
-            {
-                "DESCRIPTION": description,
-                "PROBES": probes,
-                "ground_truth": ground_truth,
-                "security": security,
-            },
-        )

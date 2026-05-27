@@ -25,7 +25,7 @@ def get_user_task(task_id: str, suite: Annotated[YAMLTaskSuite, Depends(get_suit
     return TaskDetailResponse(
         id=task_id,
         type="user",
-        prompt=task.PROMPT,
+        prompt=task.prompt,
     )
 
 
@@ -42,7 +42,7 @@ def get_injection_task(task_id: str, suite: Annotated[YAMLTaskSuite, Depends(get
     return TaskDetailResponse(
         id=task_id,
         type="injection",
-        description=task.DESCRIPTION,
+        description=task.description,
     )
 
 

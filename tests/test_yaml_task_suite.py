@@ -15,8 +15,8 @@ class TestUserTasks:
 
     def test_prompt(self, suite):
         task = suite.user_tasks["user_task_0"]
-        assert "New York" in task.PROMPT
-        assert "temperature" in task.PROMPT.lower()
+        assert "New York" in task.prompt
+        assert "temperature" in task.prompt.lower()
 
     def test_utility_pass(self, suite):
         env = suite.load_and_inject_default_environment({})
@@ -39,12 +39,12 @@ class TestInjectionTasks:
 
     def test_description(self, suite):
         task = suite.injection_tasks["injection_task_0"]
-        assert "tornado" in task.DESCRIPTION.lower()
+        assert "tornado" in task.description.lower()
 
     def test_task_0_has_main_probe(self, suite):
         task = suite.injection_tasks["injection_task_0"]
-        assert set(task.PROBES.keys()) == {"main"}
-        assert "send_weather_alert" in task.PROBES["main"]
+        assert set(task.probes.keys()) == {"main"}
+        assert "send_weather_alert" in task.probes["main"]
 
     def test_security_pass(self, suite):
         env = suite.load_and_inject_default_environment({})
@@ -72,8 +72,8 @@ class TestInjectionTasks:
 class TestProbeLinkedPlaceholders:
     def test_probes_loaded_on_task(self, suite):
         task = suite.injection_tasks["injection_task_2"]
-        assert set(task.PROBES.keys()) == {"primer", "exploit"}
-        assert "auto-escalated" in task.PROBES["primer"]
+        assert set(task.probes.keys()) == {"primer", "exploit"}
+        assert "auto-escalated" in task.probes["primer"]
 
     def test_get_probes_for_task_returns_namespaced_keys(self, suite):
         probes = suite.get_probes_for_task("injection_task_2")
@@ -132,7 +132,7 @@ class TestPromptProbePlacement:
         # user_task_0's prompt has no placeholders — probes shouldn't appear.
         prompt = suite.inject_user_task_prompt("user_task_0", probes)
         assert "send_weather_alert" not in prompt
-        assert prompt == suite.user_tasks["user_task_0"].PROMPT
+        assert prompt == suite.user_tasks["user_task_0"].prompt
 
 
 class TestProbeAttackType:
@@ -151,7 +151,7 @@ class TestProbeAttackType:
         from midojo.yaml_task_suite import YAMLTaskSuite
 
         suite = YAMLTaskSuite("test", suite_yaml)
-        assert suite.injection_tasks["injection_task_0"].PROBES == {"main": "hello"}
+        assert suite.injection_tasks["injection_task_0"].probes == {"main": "hello"}
 
     def test_explicit_attack_type_verbatim_accepted(self, tmp_path):
         suite_yaml = tmp_path / "suite.yaml"
@@ -169,7 +169,7 @@ class TestProbeAttackType:
         from midojo.yaml_task_suite import YAMLTaskSuite
 
         suite = YAMLTaskSuite("test", suite_yaml)
-        assert suite.injection_tasks["injection_task_0"].PROBES == {"main": "hello"}
+        assert suite.injection_tasks["injection_task_0"].probes == {"main": "hello"}
 
     def test_important_instructions_attack_type_wraps_at_suite_load(self, tmp_path):
         suite_yaml = tmp_path / "suite.yaml"
@@ -187,7 +187,7 @@ class TestProbeAttackType:
         from midojo.yaml_task_suite import YAMLTaskSuite
 
         suite = YAMLTaskSuite("test", suite_yaml)
-        wrapped = suite.injection_tasks["injection_task_0"].PROBES["main"]
+        wrapped = suite.injection_tasks["injection_task_0"].probes["main"]
         assert "do the thing" in wrapped
         assert "Emma Johnson" in wrapped
         assert "<INFORMATION>" in wrapped

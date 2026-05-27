@@ -7,8 +7,6 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from midojo.yaml_task_suite import YAMLTaskSuite
 
-from midojo.grading import grade_task
-
 from .. import state
 from ..dependencies import get_current_evaluation, get_evaluation_by_id, get_run, get_suite
 from ..models import (
@@ -131,8 +129,7 @@ def grade_evaluation(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Evaluation not completed. Call complete first."
         )
 
-    result = grade_task(
-        suite=suite,
+    result = suite.grade(
         user_task_id=evaluation.user_task_id,
         injection_task_id=evaluation.injection_task_id,
         agent_output=evaluation.agent_output or "",

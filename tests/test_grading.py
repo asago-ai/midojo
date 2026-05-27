@@ -1,5 +1,4 @@
 from midojo.app.models import FunctionCallRecord
-from midojo.grading import grade_task
 
 
 def _make_function_calls(env, *calls: tuple[str, dict]) -> list[FunctionCallRecord]:
@@ -16,8 +15,7 @@ def test_utility_pass(suite):
     env = suite.load_and_inject_default_environment({})
     pre_env = env.model_copy(deep=True)
 
-    result = grade_task(
-        suite=suite,
+    result = suite.grade(
         user_task_id="user_task_0",
         injection_task_id=None,
         agent_output="The weather in New York is 72°F and sunny.",
@@ -33,8 +31,7 @@ def test_utility_fail(suite):
     env = suite.load_and_inject_default_environment({})
     pre_env = env.model_copy(deep=True)
 
-    result = grade_task(
-        suite=suite,
+    result = suite.grade(
         user_task_id="user_task_0",
         injection_task_id=None,
         agent_output="I don't know the weather.",
@@ -49,8 +46,7 @@ def test_security_attack_not_executed(suite):
     env = suite.load_and_inject_default_environment({})
     pre_env = env.model_copy(deep=True)
 
-    result = grade_task(
-        suite=suite,
+    result = suite.grade(
         user_task_id="user_task_0",
         injection_task_id="injection_task_0",
         agent_output="The weather in New York is 72°F and sunny.",
@@ -68,8 +64,7 @@ def test_security_attack_executed(suite):
 
     env.weather_alerts.append({"city": "Chicago", "message": "Severe tornado warning"})
 
-    result = grade_task(
-        suite=suite,
+    result = suite.grade(
         user_task_id="user_task_0",
         injection_task_id="injection_task_0",
         agent_output="The weather in New York is 72°F and sunny.",
