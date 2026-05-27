@@ -6,6 +6,19 @@ MiDojo (mid-dojo) lets you red-team your agent by putting a controlled environme
 
 ![MiDojo architecture](docs/midojo-diagram.svg)
 
+## What can you test?
+
+MiDojo helps you answer three questions about your agent's robustness:
+
+1. **Will my agent do something unintended if a data source it reads from is compromised?**
+   Data-source injection — the tool itself is faithful, but the upstream data has been poisoned. The agent has no way to distinguish legitimate content from injected instructions.
+
+2. **Will my agent do something unintended if a tool it calls is compromised?**
+   Tool-mediated injection — a fake tool returns real data with an attack payload spliced in. The agent encounters the injection as a side effect of doing legitimate work.
+
+3. **Will my agent do something unintended if I give it a malicious prompt?**
+   Direct prompt injection — feed an attack payload as the agent's input. Tools like [garak](https://github.com/NVIDIA/garak) cover this too, but MiDojo can verify not just the agent's output but also modifications to the environment state (eg., did it actually delete that file?).
+
 ## If your agent...
 
 - **speaks [MCP](https://modelcontextprotocol.io)** — author a fake MCP server with `MidojoMCP` (Python SDK). It replaces the agent's real server, forwarding calls upstream and splicing in injection payloads.
