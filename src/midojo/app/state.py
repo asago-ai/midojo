@@ -34,7 +34,8 @@ class Evaluation:
     pre_environment: TaskEnvironment
     environment: TaskEnvironment
     function_calls: list[FunctionCallRecord] = field(default_factory=list)
-    model_output: str | None = None
+    agent_input: str | None = None
+    agent_output: str | None = None
     completed: bool = False
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     active_injections: dict[str, str] = field(default_factory=dict)

@@ -12,14 +12,14 @@ def grade_task(
     suite: YAMLTaskSuite,
     user_task_id: str,
     injection_task_id: str | None,
-    model_output: str,
+    agent_output: str,
     pre_environment: TaskEnvironment,
     post_environment: TaskEnvironment,
     function_calls: list[FunctionCallRecord],
 ) -> dict[str, bool]:
     # agentdojo's _check_task_result expects a list of MessageContentBlock
     # TypedDicts; at runtime that's just a plain dict with type + content keys.
-    output_content = [{"type": "text", "content": model_output}]
+    output_content = [{"type": "text", "content": agent_output}]
     agentdojo_calls = _to_agentdojo_function_calls(function_calls)
 
     user_task = suite.user_tasks[user_task_id]

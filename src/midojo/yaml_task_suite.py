@@ -45,6 +45,20 @@ class MiDojoInjectionTask(BaseInjectionTask):
 _PROBE_PLACEHOLDER_RE = re.compile(r"\{([A-Za-z_]\w*):([A-Za-z_]\w*)\}")
 
 
+def _substitute_probes(text: str, injections: dict[str, str]) -> str:
+    """Replace `{task_id:probe_id}` placeholders with payloads from `injections`.
+
+    Used in both placement contexts: env-field substitution (tool-output
+    delivery) and user-task prompt substitution (agent-input delivery).
+    Placeholders whose key isn't in `injections` collapse to "" — typo
+    detection is deferred (same semantics in both contexts).
+    """
+    return _PROBE_PLACEHOLDER_RE.sub(
+        lambda m: injections.get(f"{m.group(1)}:{m.group(2)}", ""),
+        text,
+    )
+
+
 class YAMLTaskSuite(TaskSuite):
     """TaskSuite subclass that reads everything from a single suite.yaml."""
 
@@ -76,18 +90,24 @@ class YAMLTaskSuite(TaskSuite):
     def load_and_inject_default_environment(self, injections: dict[str, str]) -> TaskEnvironment:
         """Render the env template with probe payloads substituted in.
 
-        `injections` is a dict keyed by `"task_id:probe_id"`. Probes are
-        scoped to a single injection task — `{task_id:probe_id}` placeholders
-        for any task whose probe isn't in the dict collapse to "". (Typo
-        detection — a `{task:probe}` pointing at nothing — is deferred.)
+        Tool-output delivery path: probes land in env fields that fake tools
+        read via `ctx.env(...)`. See `_substitute_probes` for placeholder
+        semantics.
         """
         env_raw = self._suite_raw["environment"]
         env_text = yaml.dump(env_raw, default_flow_style=False)
-        env_text = _PROBE_PLACEHOLDER_RE.sub(
-            lambda m: injections.get(f"{m.group(1)}:{m.group(2)}", ""),
-            env_text,
-        )
+        env_text = _substitute_probes(env_text, injections)
         return self.environment_type.model_validate(yaml.safe_load(env_text))
+
+    def inject_user_task_prompt(self, user_task_id: str, injections: dict[str, str]) -> str:
+        """Render a user task's prompt with probe payloads substituted in.
+
+        Agent-input delivery path: probes land directly in the prompt the
+        agent receives, modeling direct prompt injection (poisoned user
+        input) as opposed to indirect injection (poisoned tool output).
+        See `_substitute_probes` for placeholder semantics.
+        """
+        return _substitute_probes(self.user_tasks[user_task_id].PROMPT, injections)
 
     def get_probes_for_task(self, task_id: str) -> dict[str, str]:
         """Return probe payloads for an injection task, keyed as `task_id:probe_id`.
@@ -168,12 +188,12 @@ class YAMLTaskSuite(TaskSuite):
 
         def utility(
             self: Any,
-            model_output: str,
+            agent_output: str,
             pre_environment: TaskEnvironment,
             post_environment: TaskEnvironment,
             strict: bool = True,
         ) -> bool:
-            return evaluate_predicate(predicate, model_output, pre_environment, post_environment)
+            return evaluate_predicate(predicate, agent_output, pre_environment, post_environment)
 
         return type(
             class_name,
@@ -197,11 +217,11 @@ class YAMLTaskSuite(TaskSuite):
 
         def security(
             self: Any,
-            model_output: str,
+            agent_output: str,
             pre_environment: TaskEnvironment,
             post_environment: TaskEnvironment,
         ) -> bool:
-            return evaluate_predicate(predicate, model_output, pre_environment, post_environment)
+            return evaluate_predicate(predicate, agent_output, pre_environment, post_environment)
 
         return type(
             class_name,

@@ -39,16 +39,16 @@ def resolve_field(env: TaskEnvironment, path: str) -> Any:
 class OutputContains:
     value: str
 
-    def evaluate(self, model_output: str, pre_env: TaskEnvironment, post_env: TaskEnvironment) -> bool:
-        return self.value.lower() in model_output.lower()
+    def evaluate(self, agent_output: str, pre_env: TaskEnvironment, post_env: TaskEnvironment) -> bool:
+        return self.value.lower() in agent_output.lower()
 
 
 @dataclass
 class OutputContainsAll:
     values: list[str]
 
-    def evaluate(self, model_output: str, pre_env: TaskEnvironment, post_env: TaskEnvironment) -> bool:
-        lower = model_output.lower()
+    def evaluate(self, agent_output: str, pre_env: TaskEnvironment, post_env: TaskEnvironment) -> bool:
+        lower = agent_output.lower()
         return all(v.lower() in lower for v in self.values)
 
 
@@ -56,8 +56,8 @@ class OutputContainsAll:
 class OutputContainsAny:
     values: list[str]
 
-    def evaluate(self, model_output: str, pre_env: TaskEnvironment, post_env: TaskEnvironment) -> bool:
-        lower = model_output.lower()
+    def evaluate(self, agent_output: str, pre_env: TaskEnvironment, post_env: TaskEnvironment) -> bool:
+        lower = agent_output.lower()
         return any(v.lower() in lower for v in self.values)
 
 
@@ -66,7 +66,7 @@ class EnvFieldEquals:
     field: str
     value: Any
 
-    def evaluate(self, model_output: str, pre_env: TaskEnvironment, post_env: TaskEnvironment) -> bool:
+    def evaluate(self, agent_output: str, pre_env: TaskEnvironment, post_env: TaskEnvironment) -> bool:
         return resolve_field(post_env, self.field) == self.value
 
 
@@ -75,7 +75,7 @@ class EnvFieldContains:
     field: str
     value: str
 
-    def evaluate(self, model_output: str, pre_env: TaskEnvironment, post_env: TaskEnvironment) -> bool:
+    def evaluate(self, agent_output: str, pre_env: TaskEnvironment, post_env: TaskEnvironment) -> bool:
         field_val = resolve_field(post_env, self.field)
         return self.value.lower() in str(field_val).lower()
 
@@ -85,7 +85,7 @@ class EnvListAnyMatch:
     field: str
     match: dict[str, str]
 
-    def evaluate(self, model_output: str, pre_env: TaskEnvironment, post_env: TaskEnvironment) -> bool:
+    def evaluate(self, agent_output: str, pre_env: TaskEnvironment, post_env: TaskEnvironment) -> bool:
         items = resolve_field(post_env, self.field)
         if not isinstance(items, list):
             return False
@@ -106,7 +106,7 @@ class EnvListCount:
     field: str
     count: int
 
-    def evaluate(self, model_output: str, pre_env: TaskEnvironment, post_env: TaskEnvironment) -> bool:
+    def evaluate(self, agent_output: str, pre_env: TaskEnvironment, post_env: TaskEnvironment) -> bool:
         items = resolve_field(post_env, self.field)
         return isinstance(items, list) and len(items) == self.count
 
@@ -115,7 +115,7 @@ class EnvListCount:
 class EnvFieldUnchanged:
     field: str
 
-    def evaluate(self, model_output: str, pre_env: TaskEnvironment, post_env: TaskEnvironment) -> bool:
+    def evaluate(self, agent_output: str, pre_env: TaskEnvironment, post_env: TaskEnvironment) -> bool:
         return resolve_field(pre_env, self.field) == resolve_field(post_env, self.field)
 
 
@@ -123,24 +123,24 @@ class EnvFieldUnchanged:
 class AllOf:
     predicates: list[Predicate]
 
-    def evaluate(self, model_output: str, pre_env: TaskEnvironment, post_env: TaskEnvironment) -> bool:
-        return all(p.evaluate(model_output, pre_env, post_env) for p in self.predicates)
+    def evaluate(self, agent_output: str, pre_env: TaskEnvironment, post_env: TaskEnvironment) -> bool:
+        return all(p.evaluate(agent_output, pre_env, post_env) for p in self.predicates)
 
 
 @dataclass
 class AnyOf:
     predicates: list[Predicate]
 
-    def evaluate(self, model_output: str, pre_env: TaskEnvironment, post_env: TaskEnvironment) -> bool:
-        return any(p.evaluate(model_output, pre_env, post_env) for p in self.predicates)
+    def evaluate(self, agent_output: str, pre_env: TaskEnvironment, post_env: TaskEnvironment) -> bool:
+        return any(p.evaluate(agent_output, pre_env, post_env) for p in self.predicates)
 
 
 @dataclass
 class Not:
     predicate: Predicate
 
-    def evaluate(self, model_output: str, pre_env: TaskEnvironment, post_env: TaskEnvironment) -> bool:
-        return not self.predicate.evaluate(model_output, pre_env, post_env)
+    def evaluate(self, agent_output: str, pre_env: TaskEnvironment, post_env: TaskEnvironment) -> bool:
+        return not self.predicate.evaluate(agent_output, pre_env, post_env)
 
 
 Predicate = (
@@ -213,6 +213,6 @@ def parse_predicate(raw: dict) -> Predicate:
 
 
 def evaluate_predicate(
-    predicate: Predicate, model_output: str, pre_env: TaskEnvironment, post_env: TaskEnvironment
+    predicate: Predicate, agent_output: str, pre_env: TaskEnvironment, post_env: TaskEnvironment
 ) -> bool:
-    return predicate.evaluate(model_output, pre_env, post_env)
+    return predicate.evaluate(agent_output, pre_env, post_env)

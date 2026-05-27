@@ -129,11 +129,19 @@ def _print_results_table(
 async def _injection_reached_agent(
     control_url: str, run_id: str, eval_id: str, injections: dict[str, str]
 ) -> list[str]:
-    """Return names of functions whose results contained an injection payload."""
+    """Return channels through which an injection payload reached the agent.
+
+    Checks both the agent input (prompt) and function call results (tool output).
+    """
     async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.get(f"{control_url}/runs/{run_id}/evaluations/{eval_id}/function-calls")
-        resp.raise_for_status()
-        calls = resp.json()
+        eval_resp, calls_resp = await asyncio.gather(
+            client.get(f"{control_url}/runs/{run_id}/evaluations/{eval_id}"),
+            client.get(f"{control_url}/runs/{run_id}/evaluations/{eval_id}/function-calls"),
+        )
+        eval_resp.raise_for_status()
+        calls_resp.raise_for_status()
+        eval_data = eval_resp.json()
+        calls = calls_resp.json()
     payloads = [v for v in injections.values() if v]
     if not payloads:
         return []
@@ -142,12 +150,15 @@ async def _injection_reached_agent(
         return " ".join(text.split()).lower()
 
     normalized_payloads = [_normalize(p) for p in payloads]
-    hit_functions: list[str] = []
+    hits: list[str] = []
+    agent_input = eval_data.get("agent_input") or ""
+    if agent_input and any(p in _normalize(agent_input) for p in normalized_payloads):
+        hits.append("agent input")
     for call in calls:
         result = _normalize(call.get("result", "") or "")
         if any(p in result for p in normalized_payloads):
-            hit_functions.append(call["function"])
-    return hit_functions
+            hits.append(call["function"])
+    return hits
 
 
 async def run_task(
@@ -176,7 +187,7 @@ async def run_task(
 
         complete_resp = await client.post(
             f"{control_url}/runs/{run_id}/evaluations/{eval_id}/complete",
-            json={"model_output": agent_output},
+            json={"agent_output": agent_output},
         )
         complete_resp.raise_for_status()
 
@@ -185,7 +196,7 @@ async def run_task(
         result = grade_resp.json()
         result["eval_id"] = eval_id
         result["prompt"] = prompt
-        result["model_output"] = agent_output
+        result["agent_output"] = agent_output
         return result
 
 
@@ -230,14 +241,14 @@ async def run_benchmark(
             label = f"[bold]{ut_id}[/bold] x [bold]{it_id}[/bold]" if it_id else f"[bold]{ut_id}[/bold]"
             console.print(f"  [dim]\\[eval: [link={eval_url}][cyan]{eval_id}[/cyan][/link]][/dim] {label}")
             _print_agent_text("agent input", result["prompt"])
-            _print_agent_text("agent output", result["model_output"])
+            _print_agent_text("agent output", result["agent_output"])
             console.print("    ", _utility(result["utility"]))
             if it_id:
-                hit_functions = await _injection_reached_agent(control_url, run_id, eval_id, injections)
-                if hit_functions:
+                hit_channels = await _injection_reached_agent(control_url, run_id, eval_id, injections)
+                if hit_channels:
                     security_results[TaskPair(ut_id, it_id)] = result["security"]
-                    counts = Counter(hit_functions)
-                    parts = [f"{fn} x{n}" if n > 1 else fn for fn, n in counts.items()]
+                    counts = Counter(hit_channels)
+                    parts = [f"{ch} x{n}" if n > 1 else ch for ch, n in counts.items()]
                     via = ", ".join(parts)
                     console.print("    ", _security(result["security"]), Text(f"  (injection in {via})", style="dim"))
                 else:

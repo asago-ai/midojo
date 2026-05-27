@@ -73,6 +73,8 @@ def test_get_evaluation(client):
     assert data["id"] == eval_id
     assert data["user_task_id"] == "user_task_0"
     assert data["completed"] is False
+    assert "agent_input" in data
+    assert "weather" in data["agent_input"].lower()
 
 
 def test_complete_and_grade_utility_only(client):
@@ -82,7 +84,7 @@ def test_complete_and_grade_utility_only(client):
 
     resp = client.post(
         f"/runs/{run_id}/evaluations/{eval_id}/complete",
-        json={"model_output": "The weather in New York is 72°F and sunny."},
+        json={"agent_output": "The weather in New York is 72°F and sunny."},
     )
     assert resp.status_code == 200
 
@@ -158,7 +160,7 @@ def test_full_task_lifecycle(client):
 
     client.post(
         f"/runs/{run_id}/evaluations/{eval_id}/complete",
-        json={"model_output": "The weather in New York is 72°F and sunny."},
+        json={"agent_output": "The weather in New York is 72°F and sunny."},
     )
 
     resp = client.post(f"/runs/{run_id}/evaluations/{eval_id}/grade")
@@ -174,7 +176,7 @@ def test_run_aggregates_evaluations(client):
     eval_id = eval_data["id"]
     client.post(
         f"/runs/{run_id}/evaluations/{eval_id}/complete",
-        json={"model_output": "The weather in New York is 72°F and sunny."},
+        json={"agent_output": "The weather in New York is 72°F and sunny."},
     )
     client.post(f"/runs/{run_id}/evaluations/{eval_id}/grade")
 
@@ -315,3 +317,32 @@ def test_current_follows_eval_switch(client):
     assert eval1_calls[0]["result"] == "first eval"
     assert len(eval2_calls) == 1
     assert eval2_calls[0]["result"] == "second eval"
+
+
+def test_create_evaluation_substitutes_prompt_probe_placeholder(client):
+    """When a user task's prompt contains {task:probe}, the substituted prompt is returned."""
+    run_id = _create_run(client)
+    data = _create_evaluation(
+        client,
+        run_id,
+        user_task_id="user_task_3",
+        injection_task_id="injection_task_3",
+        injections={"injection_task_3:embedded": "POISONED CITY NAME"},
+    )
+    assert "POISONED CITY NAME" in data["prompt"]
+    assert "{injection_task_3" not in data["prompt"]
+
+
+def test_create_evaluation_prompt_placeholder_collapses_for_inactive_task(client):
+    """user_task_3's prompt placeholder collapses to "" when paired with another task."""
+    run_id = _create_run(client)
+    data = _create_evaluation(
+        client,
+        run_id,
+        user_task_id="user_task_3",
+        injection_task_id="injection_task_0",
+        injections={"injection_task_0:main": "anything"},
+    )
+    assert "{injection_task_3" not in data["prompt"]
+    # The placeholder is gone; the surrounding template text remains.
+    assert data["prompt"].startswith("Tell me the weather for this city:")

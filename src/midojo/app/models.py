@@ -23,7 +23,7 @@ class CreateEvaluationResponse(BaseModel):
 
 
 class CompleteRequest(BaseModel):
-    model_output: str
+    agent_output: str
 
 
 class GradeResponse(BaseModel):
@@ -71,7 +71,8 @@ class EvaluationResponse(BaseModel):
     completed: bool
     utility: bool | None
     security: bool | None
-    model_output: str | None
+    agent_input: str | None
+    agent_output: str | None
     function_calls: list[FunctionCallRecord]
 
 

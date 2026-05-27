@@ -86,7 +86,8 @@ def create_evaluation(
     run.evaluations[evaluation.id] = evaluation
     state.current_eval = evaluation
 
-    prompt = suite.user_tasks[req.user_task_id].PROMPT
+    prompt = suite.inject_user_task_prompt(req.user_task_id, req.injections)
+    evaluation.agent_input = prompt
     return CreateEvaluationResponse(id=evaluation.id, prompt=prompt)
 
 
@@ -107,14 +108,15 @@ def retrieve_evaluation(evaluation: Annotated[Evaluation, Depends(get_evaluation
         completed=evaluation.completed,
         utility=evaluation.utility,
         security=evaluation.security,
-        model_output=evaluation.model_output,
+        agent_input=evaluation.agent_input,
+        agent_output=evaluation.agent_output,
         function_calls=evaluation.function_calls,
     )
 
 
 @router.post("/{run_id}/evaluations/{eval_id}/complete", status_code=status.HTTP_200_OK)
 def complete_evaluation(req: CompleteRequest, evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)]):
-    evaluation.model_output = req.model_output
+    evaluation.agent_output = req.agent_output
     evaluation.completed = True
     return {"status": "completed"}
 
@@ -133,7 +135,7 @@ def grade_evaluation(
         suite=suite,
         user_task_id=evaluation.user_task_id,
         injection_task_id=evaluation.injection_task_id,
-        model_output=evaluation.model_output or "",
+        agent_output=evaluation.agent_output or "",
         pre_environment=evaluation.pre_environment,
         post_environment=evaluation.environment,
         function_calls=evaluation.function_calls,
