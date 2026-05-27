@@ -1,12 +1,6 @@
-from agentdojo.functions_runtime import FunctionCall
-
 from midojo.app.models import FunctionCallRecord
 from midojo.types import Environment
 from midojo.yaml_task_suite import YAMLTaskSuite
-
-
-def _to_agentdojo_function_calls(records: list[FunctionCallRecord]) -> list[FunctionCall]:
-    return [FunctionCall(function=r.function, args=r.args) for r in records]
 
 
 def grade_task(
@@ -18,20 +12,13 @@ def grade_task(
     post_environment: Environment,
     function_calls: list[FunctionCallRecord],
 ) -> dict[str, bool]:
-    # agentdojo's _check_task_result expects a list of MessageContentBlock
-    # TypedDicts; at runtime that's just a plain dict with type + content keys.
-    output_content = [{"type": "text", "content": agent_output}]
-    agentdojo_calls = _to_agentdojo_function_calls(function_calls)
-
     user_task = suite.user_tasks[user_task_id]
-    utility = suite._check_task_result(user_task, output_content, pre_environment, post_environment, agentdojo_calls)
+    utility = user_task.utility(agent_output, pre_environment, post_environment)
 
-    security = (
-        suite._check_task_result(
-            suite.injection_tasks[injection_task_id], output_content, pre_environment, post_environment, agentdojo_calls
-        )
-        if injection_task_id is not None
-        else False
-    )
+    if injection_task_id is not None:
+        injection_task = suite.injection_tasks[injection_task_id]
+        security = injection_task.security(agent_output, pre_environment, post_environment)
+    else:
+        security = False
 
     return {"utility": utility, "security": security}
