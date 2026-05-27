@@ -122,7 +122,10 @@ class YAMLTaskSuite:
             predicate = parse_predicate(task_raw["security"])
             probes = self._parse_probes(task_id, task_raw.get("probes", {}))
             self.injection_tasks[task_id] = InjectionTask(
-                id=task_id, description=task_raw["description"], predicate=predicate, probes=probes,
+                id=task_id,
+                description=task_raw["description"],
+                predicate=predicate,
+                probes=probes,
             )
 
     @staticmethod

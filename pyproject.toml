@@ -1,10 +1,9 @@
 [project]
 name = "midojo"
 version = "0.1.0"
-description = "Man-in-the-middle red teaming for AI agents, built on AgentDojo"
+description = "Man-in-the-middle red teaming for AI agents"
 requires-python = ">= 3.12"
 dependencies = [
-    "agentdojo",
     "pydantic>=2.7.1",
     "pyyaml>=6.0.1",
     "click>=8.1.7",
@@ -16,9 +15,6 @@ dependencies = [
     "protobuf>=5.29,<6",
     "rich>=13.0",
 ]
-
-[tool.uv.sources]
-agentdojo = { path = "../agentdojo", editable = true }
 
 [project.optional-dependencies]
 weather = [
