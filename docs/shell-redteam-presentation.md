@@ -10,11 +10,11 @@ midojo's existing red-teaming was built for **MCP agents** — agents that call 
 The new target is a different kind of agent. Instead of calling structured tools, it runs **arbitrary bash commands** in a sandboxed Linux container:
 
 ```
-Old model (MCP):
+MCP:
   user → agent → get_customer_info("CUST001") → {name: "Alice", notes: "..."}
                                                             ↑ inject here
 
-New model (shell):
+shell:
   user → agent → bash("cat /workspace/report.txt") → "Q4 Revenue: $2.4M..."
                                                               ↑ how do we inject here?
 ```
@@ -68,7 +68,7 @@ For red-teaming, this architecture gives us two attack surfaces:
 
 ### OGX (the brain)
 
-OGX is a Llama Stack fork that implements the OpenAI Responses API — the standard interface where the model receives a prompt and returns a response that may include tool calls. In shell-agent mode, the model's "tool" is a sandboxed bash environment.
+OGX implements the OpenAI Responses API — the standard interface where the model receives a prompt and returns a response that may include tool calls. In shell-agent mode, the model's "tool" is a sandboxed bash environment.
 
 We used an **unmerged fork** ([PR #5853](https://github.com/ogx-ai/ogx/pull/5853)) that adds:
 - A **Containers API** — CRUD endpoints for managing sandbox containers (`POST /v1/containers`, `POST /v1/containers/{id}/exec`, `DELETE /v1/containers/{id}`)
