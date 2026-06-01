@@ -15,12 +15,11 @@ from typing import Any
 
 import httpx
 
+from midojo.predicates import GradingContext
 from midojo.types import Environment
 from midojo.verification import VerificationProvider
 
 logger = logging.getLogger(__name__)
-
-GradingContext = dict[str, Any] | None
 
 
 # ---------------------------------------------------------------------------

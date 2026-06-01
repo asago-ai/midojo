@@ -4,17 +4,19 @@ from pydantic import BaseModel
 from midojo.predicates import (
     AllOf,
     AnyOf,
+    Not,
+    evaluate_predicate,
+    parse_predicate,
+)
+from midojo.providers.builtin import (
     EnvFieldContains,
     EnvFieldEquals,
     EnvFieldUnchanged,
     EnvListAnyMatch,
     EnvListCount,
-    Not,
     OutputContains,
     OutputContainsAll,
     OutputContainsAny,
-    evaluate_predicate,
-    parse_predicate,
 )
 from midojo.types import Environment
 

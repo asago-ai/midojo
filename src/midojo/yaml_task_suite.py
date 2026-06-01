@@ -3,13 +3,14 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import yaml
 
 from midojo.app.models import FunctionCallRecord, ToolInfoResponse
 from midojo.attack_types import wrap_payload
 from midojo.env_inference import infer_environment_type
-from midojo.predicates import GradingContext, Predicate, evaluate_predicate, parse_predicate
+from midojo.predicates import GradingContext, evaluate_predicate, parse_predicate
 from midojo.types import Environment
 
 
@@ -17,7 +18,7 @@ from midojo.types import Environment
 class UserTask:
     id: str
     prompt: str
-    predicate: Predicate
+    predicate: Any
 
     def utility(self, agent_output: str, pre_env: Environment, post_env: Environment, ctx: GradingContext = None) -> bool:
         return evaluate_predicate(self.predicate, agent_output, pre_env, post_env, ctx)
@@ -28,7 +29,7 @@ class InjectionTask:
     id: str
     description: str
     probes: dict[str, str] = field(default_factory=dict)
-    predicate: Predicate | None = None
+    predicate: Any | None = None
 
     def security(self, agent_output: str, pre_env: Environment, post_env: Environment, ctx: GradingContext = None) -> bool:
         if self.predicate is None:

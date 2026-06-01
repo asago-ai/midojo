@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from midojo.verification import VerificationProvider
 
+from .builtin import BuiltinProvider
 from .rhacs import RhacsProvider
 
-_KNOWN_PROVIDERS: list[type[VerificationProvider]] = [RhacsProvider]
+_KNOWN_PROVIDERS: list[type[VerificationProvider]] = [BuiltinProvider, RhacsProvider]
 
 
 def discover_providers() -> list[VerificationProvider]:
