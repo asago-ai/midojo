@@ -11,10 +11,10 @@ from .routers import runs, suite, tasks, tools
 
 def create_app(
     suite_instance: YAMLTaskSuite,
-    providers: list[VerificationProvider] | None = None,
+    providers: dict[str, VerificationProvider] | None = None,
 ) -> FastAPI:
     state.suite = suite_instance
-    state.providers = providers or []
+    state.providers = providers or {}
     state.runs = {}
     state.current_eval = None
 

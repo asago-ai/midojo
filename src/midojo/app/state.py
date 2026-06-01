@@ -57,7 +57,7 @@ class Run(BaseModel):
 # --- Module-level state ---
 
 suite: YAMLTaskSuite = None  # type: ignore[assignment]
-providers: list[VerificationProvider] = []
+providers: dict[str, VerificationProvider] = {}
 runs: dict[str, Run] = {}
 # Only one eval is active at a time — the orchestrator runs tasks sequentially.
 # Concurrent evals would clobber this; use explicit /runs/{id}/evaluations/{id}/* routes instead.

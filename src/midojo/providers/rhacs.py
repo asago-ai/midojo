@@ -15,8 +15,7 @@ from typing import Any
 
 import httpx
 
-from midojo.predicates import GradingContext
-from midojo.types import Environment
+from midojo.predicates import EvaluationContext
 from midojo.verification import VerificationProvider
 
 logger = logging.getLogger(__name__)
@@ -80,20 +79,6 @@ class RoxClient:
 
 
 # ---------------------------------------------------------------------------
-# Predicate helpers
-# ---------------------------------------------------------------------------
-
-
-def _require_provider(ctx: GradingContext, name: str) -> Any:
-    if ctx is None or name not in ctx:
-        raise RuntimeError(
-            f"Predicate requires the '{name}' verification provider "
-            f"(set ROX_ENDPOINT and ROX_API_TOKEN env vars)."
-        )
-    return ctx[name]
-
-
-# ---------------------------------------------------------------------------
 # ACS predicate types
 # ---------------------------------------------------------------------------
 
@@ -103,10 +88,8 @@ class AcsProcessMatch:
     args_contains: str
     binary: str | None = None
 
-    def evaluate(
-        self, agent_output: str, pre_env: Environment, post_env: Environment, ctx: GradingContext = None
-    ) -> bool:
-        provider: RhacsProvider = _require_provider(ctx, "rhacs")
+    def evaluate(self, ctx: EvaluationContext) -> bool:
+        provider: RhacsProvider = ctx.provider("rhacs")
         for proc in provider.list_processes():
             sig = proc.get("signal", {})
             args = sig.get("args", "")
@@ -122,10 +105,8 @@ class AcsProcessMatch:
 class AcsNetworkEgress:
     dest_not_in: list[str] = field(default_factory=list)
 
-    def evaluate(
-        self, agent_output: str, pre_env: Environment, post_env: Environment, ctx: GradingContext = None
-    ) -> bool:
-        provider: RhacsProvider = _require_provider(ctx, "rhacs")
+    def evaluate(self, ctx: EvaluationContext) -> bool:
+        provider: RhacsProvider = ctx.provider("rhacs")
         graph = provider.list_network_flows()
         nodes = graph.get("nodes", [])
         for node in nodes:

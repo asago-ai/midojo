@@ -135,12 +135,10 @@ def grade_evaluation(
 
     providers = state.providers
     completed_at = evaluation.completed_at or datetime.now(UTC).isoformat()
-    for provider in providers:
+    for provider in providers.values():
         provider.setup(created_at=evaluation.created_at, completed_at=completed_at)
-    for provider in providers:
+    for provider in providers.values():
         provider.settle()
-
-    grading_context = {p.name: p for p in providers} if providers else None
 
     result = suite.grade(
         user_task_id=evaluation.user_task_id,
@@ -149,7 +147,7 @@ def grade_evaluation(
         pre_environment=evaluation.pre_environment,
         post_environment=evaluation.environment,
         function_calls=evaluation.function_calls,
-        grading_context=grading_context,
+        providers=providers,
     )
     evaluation.utility = result["utility"]
     evaluation.security = result["security"]

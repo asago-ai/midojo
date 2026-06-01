@@ -11,7 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from midojo.predicates import GradingContext
+from midojo.predicates import EvaluationContext
 from midojo.types import Environment
 from midojo.verification import VerificationProvider
 
@@ -36,20 +36,16 @@ def resolve_field(env: Environment, path: str) -> Any:
 class OutputContains:
     value: str
 
-    def evaluate(
-        self, agent_output: str, pre_env: Environment, post_env: Environment, ctx: GradingContext = None
-    ) -> bool:
-        return self.value.lower() in agent_output.lower()
+    def evaluate(self, ctx: EvaluationContext) -> bool:
+        return self.value.lower() in ctx.agent_output.lower()
 
 
 @dataclass
 class OutputContainsAll:
     values: list[str]
 
-    def evaluate(
-        self, agent_output: str, pre_env: Environment, post_env: Environment, ctx: GradingContext = None
-    ) -> bool:
-        lower = agent_output.lower()
+    def evaluate(self, ctx: EvaluationContext) -> bool:
+        lower = ctx.agent_output.lower()
         return all(v.lower() in lower for v in self.values)
 
 
@@ -57,10 +53,8 @@ class OutputContainsAll:
 class OutputContainsAny:
     values: list[str]
 
-    def evaluate(
-        self, agent_output: str, pre_env: Environment, post_env: Environment, ctx: GradingContext = None
-    ) -> bool:
-        lower = agent_output.lower()
+    def evaluate(self, ctx: EvaluationContext) -> bool:
+        lower = ctx.agent_output.lower()
         return any(v.lower() in lower for v in self.values)
 
 
@@ -69,10 +63,8 @@ class EnvFieldEquals:
     field: str
     value: Any
 
-    def evaluate(
-        self, agent_output: str, pre_env: Environment, post_env: Environment, ctx: GradingContext = None
-    ) -> bool:
-        return resolve_field(post_env, self.field) == self.value
+    def evaluate(self, ctx: EvaluationContext) -> bool:
+        return resolve_field(ctx.post_env, self.field) == self.value
 
 
 @dataclass
@@ -80,10 +72,8 @@ class EnvFieldContains:
     field: str
     value: str
 
-    def evaluate(
-        self, agent_output: str, pre_env: Environment, post_env: Environment, ctx: GradingContext = None
-    ) -> bool:
-        field_val = resolve_field(post_env, self.field)
+    def evaluate(self, ctx: EvaluationContext) -> bool:
+        field_val = resolve_field(ctx.post_env, self.field)
         return self.value.lower() in str(field_val).lower()
 
 
@@ -92,10 +82,8 @@ class EnvListAnyMatch:
     field: str
     match: dict[str, str]
 
-    def evaluate(
-        self, agent_output: str, pre_env: Environment, post_env: Environment, ctx: GradingContext = None
-    ) -> bool:
-        items = resolve_field(post_env, self.field)
+    def evaluate(self, ctx: EvaluationContext) -> bool:
+        items = resolve_field(ctx.post_env, self.field)
         if not isinstance(items, list):
             return False
         for item in items:
@@ -115,10 +103,8 @@ class EnvListCount:
     field: str
     count: int
 
-    def evaluate(
-        self, agent_output: str, pre_env: Environment, post_env: Environment, ctx: GradingContext = None
-    ) -> bool:
-        items = resolve_field(post_env, self.field)
+    def evaluate(self, ctx: EvaluationContext) -> bool:
+        items = resolve_field(ctx.post_env, self.field)
         return isinstance(items, list) and len(items) == self.count
 
 
@@ -126,10 +112,8 @@ class EnvListCount:
 class EnvFieldUnchanged:
     field: str
 
-    def evaluate(
-        self, agent_output: str, pre_env: Environment, post_env: Environment, ctx: GradingContext = None
-    ) -> bool:
-        return resolve_field(pre_env, self.field) == resolve_field(post_env, self.field)
+    def evaluate(self, ctx: EvaluationContext) -> bool:
+        return resolve_field(ctx.pre_env, self.field) == resolve_field(ctx.post_env, self.field)
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +121,7 @@ class EnvFieldUnchanged:
 # ---------------------------------------------------------------------------
 
 
-class BuiltinProvider(VerificationProvider):
+class BuiltinPredicateProvider(VerificationProvider):
     @property
     def name(self) -> str:
         return "builtin"
@@ -159,5 +143,5 @@ class BuiltinProvider(VerificationProvider):
         pass
 
     @classmethod
-    def from_env(cls) -> BuiltinProvider:
+    def from_env(cls) -> BuiltinPredicateProvider:
         return cls()
