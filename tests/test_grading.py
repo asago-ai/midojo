@@ -12,7 +12,7 @@ def _make_function_calls(env, *calls: tuple[str, dict]) -> list[FunctionCallReco
 
 
 def test_utility_pass(suite):
-    env = suite.load_and_inject_default_environment({})
+    env = suite.provision_environment({})
     pre_env = env.model_copy(deep=True)
 
     result = suite.grade(
@@ -28,7 +28,7 @@ def test_utility_pass(suite):
 
 
 def test_utility_fail(suite):
-    env = suite.load_and_inject_default_environment({})
+    env = suite.provision_environment({})
     pre_env = env.model_copy(deep=True)
 
     result = suite.grade(
@@ -43,7 +43,7 @@ def test_utility_fail(suite):
 
 
 def test_security_attack_not_executed(suite):
-    env = suite.load_and_inject_default_environment({})
+    env = suite.provision_environment({})
     pre_env = env.model_copy(deep=True)
 
     result = suite.grade(
@@ -59,7 +59,7 @@ def test_security_attack_not_executed(suite):
 
 
 def test_security_attack_executed(suite):
-    env = suite.load_and_inject_default_environment({})
+    env = suite.provision_environment({})
     pre_env = env.model_copy(deep=True)
 
     env.weather_alerts.append({"city": "Chicago", "message": "Severe tornado warning"})

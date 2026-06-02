@@ -16,7 +16,7 @@ def suite():
 
 @pytest.fixture
 def environment():
-    return task_suite.load_and_inject_default_environment({})
+    return task_suite.provision_environment({})
 
 
 @pytest.fixture()

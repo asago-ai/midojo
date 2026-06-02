@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -8,19 +7,17 @@ import yaml
 
 from midojo.app.models import ToolInfoResponse
 from midojo.attack_types import wrap_payload
-from midojo.env_inference import infer_environment_type
-from midojo.predicates import Predicate, evaluate_predicate, parse_predicate
+from midojo.backends import EnvironmentBackend, build_backend
+from midojo.probes import substitute_probes
 from midojo.types import Environment, FunctionCallRecord
+from midojo.verification import Check, VerificationContext, parse_check
 
 
 @dataclass
 class UserTask:
     id: str
     prompt: str
-    predicate: Predicate
-
-    def utility(self, agent_output: str, pre_env: Environment, post_env: Environment) -> bool:
-        return evaluate_predicate(self.predicate, agent_output, pre_env, post_env)
+    check: Check
 
 
 @dataclass
@@ -28,22 +25,7 @@ class InjectionTask:
     id: str
     description: str
     probes: dict[str, str] = field(default_factory=dict)
-    predicate: Predicate | None = None
-
-    def security(self, agent_output: str, pre_env: Environment, post_env: Environment) -> bool:
-        if self.predicate is None:
-            return False
-        return evaluate_predicate(self.predicate, agent_output, pre_env, post_env)
-
-
-_PROBE_PLACEHOLDER_RE = re.compile(r"\{([A-Za-z_]\w*):([A-Za-z_]\w*)\}")
-
-
-def _substitute_probes(text: str, injections: dict[str, str]) -> str:
-    return _PROBE_PLACEHOLDER_RE.sub(
-        lambda m: injections.get(f"{m.group(1)}:{m.group(2)}", ""),
-        text,
-    )
+    check: Check | None = None
 
 
 class YAMLTaskSuite:
@@ -53,26 +35,25 @@ class YAMLTaskSuite:
         self,
         name: str,
         suite_yaml_path: Path,
-        environment_type: type[Environment] | None = None,
+        backend: EnvironmentBackend | None = None,
     ) -> None:
         self.name = name
         self._suite_yaml_path = suite_yaml_path
         self._suite_raw: dict = yaml.safe_load(suite_yaml_path.read_text())
-        if environment_type is None:
-            environment_type = infer_environment_type(name, self._suite_raw["environment"])
-        self.environment_type = environment_type
+        self.backend: EnvironmentBackend = backend or build_backend(name, self._suite_raw["environment"])
         self.user_tasks: dict[str, UserTask] = {}
         self.injection_tasks: dict[str, InjectionTask] = {}
         self._register_tasks()
 
-    def load_and_inject_default_environment(self, injections: dict[str, str]) -> Environment:
-        env_raw = self._suite_raw["environment"]
-        env_text = yaml.dump(env_raw, default_flow_style=False, default_style='"')
-        env_text = _substitute_probes(env_text, injections)
-        return self.environment_type.model_validate(yaml.safe_load(env_text))
+    @property
+    def environment_type(self) -> type[Environment]:
+        return self.backend.environment_type
+
+    def provision_environment(self, injections: dict[str, str]) -> Environment:
+        return self.backend.provision(injections)
 
     def inject_user_task_prompt(self, user_task_id: str, injections: dict[str, str]) -> str:
-        return _substitute_probes(self.user_tasks[user_task_id].prompt, injections)
+        return substitute_probes(self.user_tasks[user_task_id].prompt, injections)
 
     def get_probes_for_task(self, task_id: str) -> dict[str, str]:
         probes = self.injection_tasks[task_id].probes
@@ -87,14 +68,17 @@ class YAMLTaskSuite:
         post_environment: Environment,
         function_calls: list[FunctionCallRecord],
     ) -> dict[str, bool]:
-        user_task = self.user_tasks[user_task_id]
-        utility = user_task.utility(agent_output, pre_environment, post_environment)
+        ctx = VerificationContext(
+            agent_output=agent_output,
+            pre_environment=pre_environment,
+            post_environment=post_environment,
+            function_calls=function_calls,
+        )
 
-        if injection_task_id is not None:
-            injection_task = self.injection_tasks[injection_task_id]
-            security = injection_task.security(agent_output, pre_environment, post_environment)
-        else:
-            security = False
+        utility = self.user_tasks[user_task_id].check.evaluate(ctx)
+
+        injection_check = self.injection_tasks[injection_task_id].check if injection_task_id is not None else None
+        security = injection_check.evaluate(ctx) if injection_check is not None else False
 
         return {"utility": utility, "security": security}
 
@@ -114,17 +98,17 @@ class YAMLTaskSuite:
     def _register_tasks(self) -> None:
         for task_raw in self._suite_raw.get("user_tasks", []):
             task_id = task_raw["id"]
-            predicate = parse_predicate(task_raw["utility"])
-            self.user_tasks[task_id] = UserTask(id=task_id, prompt=task_raw["prompt"], predicate=predicate)
+            check = parse_check(task_raw["utility"])
+            self.user_tasks[task_id] = UserTask(id=task_id, prompt=task_raw["prompt"], check=check)
 
         for task_raw in self._suite_raw.get("injection_tasks", []):
             task_id = task_raw["id"]
-            predicate = parse_predicate(task_raw["security"])
+            check = parse_check(task_raw["security"])
             probes = self._parse_probes(task_id, task_raw.get("probes", {}))
             self.injection_tasks[task_id] = InjectionTask(
                 id=task_id,
                 description=task_raw["description"],
-                predicate=predicate,
+                check=check,
                 probes=probes,
             )
 

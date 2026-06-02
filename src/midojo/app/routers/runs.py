@@ -71,7 +71,7 @@ def create_evaluation(
             status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown injection task: {req.injection_task_id}"
         )
 
-    environment = suite.load_and_inject_default_environment(req.injections)
+    environment = suite.provision_environment(req.injections)
     pre_environment = environment.model_copy(deep=True)
 
     evaluation = Evaluation(
