@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -202,7 +202,7 @@ def _append_function_call(req: CreateFunctionCallRecord, evaluation: Evaluation)
         pre_env = evaluation.pre_environment
     record = FunctionCallRecord(
         **req.model_dump(),
-        timestamp=datetime.now(UTC).isoformat(),
+        timestamp=datetime.now(timezone.utc).isoformat(),
         pre_environment=pre_env,
         post_environment=evaluation.environment.model_copy(deep=True),
     )
