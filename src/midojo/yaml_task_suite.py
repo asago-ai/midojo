@@ -6,11 +6,11 @@ from pathlib import Path
 
 import yaml
 
-from midojo.app.models import FunctionCallRecord, ToolInfoResponse
+from midojo.app.models import ToolInfoResponse
 from midojo.attack_types import wrap_payload
 from midojo.env_inference import infer_environment_type
 from midojo.predicates import Predicate, evaluate_predicate, parse_predicate
-from midojo.types import Environment
+from midojo.types import Environment, FunctionCallRecord
 
 
 @dataclass

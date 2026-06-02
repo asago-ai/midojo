@@ -5,6 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from midojo.types import FunctionCallRecord
 from midojo.yaml_task_suite import YAMLTaskSuite
 
 from .. import state
@@ -13,11 +14,11 @@ from ..models import (
     CompleteRequest,
     CreateEvaluationRequest,
     CreateEvaluationResponse,
+    CreateFunctionCallRecord,
     CreateRunResponse,
     EvaluationResponse,
     EvaluationSummary,
-    FunctionCallRecord,
-    CreateFunctionCallRecord,
+    FunctionCallResponse,
     GradeResponse,
     RunResponse,
 )
@@ -89,13 +90,9 @@ def create_evaluation(
     return CreateEvaluationResponse(id=evaluation.id, prompt=prompt)
 
 
-_FC_ENV_FIELDS = {"pre_environment", "post_environment"}
-
-
 @router.get(
     "/{run_id}/evaluations/{eval_id}",
     response_model=EvaluationResponse,
-    response_model_exclude={"function_calls": {"__all__": _FC_ENV_FIELDS}},
     status_code=status.HTTP_200_OK,
 )
 def retrieve_evaluation(evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)]):
@@ -108,7 +105,7 @@ def retrieve_evaluation(evaluation: Annotated[Evaluation, Depends(get_evaluation
         security=evaluation.security,
         agent_input=evaluation.agent_input,
         agent_output=evaluation.agent_output,
-        function_calls=evaluation.function_calls,
+        function_calls=[FunctionCallResponse.model_validate(fc) for fc in evaluation.function_calls],
     )
 
 
@@ -159,14 +156,13 @@ def register_environment_update_route(env_type: type) -> None:
     register these routes at startup once the suite type is known, patching __annotations__
     on the handler to give FastAPI the right body type.
     """
+
     def update_environment(body, evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)]) -> dict:
         evaluation.environment = body
         return evaluation.environment.model_dump()
 
     update_environment.__annotations__["body"] = env_type
-    router.add_api_route(
-        "/{run_id}/evaluations/{eval_id}/environment", update_environment, methods=["PUT"]
-    )
+    router.add_api_route("/{run_id}/evaluations/{eval_id}/environment", update_environment, methods=["PUT"])
 
     def update_current_environment(body, evaluation: Annotated[Evaluation, Depends(get_current_evaluation)]) -> dict:
         evaluation.environment = body
@@ -181,8 +177,7 @@ def register_environment_update_route(env_type: type) -> None:
 
 @router.get(
     "/{run_id}/evaluations/{eval_id}/function-calls",
-    response_model=list[FunctionCallRecord],
-    response_model_exclude={"__all__": _FC_ENV_FIELDS},
+    response_model=list[FunctionCallResponse],
     status_code=status.HTTP_200_OK,
 )
 def list_function_calls(evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)]) -> list[FunctionCallRecord]:
@@ -191,7 +186,7 @@ def list_function_calls(evaluation: Annotated[Evaluation, Depends(get_evaluation
 
 @router.get(
     "/{run_id}/evaluations/{eval_id}/function-calls/{idx}",
-    response_model=FunctionCallRecord,
+    response_model=FunctionCallResponse,
     status_code=status.HTTP_200_OK,
 )
 def get_function_call(idx: int, evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)]) -> FunctionCallRecord:
@@ -217,7 +212,7 @@ def _append_function_call(req: CreateFunctionCallRecord, evaluation: Evaluation)
 
 @router.post(
     "/{run_id}/evaluations/{eval_id}/function-calls",
-    response_model=FunctionCallRecord,
+    response_model=FunctionCallResponse,
     status_code=status.HTTP_201_CREATED,
 )
 def record_function_call(
@@ -237,8 +232,7 @@ def get_current_environment(evaluation: Annotated[Evaluation, Depends(get_curren
 
 @current_router.get(
     "/function-calls",
-    response_model=list[FunctionCallRecord],
-    response_model_exclude={"__all__": _FC_ENV_FIELDS},
+    response_model=list[FunctionCallResponse],
     status_code=status.HTTP_200_OK,
 )
 def list_current_function_calls(
@@ -249,7 +243,7 @@ def list_current_function_calls(
 
 @current_router.get(
     "/function-calls/{idx}",
-    response_model=FunctionCallRecord,
+    response_model=FunctionCallResponse,
     status_code=status.HTTP_200_OK,
 )
 def get_current_function_call(
@@ -262,7 +256,7 @@ def get_current_function_call(
 
 @current_router.post(
     "/function-calls",
-    response_model=FunctionCallRecord,
+    response_model=FunctionCallResponse,
     status_code=status.HTTP_201_CREATED,
 )
 def record_current_function_call(

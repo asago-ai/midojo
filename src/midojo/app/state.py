@@ -12,10 +12,8 @@ from datetime import datetime, timezone
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from midojo.types import Environment
+from midojo.types import Environment, FunctionCallRecord
 from midojo.yaml_task_suite import YAMLTaskSuite
-
-from .models import FunctionCallRecord
 
 
 def _new_id() -> str:

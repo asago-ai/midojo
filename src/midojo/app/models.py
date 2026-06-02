@@ -1,10 +1,32 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, SerializeAsAny
+from pydantic import BaseModel, ConfigDict
 
 from midojo.types import Environment
 
 # --- Run / Evaluation request/response models ---
+
+
+class CreateFunctionCallRecord(BaseModel):
+    """Request body for recording a function call (server fills in timestamp + env snapshots)."""
+
+    function: str
+    args: dict
+    result: str
+    error: str | None = None
+
+
+class FunctionCallResponse(CreateFunctionCallRecord):
+    """Public shape of a recorded function call.
+
+    Excludes the internal pre/post environment snapshots that the domain
+    ``FunctionCallRecord`` carries for grading — no API client consumes them.
+    ``from_attributes`` lets it be built directly from a domain record.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    timestamp: str
 
 
 class CreateEvaluationRequest(BaseModel):
@@ -46,23 +68,6 @@ class RunResponse(BaseModel):
     evaluations: list[EvaluationSummary]
 
 
-class CreateFunctionCallRecord(BaseModel):
-    function: str
-    args: dict
-    result: str
-    error: str | None = None
-
-
-class FunctionCallRecord(CreateFunctionCallRecord):
-    """A recorded function call execution (function + args + result + env snapshots)."""
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    timestamp: str
-    pre_environment: SerializeAsAny[Environment]
-    post_environment: SerializeAsAny[Environment]
-
-
 class EvaluationResponse(BaseModel):
     id: str
     user_task_id: str
@@ -72,7 +77,7 @@ class EvaluationResponse(BaseModel):
     security: bool | None
     agent_input: str | None
     agent_output: str | None
-    function_calls: list[FunctionCallRecord]
+    function_calls: list[FunctionCallResponse]
 
 
 # --- Suite / task / tool response models ---

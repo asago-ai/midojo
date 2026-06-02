@@ -1,4 +1,4 @@
-from midojo.app.models import FunctionCallRecord
+from midojo.types import FunctionCallRecord
 
 
 def _make_function_calls(env, *calls: tuple[str, dict]) -> list[FunctionCallRecord]:

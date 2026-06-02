@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 from midojo.app import state
-from midojo.app.models import FunctionCallRecord
+from midojo.types import FunctionCallRecord
 
 
 def _create_run(client: TestClient) -> str:
@@ -204,41 +204,51 @@ def test_record_function_call_via_post(client):
     assert record["result"] == "72°F, sunny"
     assert record["error"] is None
     assert "timestamp" in record
-    assert "pre_environment" in record
-    assert "post_environment" in record
+    # Env snapshots are internal server state, not part of the public response.
+    assert "pre_environment" not in record
+    assert "post_environment" not in record
 
     resp = client.get(f"/runs/{run_id}/evaluations/{eval_id}/function-calls")
     assert resp.status_code == 200
     assert len(resp.json()) == 1
 
+    # ...but they are still captured server-side for grading.
+    recorded = state.current_eval.function_calls[0]
+    assert recorded.pre_environment is not None
+    assert recorded.post_environment is not None
+
 
 def test_record_function_call_pre_env_chain(client):
-    """pre_environment of each call should match post_environment of the previous call."""
+    """pre_environment of each call should match post_environment of the previous call.
+
+    The chaining is an internal invariant (env snapshots aren't exposed over the
+    API), so it's asserted against the recorded server-side state.
+    """
     run_id = _create_run(client)
     eval_data = _create_evaluation(client, run_id)
     eval_id = eval_data["id"]
 
     initial_env = client.get(f"/runs/{run_id}/evaluations/{eval_id}/environment").json()
 
-    resp1 = client.post(
+    client.post(
         f"/runs/{run_id}/evaluations/{eval_id}/function-calls",
         json={"function": "get_weather", "args": {"city": "New York"}, "result": "72°F, sunny"},
     )
-    record1 = resp1.json()
-    assert record1["pre_environment"] == initial_env
 
     client.put(
         f"/runs/{run_id}/evaluations/{eval_id}/environment",
         json={**initial_env, "weather_alerts": [{"city": "New York", "message": "Storm warning"}]},
     )
 
-    resp2 = client.post(
+    client.post(
         f"/runs/{run_id}/evaluations/{eval_id}/function-calls",
         json={"function": "send_weather_alert", "args": {"city": "New York", "message": "Storm warning"}, "result": "ok"},
     )
-    record2 = resp2.json()
-    assert record2["pre_environment"] == record1["post_environment"]
-    assert record2["post_environment"]["weather_alerts"] == [{"city": "New York", "message": "Storm warning"}]
+
+    calls = state.current_eval.function_calls
+    assert calls[0].pre_environment.model_dump() == initial_env
+    assert calls[1].pre_environment == calls[0].post_environment
+    assert calls[1].post_environment.model_dump()["weather_alerts"] == [{"city": "New York", "message": "Storm warning"}]
 
 
 # --- /current/* endpoints ---
