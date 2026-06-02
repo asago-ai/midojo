@@ -176,6 +176,9 @@ _PARSERS: dict[str, type] = {
 }
 
 
+PREDICATE_TYPES: frozenset[str] = frozenset(_PARSERS)
+
+
 def parse_predicate(raw: dict) -> Predicate:
     if not isinstance(raw, dict) or len(raw) != 1:
         raise ValueError(f"Predicate must be a dict with exactly one key, got: {raw!r}")

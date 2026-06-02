@@ -1,8 +1,13 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, SerializeAsAny
+from pydantic import BaseModel
 
-from midojo.types import Environment
+from midojo.types import CreateFunctionCallRecord, Environment, FunctionCallRecord
+
+__all__ = [
+    "CreateFunctionCallRecord",
+    "FunctionCallRecord",
+]
 
 # --- Run / Evaluation request/response models ---
 
@@ -44,23 +49,6 @@ class RunResponse(BaseModel):
     id: str
     created_at: str
     evaluations: list[EvaluationSummary]
-
-
-class CreateFunctionCallRecord(BaseModel):
-    function: str
-    args: dict
-    result: str
-    error: str | None = None
-
-
-class FunctionCallRecord(CreateFunctionCallRecord):
-    """A recorded function call execution (function + args + result + env snapshots)."""
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    timestamp: str
-    pre_environment: SerializeAsAny[Environment]
-    post_environment: SerializeAsAny[Environment]
 
 
 class EvaluationResponse(BaseModel):

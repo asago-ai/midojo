@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from midojo.types import CreateFunctionCallRecord, FunctionCallRecord
 from midojo.yaml_task_suite import YAMLTaskSuite
 
 from .. import state
@@ -16,8 +17,6 @@ from ..models import (
     CreateRunResponse,
     EvaluationResponse,
     EvaluationSummary,
-    FunctionCallRecord,
-    CreateFunctionCallRecord,
     GradeResponse,
     RunResponse,
 )
@@ -70,7 +69,7 @@ def create_evaluation(
             status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown injection task: {req.injection_task_id}"
         )
 
-    environment = suite.load_and_inject_default_environment(req.injections)
+    environment = suite.provision_environment(req.injections)
     pre_environment = environment.model_copy(deep=True)
 
     evaluation = Evaluation(
@@ -207,7 +206,7 @@ def _append_function_call(req: CreateFunctionCallRecord, evaluation: Evaluation)
         pre_env = evaluation.pre_environment
     record = FunctionCallRecord(
         **req.model_dump(),
-        timestamp=datetime.now(timezone.utc).isoformat(),
+        timestamp=datetime.now(UTC).isoformat(),
         pre_environment=pre_env,
         post_environment=evaluation.environment.model_copy(deep=True),
     )

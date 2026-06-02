@@ -8,14 +8,12 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from midojo.types import Environment
+from midojo.types import Environment, FunctionCallRecord
 from midojo.yaml_task_suite import YAMLTaskSuite
-
-from .models import FunctionCallRecord
 
 
 def _new_id() -> str:
@@ -38,7 +36,7 @@ class Evaluation:
     agent_input: str | None = None
     agent_output: str | None = None
     completed: bool = False
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     active_injections: dict[str, str] = field(default_factory=dict)
     utility: bool | None = None
     security: bool | None = None
@@ -49,7 +47,7 @@ class Run(BaseModel):
 
     id: str
     evaluations: dict[str, Evaluation] = {}
-    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
 
 
 # --- Module-level state ---
