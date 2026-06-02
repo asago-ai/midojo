@@ -10,7 +10,7 @@ from midojo.attack_types import wrap_payload
 from midojo.backends import EnvironmentBackend, build_backend
 from midojo.probes import substitute_probes
 from midojo.types import Environment, FunctionCallRecord
-from midojo.verification import Check, VerificationContext, parse_check
+from midojo.verifier import Check, VerificationContext, parse_check
 
 
 @dataclass

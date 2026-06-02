@@ -1,7 +1,8 @@
 import pytest
 from pydantic import BaseModel
 
-from midojo.predicates import (
+from midojo.types import Environment
+from midojo.verifiers.builtin import (
     AllOf,
     AnyOf,
     EnvFieldContains,
@@ -16,7 +17,6 @@ from midojo.predicates import (
     evaluate_predicate,
     parse_predicate,
 )
-from midojo.types import Environment
 
 
 class EmptyEnv(Environment):

@@ -1,6 +1,6 @@
 import pytest
 
-from midojo.verification import VerificationContext
+from midojo.verifier import VerificationContext
 
 
 def _ctx(agent_output, pre_env, post_env):

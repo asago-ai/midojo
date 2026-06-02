@@ -1,21 +1,16 @@
-"""Tests for the verification-provider seam.
+"""Tests for the verifier framework (dispatch/registry machinery).
 
-These exercise the dispatch/registry machinery, not predicate semantics
-(those live in test_predicates.py). They prove a non-predicate provider can be
-registered, addressed from a check block, and handed the full context
-(including the ``observations`` bag a backend would populate).
+These exercise registration and dispatch, not predicate semantics (those live
+in test_predicates.py). They prove a non-builtin verifier can be registered,
+addressed from a check block, and handed the full context (including the
+``observations`` bag a backend would populate).
 """
 
 import pytest
 
-from midojo.predicates import OutputContains
 from midojo.types import Environment
-from midojo.verification import (
-    PredicateProvider,
-    VerificationContext,
-    parse_check,
-    register_provider,
-)
+from midojo.verifier import VerificationContext, parse_check, register_verifier
+from midojo.verifiers.builtin import BuiltinVerifier, OutputContains
 
 EMPTY = Environment()
 
@@ -29,10 +24,10 @@ def _ctx(output="", *, observations=None):
     )
 
 
-class TestPredicateFallback:
-    def test_predicate_key_dispatches_to_predicate_provider(self):
+class TestDefaultFallback:
+    def test_predicate_key_dispatches_to_builtin_verifier(self):
         check = parse_check({"output_contains": "sunny"})
-        assert isinstance(check.provider, PredicateProvider)
+        assert isinstance(check.verifier, BuiltinVerifier)
         assert isinstance(check.parsed, OutputContains)
         assert check.evaluate(_ctx("it is sunny")) is True
         assert check.evaluate(_ctx("it is rainy")) is False
@@ -42,8 +37,8 @@ class TestPredicateFallback:
             parse_check({"bogus": "value"})
 
 
-class _ObservationProvider:
-    """Toy provider standing in for an ACS-style check over an event stream."""
+class _EventsVerifier:
+    """Toy verifier standing in for an ACS-style check over an event stream."""
 
     name = "events"
 
@@ -54,26 +49,26 @@ class _ObservationProvider:
         return any(check in e for e in ctx.observations.get("events", []))
 
 
-# Registered once for the module — register_provider rejects duplicates by design.
-register_provider(_ObservationProvider())
+# Registered once for the module — register_verifier rejects duplicates by design.
+register_verifier(_EventsVerifier())
 
 
-class TestRegisteredProvider:
-    def test_registered_provider_dispatches_by_key(self):
+class TestRegisteredVerifier:
+    def test_registered_verifier_dispatches_by_key(self):
         check = parse_check({"events": {"contains": "spawn:nc"}})
-        assert isinstance(check.provider, _ObservationProvider)
+        assert isinstance(check.verifier, _EventsVerifier)
         assert check.parsed == "spawn:nc"
 
-    def test_provider_reads_observations(self):
+    def test_verifier_reads_observations(self):
         check = parse_check({"events": {"contains": "spawn:nc"}})
         assert check.evaluate(_ctx(observations={"events": ["spawn:nc -e /bin/sh"]})) is True
         assert check.evaluate(_ctx(observations={"events": ["spawn:ls"]})) is False
 
     def test_duplicate_registration_rejected(self):
         with pytest.raises(ValueError, match="already registered"):
-            register_provider(_ObservationProvider())
+            register_verifier(_EventsVerifier())
 
-    def test_shadowing_predicate_rejected(self):
+    def test_shadowing_default_check_type_rejected(self):
         class _Bad:
             name = "output_contains"
 
@@ -83,5 +78,5 @@ class TestRegisteredProvider:
             def evaluate(self, check, ctx):
                 return False
 
-        with pytest.raises(ValueError, match="shadows a predicate type"):
-            register_provider(_Bad())
+        with pytest.raises(ValueError, match="shadows a default-verifier check type"):
+            register_verifier(_Bad())

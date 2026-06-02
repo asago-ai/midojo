@@ -1,14 +1,18 @@
-"""Declarative predicate evaluator for suite grading.
+"""Built-in verifier — declarative predicates over agent output and env state.
 
-Predicates are parsed from YAML and cover common grading patterns: substring
-checks, field equality, list matching, and boolean combinators. Suites whose
-grading logic fits these patterns need no Python code.
+This is MiDojo's default verifier: the predicate types that ship with the
+engine (substring checks, field equality, list matching, boolean combinators)
+plus the :class:`BuiltinVerifier` that adapts them to the :class:`Verifier`
+protocol. Suites whose grading fits these patterns need no Python code.
 
-Limitation: there is no "run arbitrary code" predicate. If a suite needs
-custom logic (e.g. regex matching, numeric ranges, fuzzy comparison), a new
-predicate type must be added here. A future `custom_function` predicate could
-allow suites to reference a Python callable for cases the built-in set can't
-express.
+The predicate types are this verifier's private implementation — nothing
+outside this module references them. The verifier framework
+(:mod:`midojo.verifier`) knows nothing about predicates; this module registers
+itself as the *default* verifier on import.
+
+Limitation: there is no "run arbitrary code" predicate. A suite needing custom
+logic (regex, numeric ranges, fuzzy comparison) is the cue to add a new
+predicate type here, or a whole new verifier under :mod:`midojo.verifiers`.
 """
 
 from __future__ import annotations
@@ -17,6 +21,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from midojo.types import Environment
+from midojo.verifier import VerificationContext, register_verifier
 
 
 def resolve_field(env: Environment, path: str) -> Any:
@@ -175,7 +180,6 @@ _PARSERS: dict[str, type] = {
     "not": Not,
 }
 
-
 PREDICATE_TYPES: frozenset[str] = frozenset(_PARSERS)
 
 
@@ -219,3 +223,29 @@ def evaluate_predicate(
     predicate: Predicate, agent_output: str, pre_env: Environment, post_env: Environment
 ) -> bool:
     return predicate.evaluate(agent_output, pre_env, post_env)
+
+
+# ---------------------------------------------------------------------------
+# The verifier
+# ---------------------------------------------------------------------------
+
+
+class BuiltinVerifier:
+    """Default verifier: declarative predicates over output + env snapshots.
+
+    Its check object is a :data:`Predicate`. It is the fallback for any check
+    block whose key is not a registered verifier; ``claims`` are the top-level
+    predicate keys it owns in that role.
+    """
+
+    name = "builtin"
+    claims = PREDICATE_TYPES
+
+    def parse(self, check_spec: dict) -> Predicate:
+        return parse_predicate(check_spec)
+
+    def evaluate(self, check: Predicate, ctx: VerificationContext) -> bool:
+        return evaluate_predicate(check, ctx.agent_output, ctx.pre_environment, ctx.post_environment)
+
+
+register_verifier(BuiltinVerifier(), default=True)
