@@ -2,14 +2,18 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from midojo.types import CreateFunctionCallRecord, Environment, FunctionCallRecord
-
-__all__ = [
-    "CreateFunctionCallRecord",
-    "FunctionCallRecord",
-]
+from midojo.types import Environment, FunctionCallRecord
 
 # --- Run / Evaluation request/response models ---
+
+
+class CreateFunctionCallRecord(BaseModel):
+    """Request body for recording a function call (server fills in timestamp + env snapshots)."""
+
+    function: str
+    args: dict
+    result: str
+    error: str | None = None
 
 
 class CreateEvaluationRequest(BaseModel):

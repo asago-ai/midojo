@@ -7,18 +7,15 @@ class Environment(BaseModel):
     ...
 
 
-class CreateFunctionCallRecord(BaseModel):
-    function: str
-    args: dict
-    result: str
-    error: str | None = None
-
-
-class FunctionCallRecord(CreateFunctionCallRecord):
+class FunctionCallRecord(BaseModel):
     """A recorded function call execution (function + args + result + env snapshots)."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
+    function: str
+    args: dict
+    result: str
+    error: str | None = None
     timestamp: str
     pre_environment: SerializeAsAny[Environment]
     post_environment: SerializeAsAny[Environment]

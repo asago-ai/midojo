@@ -5,7 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from midojo.types import CreateFunctionCallRecord, FunctionCallRecord
+from midojo.types import FunctionCallRecord
 from midojo.yaml_task_suite import YAMLTaskSuite
 
 from .. import state
@@ -14,6 +14,7 @@ from ..models import (
     CompleteRequest,
     CreateEvaluationRequest,
     CreateEvaluationResponse,
+    CreateFunctionCallRecord,
     CreateRunResponse,
     EvaluationResponse,
     EvaluationSummary,
@@ -158,14 +159,13 @@ def register_environment_update_route(env_type: type) -> None:
     register these routes at startup once the suite type is known, patching __annotations__
     on the handler to give FastAPI the right body type.
     """
+
     def update_environment(body, evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)]) -> dict:
         evaluation.environment = body
         return evaluation.environment.model_dump()
 
     update_environment.__annotations__["body"] = env_type
-    router.add_api_route(
-        "/{run_id}/evaluations/{eval_id}/environment", update_environment, methods=["PUT"]
-    )
+    router.add_api_route("/{run_id}/evaluations/{eval_id}/environment", update_environment, methods=["PUT"])
 
     def update_current_environment(body, evaluation: Annotated[Evaluation, Depends(get_current_evaluation)]) -> dict:
         evaluation.environment = body
