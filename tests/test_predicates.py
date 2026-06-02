@@ -14,7 +14,6 @@ from midojo.verifiers.builtin import (
     OutputContains,
     OutputContainsAll,
     OutputContainsAny,
-    evaluate_predicate,
     parse_predicate,
 )
 
@@ -67,144 +66,144 @@ EMPTY_ENV = EmptyEnv()
 class TestOutputContains:
     def test_match(self):
         p = OutputContains(value="sunny")
-        assert evaluate_predicate(p, "It is sunny today", EMPTY_ENV, EMPTY_ENV)
+        assert p.evaluate("It is sunny today", EMPTY_ENV, EMPTY_ENV)
 
     def test_case_insensitive(self):
         p = OutputContains(value="SUNNY")
-        assert evaluate_predicate(p, "it is sunny today", EMPTY_ENV, EMPTY_ENV)
+        assert p.evaluate("it is sunny today", EMPTY_ENV, EMPTY_ENV)
 
     def test_no_match(self):
         p = OutputContains(value="rainy")
-        assert not evaluate_predicate(p, "It is sunny today", EMPTY_ENV, EMPTY_ENV)
+        assert not p.evaluate("It is sunny today", EMPTY_ENV, EMPTY_ENV)
 
 
 class TestOutputContainsAll:
     def test_all_present(self):
         p = OutputContainsAll(values=["72", "sunny"])
-        assert evaluate_predicate(p, "The weather is 72°F and sunny.", EMPTY_ENV, EMPTY_ENV)
+        assert p.evaluate("The weather is 72°F and sunny.", EMPTY_ENV, EMPTY_ENV)
 
     def test_one_missing(self):
         p = OutputContainsAll(values=["72", "rainy"])
-        assert not evaluate_predicate(p, "The weather is 72°F and sunny.", EMPTY_ENV, EMPTY_ENV)
+        assert not p.evaluate("The weather is 72°F and sunny.", EMPTY_ENV, EMPTY_ENV)
 
     def test_case_insensitive(self):
         p = OutputContainsAll(values=["NEW YORK", "72"])
-        assert evaluate_predicate(p, "New York is 72°F", EMPTY_ENV, EMPTY_ENV)
+        assert p.evaluate("New York is 72°F", EMPTY_ENV, EMPTY_ENV)
 
 
 class TestOutputContainsAny:
     def test_one_present(self):
         p = OutputContainsAny(values=["rainy", "sunny"])
-        assert evaluate_predicate(p, "It is sunny today", EMPTY_ENV, EMPTY_ENV)
+        assert p.evaluate("It is sunny today", EMPTY_ENV, EMPTY_ENV)
 
     def test_none_present(self):
         p = OutputContainsAny(values=["rainy", "cloudy"])
-        assert not evaluate_predicate(p, "It is sunny today", EMPTY_ENV, EMPTY_ENV)
+        assert not p.evaluate("It is sunny today", EMPTY_ENV, EMPTY_ENV)
 
 
 class TestEnvFieldEquals:
     def test_match(self):
         p = EnvFieldEquals(field="count", value=5)
-        assert evaluate_predicate(p, "", EMPTY_ENV, CountEnv(count=5))
+        assert p.evaluate("", EMPTY_ENV, CountEnv(count=5))
 
     def test_mismatch(self):
         p = EnvFieldEquals(field="count", value=5)
-        assert not evaluate_predicate(p, "", EMPTY_ENV, CountEnv(count=3))
+        assert not p.evaluate("", EMPTY_ENV, CountEnv(count=3))
 
     def test_dotted_path(self):
         p = EnvFieldEquals(field="cities.New York.condition", value="sunny")
         env = CitiesEnv(cities={"New York": CityCondition(condition="sunny")})
-        assert evaluate_predicate(p, "", EMPTY_ENV, env)
+        assert p.evaluate("", EMPTY_ENV, env)
 
 
 class TestEnvFieldContains:
     def test_substring_match(self):
         p = EnvFieldContains(field="message", value="tornado")
-        assert evaluate_predicate(p, "", EMPTY_ENV, MessageEnv(message="Severe tornado warning"))
+        assert p.evaluate("", EMPTY_ENV, MessageEnv(message="Severe tornado warning"))
 
     def test_case_insensitive(self):
         p = EnvFieldContains(field="message", value="TORNADO")
-        assert evaluate_predicate(p, "", EMPTY_ENV, MessageEnv(message="severe tornado warning"))
+        assert p.evaluate("", EMPTY_ENV, MessageEnv(message="severe tornado warning"))
 
     def test_no_match(self):
         p = EnvFieldContains(field="message", value="earthquake")
-        assert not evaluate_predicate(p, "", EMPTY_ENV, MessageEnv(message="tornado warning"))
+        assert not p.evaluate("", EMPTY_ENV, MessageEnv(message="tornado warning"))
 
 
 class TestEnvListAnyMatch:
     def test_match(self):
         p = EnvListAnyMatch(field="weather_alerts", match={"city": "chicago", "message": "tornado"})
         env = AlertsEnv(weather_alerts=[Alert(city="Chicago", message="Severe tornado warning")])
-        assert evaluate_predicate(p, "", EMPTY_ENV, env)
+        assert p.evaluate("", EMPTY_ENV, env)
 
     def test_no_match(self):
         p = EnvListAnyMatch(field="weather_alerts", match={"city": "chicago", "message": "tornado"})
         env = AlertsEnv(weather_alerts=[Alert(city="New York", message="Heat advisory")])
-        assert not evaluate_predicate(p, "", EMPTY_ENV, env)
+        assert not p.evaluate("", EMPTY_ENV, env)
 
     def test_empty_list(self):
         p = EnvListAnyMatch(field="weather_alerts", match={"city": "chicago"})
         env = AlertsEnv(weather_alerts=[])
-        assert not evaluate_predicate(p, "", EMPTY_ENV, env)
+        assert not p.evaluate("", EMPTY_ENV, env)
 
     def test_partial_match_fails(self):
         p = EnvListAnyMatch(field="weather_alerts", match={"city": "chicago", "message": "tornado"})
         env = AlertsEnv(weather_alerts=[Alert(city="Chicago", message="Heat advisory")])
-        assert not evaluate_predicate(p, "", EMPTY_ENV, env)
+        assert not p.evaluate("", EMPTY_ENV, env)
 
 
 class TestEnvListCount:
     def test_correct_count(self):
         p = EnvListCount(field="items", count=3)
-        assert evaluate_predicate(p, "", EMPTY_ENV, ItemsEnv(items=[1, 2, 3]))
+        assert p.evaluate("", EMPTY_ENV, ItemsEnv(items=[1, 2, 3]))
 
     def test_wrong_count(self):
         p = EnvListCount(field="items", count=3)
-        assert not evaluate_predicate(p, "", EMPTY_ENV, ItemsEnv(items=[1, 2]))
+        assert not p.evaluate("", EMPTY_ENV, ItemsEnv(items=[1, 2]))
 
     def test_zero_count(self):
         p = EnvListCount(field="items", count=0)
-        assert evaluate_predicate(p, "", EMPTY_ENV, ItemsEnv(items=[]))
+        assert p.evaluate("", EMPTY_ENV, ItemsEnv(items=[]))
 
 
 class TestEnvFieldUnchanged:
     def test_unchanged(self):
         p = EnvFieldUnchanged(field="balance")
-        assert evaluate_predicate(p, "", BalanceEnv(balance=100), BalanceEnv(balance=100))
+        assert p.evaluate("", BalanceEnv(balance=100), BalanceEnv(balance=100))
 
     def test_changed(self):
         p = EnvFieldUnchanged(field="balance")
-        assert not evaluate_predicate(p, "", BalanceEnv(balance=100), BalanceEnv(balance=50))
+        assert not p.evaluate("", BalanceEnv(balance=100), BalanceEnv(balance=50))
 
 
 class TestAllOf:
     def test_all_true(self):
         p = AllOf(predicates=[OutputContains(value="72"), OutputContains(value="sunny")])
-        assert evaluate_predicate(p, "72°F and sunny", EMPTY_ENV, EMPTY_ENV)
+        assert p.evaluate("72°F and sunny", EMPTY_ENV, EMPTY_ENV)
 
     def test_one_false(self):
         p = AllOf(predicates=[OutputContains(value="72"), OutputContains(value="rainy")])
-        assert not evaluate_predicate(p, "72°F and sunny", EMPTY_ENV, EMPTY_ENV)
+        assert not p.evaluate("72°F and sunny", EMPTY_ENV, EMPTY_ENV)
 
 
 class TestAnyOf:
     def test_one_true(self):
         p = AnyOf(predicates=[OutputContains(value="rainy"), OutputContains(value="sunny")])
-        assert evaluate_predicate(p, "72°F and sunny", EMPTY_ENV, EMPTY_ENV)
+        assert p.evaluate("72°F and sunny", EMPTY_ENV, EMPTY_ENV)
 
     def test_none_true(self):
         p = AnyOf(predicates=[OutputContains(value="rainy"), OutputContains(value="cloudy")])
-        assert not evaluate_predicate(p, "72°F and sunny", EMPTY_ENV, EMPTY_ENV)
+        assert not p.evaluate("72°F and sunny", EMPTY_ENV, EMPTY_ENV)
 
 
 class TestNot:
     def test_negation(self):
         p = Not(predicate=OutputContains(value="rainy"))
-        assert evaluate_predicate(p, "It is sunny", EMPTY_ENV, EMPTY_ENV)
+        assert p.evaluate("It is sunny", EMPTY_ENV, EMPTY_ENV)
 
     def test_double_negation(self):
         p = Not(predicate=Not(predicate=OutputContains(value="sunny")))
-        assert evaluate_predicate(p, "It is sunny", EMPTY_ENV, EMPTY_ENV)
+        assert p.evaluate("It is sunny", EMPTY_ENV, EMPTY_ENV)
 
 
 class TestNestedCombinators:
@@ -215,7 +214,7 @@ class TestNestedCombinators:
                 Not(predicate=OutputContains(value="rainy")),
             ]
         )
-        assert evaluate_predicate(p, "It is sunny today", EMPTY_ENV, EMPTY_ENV)
+        assert p.evaluate("It is sunny today", EMPTY_ENV, EMPTY_ENV)
 
     def test_any_of_with_env_checks(self):
         p = AnyOf(
@@ -224,7 +223,7 @@ class TestNestedCombinators:
                 EnvListCount(field="items", count=0),
             ]
         )
-        assert evaluate_predicate(p, "", EMPTY_ENV, StatusItemsEnv(status="inactive", items=[]))
+        assert p.evaluate("", EMPTY_ENV, StatusItemsEnv(status="inactive", items=[]))
 
 
 class TestParsePredicate:

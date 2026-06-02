@@ -219,12 +219,6 @@ def parse_predicate(raw: dict) -> Predicate:
     raise ValueError(f"Unhandled predicate type: {key!r}")
 
 
-def evaluate_predicate(
-    predicate: Predicate, agent_output: str, pre_env: Environment, post_env: Environment
-) -> bool:
-    return predicate.evaluate(agent_output, pre_env, post_env)
-
-
 # ---------------------------------------------------------------------------
 # The verifier
 # ---------------------------------------------------------------------------
@@ -245,7 +239,7 @@ class BuiltinVerifier:
         return parse_predicate(check_spec)
 
     def evaluate(self, check: Predicate, ctx: VerificationContext) -> bool:
-        return evaluate_predicate(check, ctx.agent_output, ctx.pre_environment, ctx.post_environment)
+        return check.evaluate(ctx.agent_output, ctx.pre_environment, ctx.post_environment)
 
 
 register_verifier(BuiltinVerifier(), default=True)
