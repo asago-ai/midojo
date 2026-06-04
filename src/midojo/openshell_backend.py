@@ -33,14 +33,14 @@ from midojo.types import Environment
 class OpenShellEnvironment(Environment):
     """Observable state of an OpenShell sandbox.
 
-    ``workspace_files`` is the pre/post snapshot of seeded files; the remaining
-    fields are populated post-session from the workspace diff and OCSF stream.
+    ``workspace_files`` is the pre/post snapshot of seeded files; ``files_created``
+    is the post-session workspace diff. Runtime evidence (OCSF network/process
+    events) is *not* env state — it flows through ``observations``, read by an
+    ``openshell`` verifier, not stored here.
     """
 
     workspace_files: dict[str, str] = Field(default_factory=dict)
     files_created: list[str] = Field(default_factory=list)
-    # raw OCSF lines, e.g. "NET:OPEN DENIED curl -> evil.com:443"
-    network_events: list[str] = Field(default_factory=list)
 
 
 class OpenShellBackend:
