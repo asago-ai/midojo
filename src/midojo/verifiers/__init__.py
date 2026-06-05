@@ -6,3 +6,4 @@ self-registers via :func:`midojo.verifier.register_verifier`.
 """
 
 from midojo.verifiers import builtin as _builtin  # noqa: F401  -- registers the default verifier
+from midojo.verifiers import openshell as _openshell  # noqa: F401  -- registers the openshell verifier
