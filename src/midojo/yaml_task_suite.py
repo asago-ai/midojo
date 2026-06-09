@@ -7,7 +7,7 @@ from typing import Any
 import yaml
 
 from midojo.app.models import ToolInfoResponse
-from midojo.attack_types import wrap_payload
+from midojo.attacks import wrap_payload
 from midojo.backends import EnvironmentBackend, build_backend
 from midojo.probes import substitute_probes
 from midojo.types import Environment, FunctionCallRecord
