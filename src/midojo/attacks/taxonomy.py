@@ -6,6 +6,7 @@ queried and coverage measured by risk class.
 
 Reference: OWASP GenAI Security Project — Agentic Security Initiative,
 "OWASP Top 10 for Agentic Applications 2026" (CC BY-SA 4.0).
+https://genai.owasp.org/
 """
 
 from __future__ import annotations
