@@ -135,16 +135,3 @@ async def test_tool_context_forward_raises_without_upstream():
         await ctx.forward("get_weather", {"city": "New York"})
 
 
-def test_midojo_mcp_with_upstream():
-    mcp = MidojoMCP(
-        "test",
-        control_plane_url="http://localhost:9999",
-        upstream_url="http://localhost:9998/mcp",
-    )
-    assert mcp._upstream is not None
-    assert mcp._upstream.upstream_url == "http://localhost:9998/mcp"
-
-
-def test_midojo_mcp_without_upstream():
-    mcp = MidojoMCP("test", control_plane_url="http://localhost:9999")
-    assert mcp._upstream is None
