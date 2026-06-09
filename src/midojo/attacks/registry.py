@@ -53,7 +53,6 @@ _BUILTIN_TECHNIQUES: list[AttackTechnique] = [
             "asking the agent to act before resuming its real task."
         ),
         source="agentdojo:important_instructions",
-        owasp_asi=("T6",),
         license="MIT",
     ),
     AttackTechnique(
@@ -61,7 +60,6 @@ _BUILTIN_TECHNIQUES: list[AttackTechnique] = [
         wrap=_ignore_previous,
         description="Classic instruction-override: tell the agent to disregard prior instructions.",
         source="builtin",
-        owasp_asi=("T6",),
     ),
 ]
 
@@ -88,10 +86,6 @@ class AttackLibrary:
 
     def ids(self) -> list[str]:
         return sorted(self._techniques)
-
-    def by_asi(self, code: str) -> list[AttackTechnique]:
-        """Techniques tagged with the given OWASP ASI threat code."""
-        return [t for t in self._techniques.values() if code in t.owasp_asi]
 
     def wrap_payload(self, payload: str, technique_id: str) -> str:
         """Apply the named vehicle to a payload."""

@@ -1,9 +1,12 @@
 import pytest
 
 from midojo.attacks import (
+    ASI_DESCRIPTIONS,
     DEFAULT_LIBRARY,
+    ASICategory,
     AttackLibrary,
     AttackTechnique,
+    parse_asi_category,
     wrap_payload,
 )
 
@@ -25,17 +28,11 @@ class TestDefaultLibrary:
             wrap_payload("x", "nope")
 
 
-class TestProvenanceAndTaxonomy:
+class TestProvenance:
     def test_important_instructions_attributed_to_agentdojo(self):
-        assert DEFAULT_LIBRARY.get("important_instructions").source == "agentdojo:important_instructions"
-
-    def test_query_by_asi_code(self):
-        ids = {t.id for t in DEFAULT_LIBRARY.by_asi("T6")}
-        assert ids == {"important_instructions", "ignore_previous"}
-
-    def test_unknown_asi_code_rejected_at_construction(self):
-        with pytest.raises(ValueError, match="Unknown OWASP ASI threat code"):
-            AttackTechnique(id="bad", wrap=lambda p: p, description="x", owasp_asi=("T99",))
+        technique = DEFAULT_LIBRARY.get("important_instructions")
+        assert technique.source == "agentdojo:important_instructions"
+        assert technique.license == "MIT"
 
 
 class TestAttackLibrary:
@@ -43,3 +40,20 @@ class TestAttackLibrary:
         lib = AttackLibrary([AttackTechnique(id="v", wrap=lambda p: p, description="x")])
         with pytest.raises(ValueError, match="already registered"):
             lib.register(AttackTechnique(id="v", wrap=lambda p: p, description="y"))
+
+
+class TestASITaxonomy:
+    def test_top_ten_categories(self):
+        assert len(ASICategory) == 10
+        assert ASICategory.ASI_01.value == "ASI-01"
+        assert ASI_DESCRIPTIONS[ASICategory.ASI_01] == "Agent Goal Hijack"
+
+    def test_parse_from_code_string(self):
+        assert parse_asi_category("ASI-06") is ASICategory.ASI_06
+
+    def test_parse_passthrough_member(self):
+        assert parse_asi_category(ASICategory.ASI_06) is ASICategory.ASI_06
+
+    def test_parse_unknown_raises(self):
+        with pytest.raises(ValueError, match="Unknown OWASP ASI category 'T6'"):
+            parse_asi_category("T6")
