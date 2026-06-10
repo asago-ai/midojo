@@ -1,13 +1,13 @@
 """Built-in verifier — declarative predicates over agent output and env state.
 
 This is MiDojo's default verifier: the predicate types that ship with the
-engine (substring checks, field equality, list matching, boolean combinators)
-plus the :class:`BuiltinVerifier` that adapts them to the :class:`Verifier`
-protocol. Suites whose grading fits these patterns need no Python code.
+engine (substring checks, field equality, list matching) plus the
+:class:`BuiltinVerifier` that adapts them to the :class:`Verifier` protocol.
+Suites whose grading fits these patterns need no Python code.
 
 The predicate types are this verifier's private implementation — nothing
 outside this module references them. The verifier framework
-(:mod:`midojo.verifier`) knows nothing about predicates; this module registers
+(:mod:`midojo.verifiers`) knows nothing about predicates; this module registers
 itself as the *default* verifier on import.
 
 Limitation: there is no "run arbitrary code" predicate. A suite needing custom
@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from midojo.types import Environment
-from midojo.verifier import VerificationContext, register_verifier
+from midojo.verifiers import AllOf, AnyOf, Not, Predicate, VerificationContext, register_verifier
 
 
 def resolve_field(env: Environment, path: str) -> Any:
@@ -44,16 +44,16 @@ def resolve_field(env: Environment, path: str) -> Any:
 class OutputContains:
     value: str
 
-    def evaluate(self, agent_output: str, pre_env: Environment, post_env: Environment) -> bool:
-        return self.value.lower() in agent_output.lower()
+    def evaluate(self, ctx: VerificationContext) -> bool:
+        return self.value.lower() in ctx.agent_output.lower()
 
 
 @dataclass
 class OutputContainsAll:
     values: list[str]
 
-    def evaluate(self, agent_output: str, pre_env: Environment, post_env: Environment) -> bool:
-        lower = agent_output.lower()
+    def evaluate(self, ctx: VerificationContext) -> bool:
+        lower = ctx.agent_output.lower()
         return all(v.lower() in lower for v in self.values)
 
 
@@ -61,8 +61,8 @@ class OutputContainsAll:
 class OutputContainsAny:
     values: list[str]
 
-    def evaluate(self, agent_output: str, pre_env: Environment, post_env: Environment) -> bool:
-        lower = agent_output.lower()
+    def evaluate(self, ctx: VerificationContext) -> bool:
+        lower = ctx.agent_output.lower()
         return any(v.lower() in lower for v in self.values)
 
 
@@ -71,8 +71,8 @@ class EnvFieldEquals:
     field: str
     value: Any
 
-    def evaluate(self, agent_output: str, pre_env: Environment, post_env: Environment) -> bool:
-        return resolve_field(post_env, self.field) == self.value
+    def evaluate(self, ctx: VerificationContext) -> bool:
+        return resolve_field(ctx.post_environment, self.field) == self.value
 
 
 @dataclass
@@ -80,8 +80,8 @@ class EnvFieldContains:
     field: str
     value: str
 
-    def evaluate(self, agent_output: str, pre_env: Environment, post_env: Environment) -> bool:
-        field_val = resolve_field(post_env, self.field)
+    def evaluate(self, ctx: VerificationContext) -> bool:
+        field_val = resolve_field(ctx.post_environment, self.field)
         return self.value.lower() in str(field_val).lower()
 
 
@@ -90,8 +90,8 @@ class EnvListAnyMatch:
     field: str
     match: dict[str, str]
 
-    def evaluate(self, agent_output: str, pre_env: Environment, post_env: Environment) -> bool:
-        items = resolve_field(post_env, self.field)
+    def evaluate(self, ctx: VerificationContext) -> bool:
+        items = resolve_field(ctx.post_environment, self.field)
         if not isinstance(items, list):
             return False
         for item in items:
@@ -99,9 +99,7 @@ class EnvListAnyMatch:
                 if all(k in item and self.match[k].lower() in str(item[k]).lower() for k in self.match):
                     return True
             else:
-                if all(
-                    hasattr(item, k) and self.match[k].lower() in str(getattr(item, k)).lower() for k in self.match
-                ):
+                if all(hasattr(item, k) and self.match[k].lower() in str(getattr(item, k)).lower() for k in self.match):
                     return True
         return False
 
@@ -111,8 +109,8 @@ class EnvListCount:
     field: str
     count: int
 
-    def evaluate(self, agent_output: str, pre_env: Environment, post_env: Environment) -> bool:
-        items = resolve_field(post_env, self.field)
+    def evaluate(self, ctx: VerificationContext) -> bool:
+        items = resolve_field(ctx.post_environment, self.field)
         return isinstance(items, list) and len(items) == self.count
 
 
@@ -120,47 +118,9 @@ class EnvListCount:
 class EnvFieldUnchanged:
     field: str
 
-    def evaluate(self, agent_output: str, pre_env: Environment, post_env: Environment) -> bool:
-        return resolve_field(pre_env, self.field) == resolve_field(post_env, self.field)
+    def evaluate(self, ctx: VerificationContext) -> bool:
+        return resolve_field(ctx.pre_environment, self.field) == resolve_field(ctx.post_environment, self.field)
 
-
-@dataclass
-class AllOf:
-    predicates: list[Predicate]
-
-    def evaluate(self, agent_output: str, pre_env: Environment, post_env: Environment) -> bool:
-        return all(p.evaluate(agent_output, pre_env, post_env) for p in self.predicates)
-
-
-@dataclass
-class AnyOf:
-    predicates: list[Predicate]
-
-    def evaluate(self, agent_output: str, pre_env: Environment, post_env: Environment) -> bool:
-        return any(p.evaluate(agent_output, pre_env, post_env) for p in self.predicates)
-
-
-@dataclass
-class Not:
-    predicate: Predicate
-
-    def evaluate(self, agent_output: str, pre_env: Environment, post_env: Environment) -> bool:
-        return not self.predicate.evaluate(agent_output, pre_env, post_env)
-
-
-Predicate = (
-    OutputContains
-    | OutputContainsAll
-    | OutputContainsAny
-    | EnvFieldEquals
-    | EnvFieldContains
-    | EnvListAnyMatch
-    | EnvListCount
-    | EnvFieldUnchanged
-    | AllOf
-    | AnyOf
-    | Not
-)
 
 # ---------------------------------------------------------------------------
 # Parser: raw YAML dict -> Predicate
@@ -239,7 +199,7 @@ class BuiltinVerifier:
         return parse_predicate(check_spec)
 
     def evaluate(self, check: Predicate, ctx: VerificationContext) -> bool:
-        return check.evaluate(ctx.agent_output, ctx.pre_environment, ctx.post_environment)
+        return check.evaluate(ctx)
 
 
 register_verifier(BuiltinVerifier(), default=True)
