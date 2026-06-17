@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minibank-agent
+  labels:
+    app.kubernetes.io/part-of: midojo-minibank
+    app.kubernetes.io/component: agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: midojo-minibank
+        app.kubernetes.io/component: agent
+    spec:
+      containers:
+        - name: agent
+          image: midojo
+          # The A2A agent connects to the FAKE MCP (the interception layer),
+          # not the real one. LLM creds come from the secret below.
+          command: ["minibank-a2a-agent", "--host", "0.0.0.0"]
+          env:
+            - name: MCP_SERVER_URL
+              value: http://minibank-fake-mcp:8082/mcp
+            # Advertise the Service DNS name in the agent card so the
+            # orchestrator (a separate pod) can reach it — not localhost.
+            - name: AGENT_PUBLIC_URL
+              value: http://minibank-agent:8000/
+          envFrom:
+            - secretRef:
+                name: minibank-llm-creds
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /.well-known/agent-card.json
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minibank-agent
+  labels:
+    app.kubernetes.io/part-of: midojo-minibank
+spec:
+  selector:
+    app.kubernetes.io/component: agent
+  ports:
+    - port: 8000
+      targetPort: 8000

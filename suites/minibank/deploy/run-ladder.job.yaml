@@ -1,0 +1,56 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minibank-run-ladder
+  labels:
+    app.kubernetes.io/part-of: midojo-minibank
+    app.kubernetes.io/component: orchestrator
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: midojo-minibank
+        app.kubernetes.io/component: orchestrator
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: orchestrator
+          image: midojo
+          # Wait for the agent to publish its card, then run the three ladder
+          # rungs against the shared honest job. Drop the `-it` flags (or pass
+          # different ones) to run the whole suite instead.
+          command: ["sh", "-c"]
+          args:
+            - |
+              python - <<'PY'
+              import time, urllib.request
+              for _ in range(60):
+                  try:
+                      urllib.request.urlopen("http://minibank-agent:8000/.well-known/agent-card.json", timeout=3)
+                      break
+                  except Exception:
+                      print("waiting for agent..."); time.sleep(5)
+              PY
+              midojo-run \
+                --control-url http://minibank-control-plane:8080 \
+                --agent-url http://minibank-agent:8000 \
+                --protocol a2a \
+                --suite minibank \
+                -ut user_task_1 \
+                -it ladder_a -it ladder_b -it ladder_c \
+                --logdir /tmp/runs
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
