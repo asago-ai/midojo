@@ -15,10 +15,11 @@ suites/minibank/
 │   ├── bank_state.py        # In-memory bank: customers, accounts, transactions
 │   ├── bank_tools.py        # Safe tool executor (business rules enforced)
 │   └── bank_tools_unsafe.py # Unsafe executor (rules removed, for red-team demos)
-└── a2a_agent/
-    ├── fake_mcp.py          # MiDojo interception layer (what suite authors write)
-    ├── real_mcp.py          # Upstream MCP server wrapping real_environment
-    └── agent.py             # A2A agent for E2E testing
+├── a2a_agent/
+│   ├── fake_mcp.py          # MiDojo interception layer (what suite authors write)
+│   ├── real_mcp.py          # Upstream MCP server wrapping real_environment
+│   └── agent.py             # A2A agent for E2E testing
+└── deploy/                  # Kubernetes manifests (run the suite on a cluster)
 ```
 
 ## About `real_environment/`
@@ -40,7 +41,7 @@ This contrasts with the simpler weather suite, where `real_mcp.py` has hardcoded
 data and no separate backend. The minibank suite demonstrates the more realistic
 pattern where MiDojo integrates with an existing complex backend.
 
-## Running
+## Running locally
 
 Follow the same pattern as the weather suite (see main README) — bring up the
 servers, then run the suite. The final `midojo-run` runs every user × injection
@@ -52,6 +53,43 @@ midojo-serve --suite minibank --host 127.0.0.1 --port 8080
 minibank-fake-mcp-serve --port 8082 --upstream-url http://localhost:8083/mcp
 midojo-run --agent-url http://localhost:8000 --protocol a2a --suite minibank
 ```
+
+## Running on Kubernetes
+
+The same suite runs unchanged on a cluster — there's no separate "ladder"
+deployment. The four local processes become Deployments + Services, and the
+orchestrator becomes a Job; "running the ladder" just means giving that Job the
+ladder task IDs (`-ut user_task_1 -it ladder_a -it ladder_b -it ladder_c`), or
+drop the `-it` flags to run the whole suite.
+
+Manifests live in [`deploy/`](deploy/) and are plain Kubernetes objects
+(Deployment / Service / Job / Secret) — no Ingress or Route, since everything
+talks over in-cluster DNS. They apply as-is to vanilla Kubernetes or OpenShift
+(the pods are arbitrary-UID safe for the restricted SCC).
+
+```bash
+# 1. Build the shared image and push to a registry your cluster can pull from.
+podman build -t quay.io/<you>/midojo:latest -f Containerfile .
+podman push  quay.io/<you>/midojo:latest
+
+# 2. Point the manifests at that image (edit images: in deploy/kustomization.yaml).
+
+# 3. Create the namespace + the agent's LLM-credentials secret (kept out of git).
+oc new-project midojo-minibank
+oc create secret generic minibank-llm-creds \
+  --from-literal=LITELLM_API_KEY=... \
+  --from-literal=LITELLM_API_URL=https://your-litellm-proxy.example.com/v1 \
+  --from-literal=LITELLM_MODEL=llama-scout-17b
+
+# 4. Deploy the four services + the ladder Job.
+oc apply -k suites/minibank/deploy
+
+# 5. Watch the ladder run (the Job waits for the agent, then runs the 3 rungs).
+oc logs -f job/minibank-run-ladder
+```
+
+To re-run after a change, delete and re-apply the Job:
+`oc delete job minibank-run-ladder && oc apply -k suites/minibank/deploy`.
 
 ## Demo
 
@@ -81,7 +119,7 @@ for account ACC001."* The harm is exfiltration of Alice Johnson's SSN
 `A → B` holds the vector fixed and moves the verifier from output to behavior;
 `B → C` holds the verifier fixed and moves the injection from the prompt into
 the transaction record (`get_transaction_history` appends the memo to its
-result). With the servers from [Running](#running) up, run each rung against the
+result). With the servers from [Running locally](#running-locally) up, run each rung against the
 shared honest job:
 
 ```bash
