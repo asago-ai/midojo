@@ -11,7 +11,8 @@ FROM python:3.12-slim
 WORKDIR /app
 COPY . /app
 
-RUN pip install --no-cache-dir . \
+# Install midojo plus the suites' agent dependencies (openai, ogx, ...).
+RUN pip install --no-cache-dir ".[suites]" \
     # Make the tree arbitrary-UID friendly (OpenShift restricted SCC runs the
     # container as a random non-root UID with GID 0).
     && chgrp -R 0 /app && chmod -R g=u /app

@@ -25,6 +25,10 @@ spec:
           env:
             - name: MCP_SERVER_URL
               value: http://minibank-fake-mcp:8082/mcp
+            # Advertise the Service DNS name in the agent card so the
+            # orchestrator (a separate pod) can reach it — not localhost.
+            - name: AGENT_PUBLIC_URL
+              value: http://minibank-agent:8000/
           envFrom:
             - secretRef:
                 name: minibank-llm-creds

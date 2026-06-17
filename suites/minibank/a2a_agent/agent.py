@@ -151,19 +151,34 @@ minibank_skill = AgentSkill(
 @click.option("--litellm-api-key", required=True, help="LiteLLM API key.", envvar="LITELLM_API_KEY")
 @click.option("--litellm-api-url", required=True, help="LiteLLM API URL.", envvar="LITELLM_API_URL")
 @click.option("--litellm-model", required=True, help="LiteLLM model name.", envvar="LITELLM_MODEL")
+@click.option(
+    "--public-url",
+    default=None,
+    envvar="AGENT_PUBLIC_URL",
+    help="Externally reachable base URL advertised in the agent card. "
+    "Defaults to http://localhost:<port>/. Set this when the agent is reached "
+    "from another host (e.g. a Kubernetes Service DNS name).",
+)
 def main(
-    host: str, port: int, mcp_server_url: str, litellm_api_key: str, litellm_api_url: str, litellm_model: str
+    host: str,
+    port: int,
+    mcp_server_url: str,
+    litellm_api_key: str,
+    litellm_api_url: str,
+    litellm_model: str,
+    public_url: str | None,
 ) -> None:
     llm = OpenAI(api_key=litellm_api_key, base_url=litellm_api_url)
 
     executor = MinibankAgentExecutor(llm, litellm_model, mcp_server_url)
 
+    public_url = public_url or f"http://localhost:{port}/"
     agent_card = AgentCard(
         name="MiniBank Agent",
         description="A banking assistant that performs account operations using MCP tools.",
         version="1.0.0",
         supported_interfaces=[
-            AgentInterface(url=f"http://localhost:{port}/", protocol_binding="JSONRPC"),
+            AgentInterface(url=public_url, protocol_binding="JSONRPC"),
         ],
         default_input_modes=["text/plain"],
         default_output_modes=["text/plain"],
