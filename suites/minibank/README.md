@@ -67,6 +67,12 @@ Manifests live in [`deploy/`](deploy/) and are plain Kubernetes objects
 talks over in-cluster DNS. They apply as-is to vanilla Kubernetes or OpenShift
 (the pods are arbitrary-UID safe for the restricted SCC).
 
+**You'll need:** a logged-in `oc` (or `kubectl`), `podman`/`docker`, and a
+container registry your cluster can pull from (a private repo also needs an
+[image pull secret](https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/)
+in the namespace). Commands below use `oc`; the `kubectl` equivalents are noted
+inline.
+
 ```bash
 # 1. Build the shared image and push to a registry your cluster can pull from.
 podman build -t quay.io/<you>/midojo:latest -f Containerfile .
@@ -75,16 +81,26 @@ podman push  quay.io/<you>/midojo:latest
 # 2. Point the manifests at that image (edit images: in deploy/kustomization.yaml).
 
 # 3. Create the namespace + the agent's LLM-credentials secret (kept out of git).
-oc new-project midojo-minibank
+oc new-project midojo-minibank                  # kubectl create namespace midojo-minibank
 oc create secret generic minibank-llm-creds \
   --from-literal=LITELLM_API_KEY=... \
   --from-literal=LITELLM_API_URL=https://your-litellm-proxy.example.com/v1 \
   --from-literal=LITELLM_MODEL=llama-scout-17b
 
 # 4. Deploy the four services + the ladder Job.
-oc apply -k suites/minibank/deploy
+oc apply -k suites/minibank/deploy              # kubectl apply -k ...
 
-# 5. Watch the ladder run (the Job waits for the agent, then runs the 3 rungs).
+# 5. Health-check: wait for all four services to come up, then confirm the
+#    control plane is serving the suite. Their readiness probes already gate on
+#    the control plane's /suite endpoint and the agent's card, so "Available"
+#    means the platform is live.
+oc wait --for=condition=Available --timeout=120s deployment --all -n midojo-minibank
+oc get pods -n midojo-minibank
+# Optional — hit the control plane directly (no Route, so port-forward):
+oc port-forward -n midojo-minibank svc/minibank-control-plane 8080:8080 &
+curl -s localhost:8080/suite    # -> {"user_tasks":[...],"injection_tasks":[...,"ladder_a",...]}
+
+# 6. Watch the ladder run (the Job waits for the agent, then runs the 3 rungs).
 oc logs -f job/minibank-run-ladder
 ```
 
