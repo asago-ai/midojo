@@ -101,6 +101,7 @@ class OGXResponsesClient(AgentClient):
         model: str,
         mcp_server_url: str,
         *,
+        mcp_server_label: str = "midojo",
         instructions: str = "",
         shield_id: str | None = None,
         timeout: float = 120.0,
@@ -108,6 +109,7 @@ class OGXResponsesClient(AgentClient):
         self.ogx_url = ogx_url
         self.model = model
         self.mcp_server_url = mcp_server_url
+        self.mcp_server_label = mcp_server_label
         self.instructions = instructions
         self.shield_id = shield_id
         self.timeout = timeout
@@ -123,7 +125,7 @@ class OGXResponsesClient(AgentClient):
             tools=[
                 {
                     "type": "mcp",
-                    "server_label": "weather",
+                    "server_label": self.mcp_server_label,
                     "server_url": self.mcp_server_url,
                     "require_approval": "never",
                 },

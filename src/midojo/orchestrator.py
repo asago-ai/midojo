@@ -324,6 +324,7 @@ def main(
             ogx_url=agent_url,
             model=ogx_model or os.environ.get("OGX_MODEL", "litellm/llama-scout-17b"),
             mcp_server_url=os.environ.get("MCP_SERVER_URL", "http://localhost:8081/mcp"),
+            mcp_server_label=suite_name,
             instructions=system_message,
             shield_id=ogx_shield,
         )
