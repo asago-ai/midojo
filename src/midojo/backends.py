@@ -23,8 +23,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 
-import yaml
-
 from midojo.env_inference import infer_environment_type
 from midojo.probes import substitute_probes
 from midojo.types import Environment
@@ -66,9 +64,23 @@ class DictEnvironmentBackend:
         return self._environment_type
 
     def provision(self, injections: dict[str, str]) -> Environment:
-        env_text = yaml.dump(self._env_raw, default_flow_style=False, default_style='"')
-        env_text = substitute_probes(env_text, injections)
-        return self._environment_type.model_validate(yaml.safe_load(env_text))
+        state = _substitute_in_structure(self._env_raw, injections)
+        return self._environment_type.model_validate(state)
+
+
+def _substitute_in_structure(node: object, injections: dict[str, str]) -> object:
+    """Substitute probe payloads into every string value of a parsed structure.
+
+    Substituting structurally (rather than into serialized YAML text) keeps
+    payload content — quotes, colons, newlines — from corrupting the document.
+    """
+    if isinstance(node, str):
+        return substitute_probes(node, injections)
+    if isinstance(node, dict):
+        return {key: _substitute_in_structure(value, injections) for key, value in node.items()}
+    if isinstance(node, list):
+        return [_substitute_in_structure(item, injections) for item in node]
+    return node
 
 
 # --- Backend registry + dispatch ---

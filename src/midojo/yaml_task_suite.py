@@ -7,7 +7,7 @@ from typing import Any
 import yaml
 
 from midojo.app.models import ToolInfoResponse
-from midojo.attacks import wrap_payload
+from midojo.attacks import resolve_source, wrap_payload
 from midojo.backends import EnvironmentBackend, build_backend
 from midojo.probes import substitute_probes
 from midojo.types import Environment, FunctionCallRecord
@@ -115,15 +115,27 @@ class YAMLTaskSuite:
                 probes=probes,
             )
 
-    @staticmethod
-    def _parse_probes(task_id: str, raw: dict[str, dict]) -> dict[str, str]:
+    def _parse_probes(self, task_id: str, raw: dict[str, dict]) -> dict[str, str]:
         probes: dict[str, str] = {}
         for probe_id, probe_raw in raw.items():
-            if "payload" not in probe_raw:
-                raise ValueError(f"Probe '{task_id}:{probe_id}' is missing required 'payload' field")
-            attack_type = probe_raw.get("attack_type", "verbatim")
             try:
-                probes[probe_id] = wrap_payload(probe_raw["payload"], attack_type)
+                payload = self._resolve_probe_payload(probe_raw)
+                probes[probe_id] = wrap_payload(payload, probe_raw.get("attack_type", "verbatim"))
             except ValueError as e:
                 raise ValueError(f"Probe '{task_id}:{probe_id}': {e}") from None
         return probes
+
+    def _resolve_probe_payload(self, probe_raw: dict) -> str:
+        """A probe's cargo is either an inline ``payload`` or a library ``source``."""
+        if ("payload" in probe_raw) == ("source" in probe_raw):
+            raise ValueError("exactly one of 'payload' or 'source' is required")
+        if "payload" in probe_raw:
+            return probe_raw["payload"]
+        payload_set = resolve_source(probe_raw["source"], base_dir=self._suite_yaml_path.parent)
+        index = probe_raw.get("index", 0)
+        if not 0 <= index < len(payload_set.payloads):
+            raise ValueError(
+                f"index {index} out of range for payload set '{payload_set.id}' "
+                f"({len(payload_set.payloads)} payloads)"
+            )
+        return payload_set.payloads[index]
