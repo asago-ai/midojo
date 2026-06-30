@@ -59,11 +59,22 @@ for additional examples refer to [README.md](./README.md).
 
 ## Patterns for Common Changes
 
-**Add a new suite** — follow `suites/weather/` as the minimal example:
+**Add a new suite (bundled)** — follow `suites/weather/` as the minimal example:
 1. create `suites/<name>/suite.yaml` with `tools`, `environment`, `user_tasks`, `injection_tasks`
-2. create `suites/<name>/__init__.py` exporting `SYSTEM_MESSAGE`
+2. create `suites/<name>/__init__.py` exporting `SYSTEM_MESSAGE` and `task_suite` (see below)
 3. create fake and real MCP servers under `suites/<name>/a2a_agent/`
 4. for convenience, register CLI entrypoints in `pyproject.toml` under `[project.scripts]`
+
+**Use an external suite (out-of-tree)** — suites can live in any Python package; midojo does not need to be forked:
+1. expose `task_suite` in your suite's `__init__.py` (the only required attribute):
+   ```python
+   from pathlib import Path
+   from midojo.yaml_task_suite import YAMLTaskSuite
+   task_suite = YAMLTaskSuite("my_suite", suite_yaml_path=Path(__file__).parent / "suite.yaml")
+   ```
+2. optionally export `SYSTEM_MESSAGE` — if defined, midojo forwards it as the system prompt for `--protocol ogx` and `--protocol openai`. Not required: if absent, the agent runs without one (your model endpoint may already have it configured)
+3. reference it by dotted module path: `midojo-serve --suite my_package.my_suite`; `midojo-run --suite my_package.my_suite ...`
+4. fake/real MCP servers import `from midojo.mcp_sdk import MidojoMCP, ToolContext` as normal — no changes needed
 
 **Add a new attack technique** — add an `AttackTechnique` to the `BUILTIN_TECHNIQUES` list in `src/midojo/attacks/builtin.py`. Each attack technique is a function `(payload: str) -> str` that wraps the payload in a delivery template.
 
