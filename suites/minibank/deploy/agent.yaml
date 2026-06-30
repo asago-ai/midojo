@@ -35,8 +35,7 @@ spec:
           ports:
             - containerPort: 8000
           readinessProbe:
-            httpGet:
-              path: /.well-known/agent-card.json
+            tcpSocket:
               port: 8000
             initialDelaySeconds: 5
             periodSeconds: 5
