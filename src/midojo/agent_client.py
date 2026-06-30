@@ -87,6 +87,59 @@ class A2AAgentClient(AgentClient):
             await client.close()
 
 
+class OpenAIResponsesAgentClient(AgentClient):
+    """Calls any OpenAI Responses API endpoint (OpenAI cloud, Llama Stack, vLLM, etc.).
+
+    Uses the standard ``openai`` SDK so it works with any server that implements
+    the OpenAI Responses API spec — including local deployments. The tool loop
+    runs server-side; the model discovers and calls MCP tools without client
+    involvement.
+
+    Unlike ``OGXResponsesClient``, this client is fully async and has no
+    OGX-specific extensions (no ``guardrails``). Set ``OPENAI_API_KEY`` for
+    cloud endpoints; local servers accept any non-empty string as the key.
+    """
+
+    def __init__(
+        self,
+        base_url: str,
+        model: str,
+        mcp_server_url: str,
+        *,
+        mcp_server_label: str = "midojo",
+        instructions: str = "",
+        api_key: str = "x",
+        timeout: float = 120.0,
+    ) -> None:
+        self.base_url = base_url
+        self.model = model
+        self.mcp_server_url = mcp_server_url
+        self.mcp_server_label = mcp_server_label
+        self.instructions = instructions
+        self.api_key = api_key
+        self.timeout = timeout
+
+    async def send_task(self, prompt: str) -> str:
+        from openai import AsyncOpenAI  # openai is in the [suites] optional extras
+
+        client = AsyncOpenAI(base_url=self.base_url, api_key=self.api_key, timeout=self.timeout)
+        response = await client.responses.create(
+            model=self.model,
+            input=prompt,
+            instructions=self.instructions,
+            tools=[
+                {
+                    "type": "mcp",
+                    "server_label": self.mcp_server_label,
+                    "server_url": self.mcp_server_url,
+                    "require_approval": "never",
+                },
+            ],
+            stream=False,
+        )
+        return response.output_text
+
+
 class OGXResponsesClient(AgentClient):
     """Calls the OGX (Llama Stack) Responses API directly.
 
