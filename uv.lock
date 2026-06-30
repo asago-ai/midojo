@@ -1120,14 +1120,14 @@ wheels = [
 
 [[package]]
 name = "joserfc"
-version = "1.6.4"
+version = "1.6.7"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cryptography" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/de/c6/de8fdbdfa75c8ca04fead38a82d573df8a82906e984c349d58665f459558/joserfc-1.6.4.tar.gz", hash = "sha256:34ce5f499bfcc5e9ad4cc75077f9278ab3227b71da9aaf28f9ab705f8a560d3c", size = 231866, upload-time = "2026-04-13T13:15:40.632Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1b/cb/52e479f20804904f5df20ac4539d292dcecd1287aaa33cba1d1def1d9d8e/joserfc-1.6.7.tar.gz", hash = "sha256:6999fe89457069ecacd8cc797c88a805f83054dd883333fa0409f74b46479fd7", size = 232158, upload-time = "2026-05-23T01:46:44.069Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b6/f7/210b27752e972edb36d239315b08d3eb6b14824cc4a590da2337d195260b/joserfc-1.6.4-py3-none-any.whl", hash = "sha256:3e4a22b509b41908989237a045e25c8308d5fd47ab96bdae2dd8057c6451003a", size = 70464, upload-time = "2026-04-13T13:15:39.259Z" },
+    { url = "https://files.pythonhosted.org/packages/c5/e4/bcf6718b5662894c6831f46296b73cd4b1a2e90c20b6d437e20c4997388c/joserfc-1.6.7-py3-none-any.whl", hash = "sha256:9e51e4a64840aa1734a058258e80a4480e2ff2d5686e480e7c92c954a92fbe05", size = 70603, upload-time = "2026-05-23T01:46:42.129Z" },
 ]
 
 [[package]]
@@ -1340,7 +1340,7 @@ dev = [
     { name = "python-dotenv", extra = ["cli"] },
     { name = "ruff" },
 ]
-weather = [
+suites = [
     { name = "chardet" },
     { name = "faiss-cpu" },
     { name = "ogx" },
@@ -1352,18 +1352,18 @@ weather = [
 [package.metadata]
 requires-dist = [
     { name = "a2a-sdk", specifier = ">=1.0" },
-    { name = "chardet", marker = "extra == 'weather'" },
+    { name = "chardet", marker = "extra == 'suites'" },
     { name = "click", specifier = ">=8.1.7" },
-    { name = "faiss-cpu", marker = "extra == 'weather'" },
+    { name = "faiss-cpu", marker = "extra == 'suites'" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "fastmcp" },
     { name = "httpx", specifier = ">=0.28" },
-    { name = "ogx", marker = "extra == 'weather'", specifier = ">=0.8.0,<0.9.0" },
-    { name = "ogx-client", marker = "extra == 'weather'", specifier = ">=0.8.0,<0.9.0" },
-    { name = "openai", marker = "extra == 'weather'", specifier = ">=1.0" },
+    { name = "ogx", marker = "extra == 'suites'", specifier = ">=0.8.0,<0.9.0" },
+    { name = "ogx-client", marker = "extra == 'suites'", specifier = ">=0.8.0,<0.9.0" },
+    { name = "openai", marker = "extra == 'suites'", specifier = ">=1.0" },
     { name = "protobuf", specifier = ">=5.29,<6" },
     { name = "pydantic", specifier = ">=2.7.1" },
-    { name = "pypdf", marker = "extra == 'weather'" },
+    { name = "pypdf", marker = "extra == 'suites'" },
     { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1.362" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.2" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24" },
@@ -1373,7 +1373,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.3.0" },
     { name = "uvicorn", specifier = ">=0.34" },
 ]
-provides-extras = ["weather", "dev"]
+provides-extras = ["suites", "dev"]
 
 [[package]]
 name = "more-itertools"
