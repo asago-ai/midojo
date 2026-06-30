@@ -24,6 +24,8 @@ The control plane (`src/midojo/app/`) is a FastAPI server. The orchestrator (`sr
 
 ```mermaid
 graph LR
+    O[Orchestrator<br/><i>midojo-run CLI</i>] -->|creates eval, grades| CP
+    O -->|sends prompt| A
     A[Agent] <-->|tool calls| F[Fake MCP Server<br/><i>intercepts calls</i>]
     F <-->|env state, recording| CP[Control Plane<br/><i>injects attacks, records calls, grades results</i>]
     F <-->|forwards calls| R[Real MCP Server<br/><i>actual tool logic</i>]
