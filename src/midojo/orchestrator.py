@@ -23,15 +23,15 @@ console = Console()
 
 
 def _resolve_system_message(suite_name: str) -> str:
+    module_path = suite_name if "." in suite_name else f"suites.{suite_name}"
     try:
-        mod = importlib.import_module(f"suites.{suite_name}")
+        mod = importlib.import_module(module_path)
     except ImportError:
         mod = None
     msg = getattr(mod, "SYSTEM_MESSAGE", None)
     if not msg:
         console.print(
-            f"[yellow]Warning:[/yellow] suite '{suite_name}' does not define SYSTEM_MESSAGE — "
-            "no system prompt will be sent to the agent."
+            f"[dim]No SYSTEM_MESSAGE in '{suite_name}' — running without a system prompt.[/dim]"
         )
         return ""
     return msg
