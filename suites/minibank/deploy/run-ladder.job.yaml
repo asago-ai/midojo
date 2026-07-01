@@ -38,7 +38,7 @@ spec:
                 --protocol a2a \
                 --suite minibank \
                 -ut user_task_1 \
-                -it ladder_a -it ladder_b -it ladder_c \
+                -it ladder_a -it ladder_b -it ladder_c -it garak_hijack \
                 --logdir /tmp/runs
           resources:
             requests:
