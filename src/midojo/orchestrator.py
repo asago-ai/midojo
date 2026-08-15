@@ -18,6 +18,7 @@ from rich.text import Text
 from midojo.agent_client import (
     A2AAgentClient,
     AgentClient,
+    LangGraphAgentClient,
     OGXResponsesClient,
     OpenAIResponsesAgentClient,
     PIAgentClient,
@@ -37,9 +38,7 @@ def _resolve_system_message(suite_name: str) -> str:
         mod = None
     msg = getattr(mod, "SYSTEM_MESSAGE", None)
     if not msg:
-        console.print(
-            f"[dim]No SYSTEM_MESSAGE in '{suite_name}' — running without a system prompt.[/dim]"
-        )
+        console.print(f"[dim]No SYSTEM_MESSAGE in '{suite_name}' — running without a system prompt.[/dim]")
         return ""
     return msg
 
@@ -303,7 +302,9 @@ async def run_benchmark(
 @click.command()
 @click.option("--control-url", default="http://localhost:8080", help="URL of the benchmark MCP server control plane.")
 @click.option("--agent-url", required=True, help="URL of the agent to test.")
-@click.option("--suite", "suite_name", required=True, help=f"Benchmark suite name. Built-in: {', '.join(list_suites())}.")
+@click.option(
+    "--suite", "suite_name", required=True, help=f"Benchmark suite name. Built-in: {', '.join(list_suites())}."
+)
 @click.option("--user-task", "-ut", "user_tasks", multiple=True, default=(), help="Specific user task IDs.")
 @click.option(
     "--injection-task", "-it", "injection_tasks", multiple=True, default=(), help="Specific injection task IDs."
@@ -313,22 +314,35 @@ async def run_benchmark(
     "--module-to-load", "-ml", "modules_to_load", multiple=True, default=(), help="Additional modules to import."
 )
 @click.option(
-    "--protocol", type=click.Choice(["http", "a2a", "pi", "ogx", "openai"]), required=True,
+    "--protocol",
+    type=click.Choice(["http", "a2a", "pi", "langgraph", "ogx", "openai"]),
+    required=True,
     help="Agent communication protocol. "
-         "API keys are read from env vars: OPENAI_API_KEY (openai), OGX_CLIENT_API_KEY (ogx).",
+    "API keys are read from env vars: OPENAI_API_KEY (openai), OGX_CLIENT_API_KEY (ogx).",
 )
 @click.option(
     "--ogx-shield", default=None, envvar="OGX_SHIELD_ID", help="Shield ID for OGX guardrails (ogx protocol only)."
 )
 @click.option(
-    "--mcp-server-label", default=None, envvar="MCP_SERVER_LABEL",
+    "--mcp-server-label",
+    default=None,
+    envvar="MCP_SERVER_LABEL",
     help="Label the MCP server is registered under on the agent's inference server. "
-         "Defaults to the suite name. Override when the server expects a different label.",
+    "Defaults to the suite name. Override when the server expects a different label.",
 )
 @click.option(
-    "--model-name", default=None, envvar="MODEL_NAME",
+    "--model-name",
+    default=None,
+    envvar="MODEL_NAME",
     help="Model ID for the Responses API (ogx and openai protocols). "
-         "Env: MODEL_NAME. Example: gpt-4o-mini, ollama/qwen3.5:2b.",
+    "Env: MODEL_NAME. Example: gpt-4o-mini, ollama/qwen3.5:2b.",
+)
+@click.option(
+    "--graph-name",
+    default=None,
+    envvar="GRAPH_NAME",
+    help="Assistant/graph name registered with the LangGraph Agent Server "
+    "(langgraph protocol only). Env: GRAPH_NAME. Defaults to the suite name.",
 )
 def main(
     control_url: str,
@@ -342,6 +356,7 @@ def main(
     ogx_shield: str | None,
     mcp_server_label: str | None,
     model_name: str | None,
+    graph_name: str | None,
 ) -> None:
     for module in modules_to_load:
         importlib.import_module(module)
@@ -352,6 +367,8 @@ def main(
         agent_client = A2AAgentClient(agent_url)
     elif protocol == "pi":
         agent_client = PIAgentClient(agent_url, control_url)
+    elif protocol == "langgraph":
+        agent_client = LangGraphAgentClient(agent_url, graph_name or suite_name.rsplit(".", 1)[-1])
     elif protocol == "ogx":
         system_message = _resolve_system_message(suite_name)
         agent_client = OGXResponsesClient(
