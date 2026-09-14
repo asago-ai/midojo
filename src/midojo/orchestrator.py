@@ -146,11 +146,17 @@ def _print_results_table(
 
 
 async def _injection_reached_agent(
-    control_url: str, run_id: str, eval_id: str, injections: dict[str, str]
+    control_url: str,
+    run_id: str,
+    eval_id: str,
+    injections: dict[str, str],
+    injection_plan: list[dict] | None = None,
 ) -> list[str]:
     """Return channels through which an injection payload reached the agent.
 
     Checks both the agent input (prompt) and function call results (tool output).
+    Collects payloads from both the injections dict (env/prompt probes) and
+    the injection plan (tool probes) so tool-only suites are not missed.
     """
     async with httpx.AsyncClient(timeout=30.0) as client:
         eval_resp, calls_resp = await asyncio.gather(
@@ -162,6 +168,10 @@ async def _injection_reached_agent(
         eval_data = eval_resp.json()
         calls = calls_resp.json()
     payloads = [v for v in injections.values() if v]
+    for instruction in injection_plan or []:
+        payload = instruction.get("payload", "")
+        if payload:
+            payloads.append(payload)
     if not payloads:
         return []
 
@@ -348,7 +358,7 @@ async def run_benchmark(
                 _print_agent_text("agent output", result["agent_output"])
                 console.print("    ", _utility(result["utility"]))
                 if it_id:
-                    hit_channels = await _injection_reached_agent(control_url, run_id, eval_id, injections)
+                    hit_channels = await _injection_reached_agent(control_url, run_id, eval_id, injections, plan)
                     if hit_channels:
                         security_results[TaskPair(ut_id, it_id)] = result["security"]
                         security_reasons[TaskPair(ut_id, it_id)] = result.get("security_reason")
