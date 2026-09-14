@@ -45,8 +45,8 @@ def _make_eval(
 
 
 def test_create_run_round_trip(store):
-    r1 = store.create_run()
-    r2 = store.create_run()
+    r1 = store.create_run("test", "v1")
+    r2 = store.create_run("test", "v1")
     # Each run is retrievable by its own id: two creates coexist without clobbering
     # (if create_run reused an id, get_run(r1.id) would return r2).
     assert store.get_run(r1.id) is r1
@@ -60,48 +60,34 @@ def test_get_run_unknown_returns_none(store):
 
 def test_list_runs(store):
     assert store.list_runs() == []
-    r1 = store.create_run()
-    r2 = store.create_run()
+    r1 = store.create_run("test", "v1")
+    r2 = store.create_run("test", "v1")
     assert {r.id for r in store.list_runs()} == {r1.id, r2.id}
 
 
 # --- evaluations ---
 
 
-def test_create_evaluation_stored_under_run_and_current(store):
-    run = store.create_run()
+def test_create_evaluation_stored_under_run(store):
+    run = store.create_run("test", "v1")
     ev = _make_eval(store, run.id, agent_input="prompt")
     assert ev.run_id == run.id
     assert store.get_evaluation(run.id, ev.id) is ev
-    assert store.get_current_evaluation() is ev
     assert ev.agent_input == "prompt"  # kwarg is plumbed through to the Evaluation
 
 
 def test_get_evaluation_unknown_returns_none(store):
-    run = store.create_run()
+    run = store.create_run("test", "v1")
     # Two distinct not-found branches: known run/unknown eval, and unknown run.
     assert store.get_evaluation(run.id, "nope") is None
     assert store.get_evaluation("nope", "nope") is None
-
-
-def test_get_current_evaluation_none_before_any(store):
-    # Backs the "No evaluation in progress" 400 before anything is created.
-    assert store.get_current_evaluation() is None
-
-
-def test_current_evaluation_follows_latest(store):
-    run = store.create_run()
-    _make_eval(store, run.id)
-    ev2 = _make_eval(store, run.id)
-    # Creating a second eval switches /current onto it (the eval-switch semantics).
-    assert store.get_current_evaluation() is ev2
 
 
 # --- function calls ---
 
 
 def test_append_function_call_first_call_chains_from_pre_environment(store):
-    run = store.create_run()
+    run = store.create_run("test", "v1")
     # pre_environment and the live environment differ so the assertion can tell
     # which one the first call's pre-env is taken from.
     ev = _make_eval(store, run.id, pre_environment=_Env(counter=7), environment=_Env(counter=9))
@@ -115,7 +101,7 @@ def test_append_function_call_first_call_chains_from_pre_environment(store):
 
 
 def test_append_function_call_chains_pre_env_across_environment_change(store):
-    run = store.create_run()
+    run = store.create_run("test", "v1")
     ev = _make_eval(store, run.id, environment=_Env(counter=0))
     store.append_function_call(run.id, ev.id, _fc("a", "r0"))
     store.set_environment(run.id, ev.id, _Env(counter=1))
@@ -129,7 +115,7 @@ def test_append_function_call_chains_pre_env_across_environment_change(store):
 
 
 def test_append_function_call_post_env_is_deep_copy(store):
-    run = store.create_run()
+    run = store.create_run("test", "v1")
     env = _Env(counter=0)
     ev = _make_eval(store, run.id, environment=env)
     store.append_function_call(run.id, ev.id, _fc("a", "r"))
@@ -144,7 +130,7 @@ def test_append_function_call_post_env_is_deep_copy(store):
 
 
 def test_set_environment_replaces(store):
-    run = store.create_run()
+    run = store.create_run("test", "v1")
     ev = _make_eval(store, run.id, environment=_Env(counter=1))
     new_env = _Env(counter=2)
     # Returns the mutated evaluation; the new env is installed on it.
@@ -153,7 +139,7 @@ def test_set_environment_replaces(store):
 
 
 def test_record_observations_keyed_by_source(store):
-    run = store.create_run()
+    run = store.create_run("test", "v1")
     ev = _make_eval(store, run.id)
     assert store.record_observations(run.id, ev.id, "openshell", ["e1"]) is ev
     assert ev.observations == {"openshell": ["e1"]}
@@ -165,7 +151,7 @@ def test_record_observations_keyed_by_source(store):
 
 
 def test_set_grade(store):
-    run = store.create_run()
+    run = store.create_run("test", "v1")
     ev = _make_eval(store, run.id)
     # Distinct values guard against the two flags being swapped.
     assert store.set_grade(run.id, ev.id, utility=True, security=True, security_reason="output contains X") is ev
@@ -175,7 +161,7 @@ def test_set_grade(store):
 
 
 def test_set_grade_security_reason_defaults_to_none(store):
-    run = store.create_run()
+    run = store.create_run("test", "v1")
     ev = _make_eval(store, run.id)
     # Reason is optional: an attack that failed (or a utility-only grade) leaves it None.
     assert store.set_grade(run.id, ev.id, utility=True, security=False) is ev
@@ -183,7 +169,7 @@ def test_set_grade_security_reason_defaults_to_none(store):
 
 
 def test_complete_evaluation(store):
-    run = store.create_run()
+    run = store.create_run("test", "v1")
     ev = _make_eval(store, run.id)
     assert store.complete_evaluation(run.id, ev.id, "final answer") is ev
     # Completing records both the flag and the agent's final output.

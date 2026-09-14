@@ -1,22 +1,40 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
+from collections.abc import Mapping, Sequence
+
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from midojo.yaml_task_suite import YAMLTaskSuite
 
-from . import state
-from .routers import runs, suite, tasks
-from .store import InMemoryStore
+from .catalog import SuiteCatalog
+from .routers import agent, runs, suite, tasks
+from .store import InMemoryStore, InvalidSessionError, Store
 
 
-def create_app(suite_instance: YAMLTaskSuite) -> FastAPI:
-    state.suite = suite_instance
-    state.store = InMemoryStore()
-
+def create_app(
+    suites: Mapping[str, YAMLTaskSuite] | Sequence[str] | None = None,
+    *,
+    store: Store | None = None,
+    session_ttl_seconds: int = 3600,
+) -> FastAPI:
+    if session_ttl_seconds <= 0:
+        raise ValueError("Session TTL must be positive")
     app = FastAPI()
+    app.state.catalog = SuiteCatalog(suites)
+    app.state.store = store if store is not None else InMemoryStore()
+    app.state.session_ttl_seconds = session_ttl_seconds
     app.include_router(suite.router)
     app.include_router(tasks.router)
-    runs.register_environment_update_route(suite_instance.environment_type)
     app.include_router(runs.router)
-    app.include_router(runs.current_router)
+    app.include_router(agent.router)
+
+    @app.exception_handler(InvalidSessionError)
+    async def invalid_session(request: Request, exc: InvalidSessionError) -> JSONResponse:
+        return JSONResponse(status_code=401, content={"detail": str(exc)}, headers={"WWW-Authenticate": "Bearer"})
+
+    @app.get("/health")
+    def health() -> dict:
+        return {"status": "ok"}
+
     return app

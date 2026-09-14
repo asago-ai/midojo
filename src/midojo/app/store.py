@@ -1,25 +1,21 @@
-"""State persistence seam for the control plane.
+"""In-memory persistence seam with immutable evaluation session bindings.
 
-All run/evaluation state is accessed through the :class:`Store` protocol so the
-routers never touch process globals directly. :class:`InMemoryStore` is the
-default, process-local implementation (state lost on restart); a Postgres-backed
-store can be dropped in behind the same interface without changing the routers.
-
-Per-evaluation mutations are ID-based (``run_id``, ``eval_id``) so they map
-directly to a future ``UPDATE … WHERE`` without relying on live Python objects.
-Each returns the mutated :class:`Evaluation`, or ``None`` if no such evaluation
-exists; the HTTP layer turns ``None`` into a 404 (a 400 on the ``/current`` routes).
-
-The store also owns identity (id generation) and tracks the single "current"
-evaluation that backs the ``/current`` endpoints — behavior preserved from the
-old module-global ``state.current_eval`` for now.
+Session lookup and callback mutation share a lock so completion cannot race a
+late callback. Persistent storage can implement the same Store contract later.
 """
 
 from __future__ import annotations
 
+import hashlib
+import secrets
+import time
 import uuid
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, contextmanager
 from datetime import UTC, datetime
-from typing import Any, Protocol
+from functools import wraps
+from threading import RLock
+from typing import Any, Concatenate, Protocol
 
 from midojo.types import Environment, FunctionCallRecord
 
@@ -28,14 +24,14 @@ from .state import Evaluation, Run
 
 
 def _new_id() -> str:
-    return uuid.uuid4().hex[:8]
+    return uuid.uuid4().hex
 
 
 class Store(Protocol):
     """Interface for run/evaluation persistence."""
 
     # --- runs ---
-    def create_run(self) -> Run: ...
+    def create_run(self, suite_id: str, suite_version: str) -> Run: ...
     def get_run(self, run_id: str) -> Run | None: ...
     def list_runs(self) -> list[Run]: ...
 
@@ -52,8 +48,9 @@ class Store(Protocol):
         agent_input: str | None = None,
     ) -> Evaluation: ...
     def get_evaluation(self, run_id: str, eval_id: str) -> Evaluation | None: ...
-    def get_current_evaluation(self) -> Evaluation | None: ...
-    def get_current_ids(self) -> tuple[str, str] | None: ...
+    def create_session(self, run_id: str, eval_id: str, ttl_seconds: int) -> tuple[str, str]: ...
+    def close_session(self, run_id: str, eval_id: str) -> None: ...
+    def session(self, token: str) -> AbstractContextManager[Evaluation]: ...
 
     # --- per-evaluation mutations (ID-based) ---
     # Each returns the mutated evaluation, or None if (run_id, eval_id) is unknown.
@@ -66,32 +63,52 @@ class Store(Protocol):
     def complete_evaluation(self, run_id: str, eval_id: str, agent_output: str) -> Evaluation | None: ...
 
 
+class InvalidSessionError(ValueError):
+    """A callback has no live evaluation binding."""
+
+
+def _token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _locked[**P, R](
+    method: Callable[Concatenate[InMemoryStore, P], R],
+) -> Callable[Concatenate[InMemoryStore, P], R]:
+    @wraps(method)
+    def call(self: InMemoryStore, *args: P.args, **kwargs: P.kwargs) -> R:
+        with self._lock:
+            return method(self, *args, **kwargs)
+
+    return call
+
+
 class InMemoryStore:
     """Process-local, in-memory :class:`Store`. State is lost on restart."""
 
     def __init__(self) -> None:
         self._runs: dict[str, Run] = {}
-        # Only one eval is active at a time — the orchestrator runs tasks
-        # sequentially. Tracked as (run_id, eval_id) to back the /current
-        # endpoints; concurrent evals would clobber it (superseded by
-        # session-scoped resolution later).
-        self._current_ids: tuple[str, str] | None = None
+        self._sessions: dict[str, tuple[str, str, float]] = {}
+        self._lock = RLock()
 
     # --- runs ---
 
-    def create_run(self) -> Run:
-        run = Run(id=_new_id())
+    @_locked
+    def create_run(self, suite_id: str, suite_version: str) -> Run:
+        run = Run(id=_new_id(), suite_id=suite_id, suite_version=suite_version)
         self._runs[run.id] = run
         return run
 
+    @_locked
     def get_run(self, run_id: str) -> Run | None:
         return self._runs.get(run_id)
 
+    @_locked
     def list_runs(self) -> list[Run]:
         return list(self._runs.values())
 
     # --- evaluations ---
 
+    @_locked
     def create_evaluation(
         self,
         run_id: str,
@@ -114,26 +131,48 @@ class InMemoryStore:
             agent_input=agent_input,
         )
         self._runs[run_id].evaluations[evaluation.id] = evaluation
-        self._current_ids = (run_id, evaluation.id)
         return evaluation
 
+    @_locked
     def get_evaluation(self, run_id: str, eval_id: str) -> Evaluation | None:
         run = self._runs.get(run_id)
         if run is None:
             return None
         return run.evaluations.get(eval_id)
 
-    def get_current_evaluation(self) -> Evaluation | None:
-        ids = self.get_current_ids()
-        if ids is None:
-            return None
-        return self.get_evaluation(*ids)
+    def create_session(self, run_id: str, eval_id: str, ttl_seconds: int) -> tuple[str, str]:
+        with self._lock:
+            evaluation = self.get_evaluation(run_id, eval_id)
+            if evaluation is None or evaluation.completed:
+                raise InvalidSessionError("Cannot open a session for this evaluation")
+            if ttl_seconds <= 0:
+                raise ValueError("Session TTL must be positive")
+            self.close_session(run_id, eval_id)
+            self._sessions = {key: value for key, value in self._sessions.items() if value[2] > time.time()}
+            token = secrets.token_urlsafe(32)
+            expires = time.time() + ttl_seconds
+            self._sessions[_token_hash(token)] = (run_id, eval_id, expires)
+            return token, datetime.fromtimestamp(expires, UTC).isoformat()
 
-    def get_current_ids(self) -> tuple[str, str] | None:
-        return self._current_ids
+    def close_session(self, run_id: str, eval_id: str) -> None:
+        with self._lock:
+            self._sessions = {key: value for key, value in self._sessions.items() if value[:2] != (run_id, eval_id)}
+
+    @contextmanager
+    def session(self, token: str) -> Iterator[Evaluation]:
+        """Hold the binding valid for a complete callback, including its mutation."""
+        with self._lock:
+            binding = self._sessions.get(_token_hash(token))
+            if binding is None or binding[2] <= time.time():
+                raise InvalidSessionError("Invalid, expired, or closed evaluation session")
+            evaluation = self.get_evaluation(binding[0], binding[1])
+            if evaluation is None or evaluation.completed:
+                raise InvalidSessionError("Invalid, expired, or closed evaluation session")
+            yield evaluation
 
     # --- per-evaluation mutations ---
 
+    @_locked
     def append_function_call(self, run_id: str, eval_id: str, req: CreateFunctionCallRecord) -> Evaluation | None:
         evaluation = self.get_evaluation(run_id, eval_id)
         if evaluation is None:
@@ -154,6 +193,7 @@ class InMemoryStore:
         evaluation.function_calls.append(record)
         return evaluation
 
+    @_locked
     def set_environment(self, run_id: str, eval_id: str, environment: Environment) -> Evaluation | None:
         evaluation = self.get_evaluation(run_id, eval_id)
         if evaluation is None:
@@ -161,6 +201,7 @@ class InMemoryStore:
         evaluation.environment = environment
         return evaluation
 
+    @_locked
     def record_observations(self, run_id: str, eval_id: str, source: str, data: Any) -> Evaluation | None:
         evaluation = self.get_evaluation(run_id, eval_id)
         if evaluation is None:
@@ -168,6 +209,7 @@ class InMemoryStore:
         evaluation.observations[source] = data
         return evaluation
 
+    @_locked
     def set_grade(
         self, run_id: str, eval_id: str, *, utility: bool, security: bool, security_reason: str | None = None
     ) -> Evaluation | None:
@@ -179,10 +221,12 @@ class InMemoryStore:
         evaluation.security_reason = security_reason
         return evaluation
 
+    @_locked
     def complete_evaluation(self, run_id: str, eval_id: str, agent_output: str) -> Evaluation | None:
         evaluation = self.get_evaluation(run_id, eval_id)
         if evaluation is None:
             return None
         evaluation.agent_output = agent_output
         evaluation.completed = True
+        self.close_session(run_id, eval_id)
         return evaluation

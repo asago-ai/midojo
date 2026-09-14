@@ -245,7 +245,7 @@ class OpenShellBackend:
       1. ``configure(cluster=..., control_url=...)`` — inject deployment config (once)
       2. ``start_run(run_id)`` — open the run's OpenShell workspace + client (once)
       3. ``provision(injections)`` — render workdir files (pure, no sandbox needed)
-      4. ``setup(pre_env)`` — create sandbox, seed workdir, start timer (per evaluation)
+      4. ``setup(pre_env, session_token=...)`` — create sandbox and seed workdir (per evaluation)
       5. agent executes (via ``exec_agent``)
       6. ``snapshot()`` — workdir diff + OCSF events → full ``OpenShellEnvironment``
       7. ``teardown()`` — delete the sandbox (per evaluation)
@@ -372,7 +372,7 @@ class OpenShellBackend:
 
     # --- Per-evaluation sandbox lifecycle ---
 
-    def setup(self, pre_env: OpenShellEnvironment) -> None:  # type: ignore[override]
+    def setup(self, pre_env: OpenShellEnvironment, *, session_token: str) -> None:  # type: ignore[override]
         """Create the sandbox in the run's workspace, seed the workdir, mark a baseline.
 
         Requires ``start_run()`` to have opened the client and workspace.
@@ -380,7 +380,7 @@ class OpenShellBackend:
         self._cached_ocsf = None
         self._seeded_workdir = dict(pre_env.workdir_files)
 
-        env = {**self._env_vars}
+        env = {**self._env_vars, "MIDOJO_SESSION_TOKEN": session_token}
         # The in-sandbox agent SDK POSTs its tool calls to the control plane, so
         # the sandbox must be able to reach it. `localhost` resolves to the sandbox
         # itself, so hand the SDK the host.openshell.internal form of the URL. The

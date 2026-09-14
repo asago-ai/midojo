@@ -16,25 +16,25 @@ def control_plane(client) -> TestClient:
 
 
 @pytest.fixture()
-def eval_context(control_plane: TestClient) -> tuple[TestClient, str, str]:
-    run_id = control_plane.post("/runs").json()["id"]
+def eval_context(control_plane: TestClient) -> tuple[TestClient, str, str, str]:
+    run_id = control_plane.post("/runs", json={"suite_id": "weather"}).json()["id"]
     eval_resp = control_plane.post(
         f"/runs/{run_id}/evaluations",
         json={"user_task_id": "weather_new_york"},
     ).json()
-    return control_plane, run_id, eval_resp["id"]
+    return control_plane, run_id, eval_resp["id"], eval_resp["session_token"]
 
 
-def _make_client(app: FastAPI) -> ControlPlaneClient:
+def _make_client(app: FastAPI, token: str) -> ControlPlaneClient:
     transport = httpx.ASGITransport(app=app)
     http = httpx.AsyncClient(transport=transport, base_url="http://testserver")
-    return ControlPlaneClient("http://testserver", http=http)
+    return ControlPlaneClient("http://testserver", http=http, token=token)
 
 
 @pytest.mark.asyncio
 async def test_control_plane_client_get_environment(eval_context, app):
-    cp, run_id, eval_id = eval_context
-    client = _make_client(app)
+    cp, run_id, eval_id, token = eval_context
+    client = _make_client(app, token)
 
     env = await client.get_environment()
     assert "cities" in env
@@ -43,8 +43,8 @@ async def test_control_plane_client_get_environment(eval_context, app):
 
 @pytest.mark.asyncio
 async def test_control_plane_client_put_environment(eval_context, app):
-    cp, run_id, eval_id = eval_context
-    client = _make_client(app)
+    cp, run_id, eval_id, token = eval_context
+    client = _make_client(app, token)
 
     env = await client.get_environment()
     env["weather_alerts"] = [{"city": "NYC", "message": "test"}]
@@ -56,8 +56,8 @@ async def test_control_plane_client_put_environment(eval_context, app):
 
 @pytest.mark.asyncio
 async def test_control_plane_client_record_function_call(eval_context, app):
-    cp, run_id, eval_id = eval_context
-    client = _make_client(app)
+    cp, run_id, eval_id, token = eval_context
+    client = _make_client(app, token)
 
     await client.record_function_call(
         function="get_weather",
@@ -72,8 +72,8 @@ async def test_control_plane_client_record_function_call(eval_context, app):
 
 @pytest.mark.asyncio
 async def test_tool_context_env(eval_context, app):
-    _, run_id, eval_id = eval_context
-    client = _make_client(app)
+    _, run_id, eval_id, token = eval_context
+    client = _make_client(app, token)
     ctx = client.create_tool_context()
 
     cities = await ctx.env("cities")
@@ -82,8 +82,8 @@ async def test_tool_context_env(eval_context, app):
 
 @pytest.mark.asyncio
 async def test_tool_context_env_update(eval_context, app):
-    cp, run_id, eval_id = eval_context
-    client = _make_client(app)
+    cp, run_id, eval_id, token = eval_context
+    client = _make_client(app, token)
     ctx = client.create_tool_context()
 
     alerts = await ctx.env("weather_alerts")
@@ -124,13 +124,9 @@ def test_midojo_mcp_tool_requires_ctx():
 # --- Forwarding / UpstreamClient tests ---
 
 
-
-
 @pytest.mark.asyncio
 async def test_tool_context_forward_raises_without_upstream():
     client = ControlPlaneClient("http://localhost:9999")
     ctx = client.create_tool_context()
     with pytest.raises(RuntimeError, match="No upstream MCP server configured"):
         await ctx.forward("get_weather", {"city": "New York"})
-
-

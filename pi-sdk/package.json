@@ -7,5 +7,8 @@
   "types": "src/index.ts",
   "peerDependencies": {
     "@mariozechner/pi-coding-agent": ">=0.70.0"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
   }
 }

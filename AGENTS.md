@@ -43,10 +43,10 @@ Start them in order, for example of OGX Agent:
 
 ```sh
 weather-real-mcp-serve --port 8081                                                 # 1. the real MCP
-midojo-serve --suite weather --port 8080                                           # 2. Control Plane (must be UP before anything else talks to it)
+midojo-serve --port 8080                                           # 2. Control Plane (must be UP before anything else talks to it)
 weather-fake-mcp-serve --port 8082 --upstream-url http://localhost:8081/mcp        # 3. fake tools (registers with control plane)
 LITELLM_API_KEY=... LITELLM_API_URL=... ogx run suites/weather/ogx_agent/run.yaml  # 4. Start the OGX server for the OGX Agent
-midojo-run --agent-url http://localhost:8000 --protocol a2a --suite weather        # 5. runs the benchmark (exits when done)
+midojo-run --agent-uri http://localhost:8000 --protocol a2a --suite weather        # 5. runs the benchmark (exits when done)
 ```
 
 for additional examples refer to [README.md](./README.md).
@@ -75,7 +75,7 @@ for additional examples refer to [README.md](./README.md).
    task_suite = YAMLTaskSuite("my_suite", suite_yaml_path=Path(__file__).parent / "suite.yaml")
    ```
 2. optionally export `SYSTEM_MESSAGE` — if defined, midojo forwards it as the system prompt for `--protocol ogx` and `--protocol openai`. Not required: if absent, the agent runs without one (your model endpoint may already have it configured)
-3. reference it by dotted module path: `midojo-serve --suite my_package.my_suite`; `midojo-run --suite my_package.my_suite ...`
+3. reference it by dotted module path: `midojo-serve --suite-package my_package.my_suite`; `midojo-run --suite my_package.my_suite ...`
 4. fake/real MCP servers import `from midojo.mcp_sdk import MidojoMCP, ToolContext` as normal — no changes needed
 
 **Add a new attack technique** — add an `AttackTechnique` to the `BUILTIN_TECHNIQUES` list in `src/midojo/attacks/builtin.py`. Each attack technique is a function `(payload: str) -> str` that wraps the payload in a delivery template.

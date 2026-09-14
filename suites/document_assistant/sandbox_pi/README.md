@@ -25,7 +25,7 @@ predicates) does not change — only the `image:` field in the backend config.
 The suite already points at a pre-built image. Just run:
 
 ```bash
-uv run midojo-serve --suite document_assistant --port 8090
+uv run midojo-serve --port 8090
 uv run midojo-run --protocol openshell --suite document_assistant \
   --control-url http://localhost:8090
 ```

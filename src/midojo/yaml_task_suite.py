@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -36,6 +38,8 @@ class YAMLTaskSuite:
         name: str,
         suite_yaml_path: Path,
         backend: EnvironmentBackend | None = None,
+        *,
+        version: str | None = None,
     ) -> None:
         self.name = name
         self._suite_yaml_path = suite_yaml_path
@@ -44,6 +48,17 @@ class YAMLTaskSuite:
         self.user_tasks: dict[str, UserTask] = {}
         self.injection_tasks: dict[str, InjectionTask] = {}
         self._register_tasks()
+        # Include resolved payloads and the concrete schema, not just the YAML.
+        # Custom Python suites can supply an explicit version for code changes.
+        definition = {
+            "suite": self._suite_raw,
+            "probes": {key: task.probes for key, task in self.injection_tasks.items()},
+            "environment_schema": self.environment_type.model_json_schema(),
+        }
+        self.version = (
+            version
+            or "sha256:" + hashlib.sha256(json.dumps(definition, sort_keys=True, default=str).encode()).hexdigest()
+        )
 
     @property
     def environment_type(self) -> type[Environment]:
@@ -127,7 +142,6 @@ class YAMLTaskSuite:
         index = probe_raw.get("index", 0)
         if not 0 <= index < len(payload_set.payloads):
             raise ValueError(
-                f"index {index} out of range for payload set '{payload_set.id}' "
-                f"({len(payload_set.payloads)} payloads)"
+                f"index {index} out of range for payload set '{payload_set.id}' ({len(payload_set.payloads)} payloads)"
             )
         return payload_set.payloads[index]
