@@ -20,6 +20,12 @@ predicates) does not change — only the `image:` field in the backend config.
 - An OpenAI-compatible inference server at `localhost:8321` (e.g. Llama Stack, vLLM, Ollama)
 - The model `ollama/qwen3.5:2b` (or edit `models.json` for a different model)
 
+The image must bundle the current `pi-sdk` for evaluation-session callbacks.
+Rebuild older images that still use `/current`. On Apple Silicon, use a native
+ARM64 image: under x86 emulation, OpenShell identifies QEMU as the process, so
+the Node binary allowlist does not match. Add `--pull=always --platform linux/arm64`
+to the build command below when building for Apple Silicon.
+
 ## Run (pre-built image — no build required)
 
 The suite already points at a pre-built image. Just run:
@@ -27,7 +33,7 @@ The suite already points at a pre-built image. Just run:
 ```bash
 uv run midojo-serve --port 8090
 uv run midojo-run --protocol openshell --suite document_assistant \
-  --control-url http://localhost:8090
+  --agent-uri openshell --control-url http://localhost:8090
 ```
 
 ## How injections are observed

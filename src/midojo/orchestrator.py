@@ -27,6 +27,7 @@ from midojo.agent_client import (
     SimpleHTTPAgentClient,
 )
 from midojo.backends import EnvironmentBackend
+from midojo.backends.openshell import workspace_name_for_run
 from midojo.suites import get_suite, list_suites
 from midojo.yaml_task_suite import YAMLTaskSuite
 
@@ -321,7 +322,7 @@ async def run_benchmark(
         # openshell provisions one workspace per run (named after run_id) around the
         # eval loop; the sandbox itself is created/torn down per evaluation.
         if lifecycle_backend is not None:
-            workspace_name = f"midojo-run-{run_id}"  # mirrors OpenShellBackend.start_run
+            workspace_name = workspace_name_for_run(run_id)
             with console.status(
                 f"[dim]opening workspace [cyan]{workspace_name}[/cyan] on the gateway…[/dim]", spinner="dots"
             ):

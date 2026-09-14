@@ -34,6 +34,8 @@ OCSF caching:
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import time
 from typing import Any
 
@@ -68,6 +70,12 @@ _CLIENT_TIMEOUT_SECONDS = 120.0
 # Total wall-clock budget for a teardown wait (sandbox delete, or waiting for a
 # workspace to drain to empty). Polled in ~1s steps.
 _TEARDOWN_BUDGET_SECONDS = 120.0
+
+
+def workspace_name_for_run(run_id: str) -> str:
+    """Fit OpenShell's 19-character limit while retaining 85 bits of the run hash."""
+    digest = base64.b32encode(hashlib.sha256(run_id.encode()).digest()).decode().lower()
+    return f"m-{digest[:17]}"
 
 
 def _resolve_image(image: str) -> str:
@@ -362,8 +370,9 @@ class OpenShellBackend:
         self._pb2 = openshell_pb2
         self._client = SandboxClient.from_active_cluster(cluster=self._cluster, timeout=_CLIENT_TIMEOUT_SECONDS)
         self._workspace_client = WorkspaceClient.from_sandbox_client(self._client)
-        self._workspace_name = f"midojo-run-{run_id}"
-        self._workspace_client.create(self._workspace_name)
+        workspace_name = workspace_name_for_run(run_id)
+        self._workspace_client.create(workspace_name)
+        self._workspace_name = workspace_name
 
         # Policy and control-plane URL are fixed for the whole run, so check the
         # control-plane allow rule once here rather than on every setup().

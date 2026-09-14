@@ -1,4 +1,5 @@
 import asyncio
+import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -162,3 +163,47 @@ def test_openshell_tokens_are_per_sandbox_creation():
     specs = [call.kwargs["spec"] for call in backend._client.create.call_args_list]
     assert [spec.environment["MIDOJO_SESSION_TOKEN"] for spec in specs] == ["first", "second"]
     assert all(spec.environment["MIDOJO_URL"] == "http://host.openshell.internal:8090" for spec in specs)
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_workspace_creation_handles_full_run_ids_and_failure_cleanup(monkeypatch, fail):
+    sandbox_client = MagicMock()
+    sandbox_client.list_ids.return_value = []
+    workspace_client = MagicMock()
+    names = []
+
+    def create(name):
+        assert len(name) <= 19
+        assert name[0].isalpha()
+        assert all(char.islower() or char.isdigit() or char == "-" for char in name)
+        names.append(name)
+        if fail:
+            raise RuntimeError("Workspace rejected")
+
+    workspace_client.create.side_effect = create
+    monkeypatch.setitem(
+        sys.modules,
+        "openshell",
+        SimpleNamespace(
+            SandboxClient=SimpleNamespace(from_active_cluster=lambda **kw: sandbox_client),
+            WorkspaceClient=SimpleNamespace(from_sandbox_client=lambda client: workspace_client),
+        ),
+    )
+    monkeypatch.setitem(sys.modules, "openshell._proto", SimpleNamespace(openshell_pb2=object()))
+    backend = OpenShellBackend("test", image="base", workdir_files={})
+    for run_id in ["a" * 31 + "1", "a" * 31 + "2"]:
+        try:
+            if fail:
+                with pytest.raises(RuntimeError, match="Workspace rejected"):
+                    backend.start_run(run_id)
+            else:
+                backend.start_run(run_id)
+        finally:
+            backend.end_run()
+    assert len(set(names)) == 2
+    assert sandbox_client.close.call_count == 2
+    if fail:
+        sandbox_client.list_ids.assert_not_called()
+        workspace_client.delete.assert_not_called()
+    else:
+        assert [call.args[0] for call in workspace_client.delete.call_args_list] == names

@@ -267,4 +267,6 @@ class OpenShellAgentClient(AgentClient):
 
     async def send_task(self, prompt: str, *, session_token: str) -> str:
         result = await asyncio.to_thread(self._backend.exec_agent, prompt, timeout_seconds=int(self._timeout))
+        if result.exit_code != 0:
+            raise RuntimeError(f"OpenShell agent exited with code {result.exit_code}: {result.stderr}")
         return result.stdout.strip()
