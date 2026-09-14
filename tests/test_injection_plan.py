@@ -5,7 +5,7 @@ Covers:
 2. Control plane API: CRUD on injection plan, typed validation
 3. Eval creation with injection plan
 4. Refresh endpoint: re-render env/prompt from updated plan
-5. SDK integration: get_matching_instruction filters by type and tool name
+5. SDK integration: _fetch_matching_instruction filters by type and tool name
 6. Injection execution: all modes (embed/replace/append/new_field)
 7. Field auto-detection: find_best_field
 8. Suite placement: build_injection_inputs from probe definitions
@@ -15,24 +15,18 @@ Covers:
 from __future__ import annotations
 
 import json
-import tempfile
-from pathlib import Path
 
 import httpx
 import pytest
 import yaml
-from fastapi import FastAPI
 
-from midojo.mcp_sdk import (
-    ControlPlaneClient,
-    _collect_string_fields,
-    _splice_into_field,
+from midojo.injection import (
     execute_injection,
     find_best_field,
-    get_matching_instruction,
+    splice_into_field,
 )
+from midojo.mcp_sdk import ControlPlaneClient, _fetch_matching_instruction
 from midojo.yaml_task_suite import YAMLTaskSuite
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -251,7 +245,7 @@ class TestRefresh:
 
 
 # ---------------------------------------------------------------------------
-# 4. SDK — get_matching_instruction
+# 4. SDK — _fetch_matching_instruction
 # ---------------------------------------------------------------------------
 
 
@@ -280,13 +274,13 @@ class TestGetMatchingInstruction:
 
     @pytest.mark.asyncio
     async def test_matches_specific_tool(self, setup_eval, mock_client):
-        match = await get_matching_instruction(mock_client, "get_weather")
+        match = await _fetch_matching_instruction(mock_client, "get_weather")
         assert match is not None
         assert match["payload"] == "TOOL1"
 
     @pytest.mark.asyncio
     async def test_wildcard_matches_unknown_tool(self, setup_eval, mock_client):
-        match = await get_matching_instruction(mock_client, "some_other_tool")
+        match = await _fetch_matching_instruction(mock_client, "some_other_tool")
         assert match is not None
         assert match["payload"] == "TOOL2"
 
@@ -298,7 +292,7 @@ class TestGetMatchingInstruction:
             f"/runs/{run_id}/evaluations/{eval_id}/injection-plan",
             json={"instructions": [{"type": "env", "payload": "ENV", "probe_key": "t:e"}]},
         )
-        match = await get_matching_instruction(mock_client, "get_weather")
+        match = await _fetch_matching_instruction(mock_client, "get_weather")
         assert match is None
 
     @pytest.mark.asyncio
@@ -306,7 +300,7 @@ class TestGetMatchingInstruction:
         client.post("/runs").json()["id"]
         run_id = client.post("/runs").json()["id"]
         client.post(f"/runs/{run_id}/evaluations", json={"user_task_id": "weather_new_york"})
-        match = await get_matching_instruction(mock_client, "anything")
+        match = await _fetch_matching_instruction(mock_client, "anything")
         assert match is None
 
 
@@ -393,12 +387,12 @@ class TestFindBestField:
 
 class TestSpliceIntoField:
     def test_top_level_field(self):
-        result = _splice_into_field('{"notes": "original"}', "notes", "INJECTED")
+        result = splice_into_field('{"notes": "original"}', "notes", "INJECTED")
         assert result is not None
         assert "original INJECTED" in result
 
     def test_field_in_list_item(self):
-        result = _splice_into_field(
+        result = splice_into_field(
             '{"items": [{"desc": "original"}]}', "desc", "INJECTED"
         )
         assert result is not None
@@ -406,17 +400,17 @@ class TestSpliceIntoField:
         assert "original INJECTED" in data["items"][0]["desc"]
 
     def test_missing_field_returns_none(self):
-        result = _splice_into_field('{"other": "value"}', "notes", "INJECTED")
+        result = splice_into_field('{"other": "value"}', "notes", "INJECTED")
         assert result is None
 
     def test_empty_field_gets_payload(self):
-        result = _splice_into_field('{"notes": ""}', "notes", "INJECTED")
+        result = splice_into_field('{"notes": ""}', "notes", "INJECTED")
         assert result is not None
         data = json.loads(result)
         assert data["notes"] == "INJECTED"
 
     def test_non_json_returns_none(self):
-        assert _splice_into_field("plain text", "notes", "INJECTED") is None
+        assert splice_into_field("plain text", "notes", "INJECTED") is None
 
 
 # ---------------------------------------------------------------------------
@@ -529,7 +523,7 @@ class TestBuildInjectionInputs:
 
 class TestBackwardCompatibility:
     def test_existing_weather_suite_unchanged(self, suite):
-        task_id = list(suite.injection_tasks.keys())[0]
+        task_id = next(iter(suite.injection_tasks.keys()))
         old = suite.get_probes_for_task(task_id)
         injections, plan = suite.build_injection_inputs(task_id)
         assert injections == old
