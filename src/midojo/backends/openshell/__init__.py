@@ -444,12 +444,8 @@ class OpenShellBackend:
         }
         if injection_task_id is not None:
             labels["midojo.injection-task"] = injection_task_id
-        task = _short_name(user_task_id, 5, "task")
-        injection = _short_name(injection_task_id or "base", 4, "task")
-        self._ref = _create_named_resource(
-            f"{task}-x-{injection}",
-            eval_id,
-            lambda name: self._client.create(workspace=self._workspace_name, spec=spec, name=name, labels=labels),
+        self._ref = self._client.create(
+            workspace=self._workspace_name, spec=spec, name=f"eval-{eval_id}", labels=labels
         )
         self._client.wait_ready(self._ref.name, workspace=self._workspace_name, timeout_seconds=120.0)
 

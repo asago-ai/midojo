@@ -36,11 +36,11 @@ uv run midojo-run --protocol openshell --suite document_assistant \
   --agent-uri openshell --control-url http://localhost:8090
 ```
 
-Each run gets a workspace such as `midojo-docum-k7p2xa`. Each evaluation gets
-a sandbox such as `summa-x-exfi-b4c2de` (user task × injection task); utility-only
-evaluations use `base` in the injection slot. Names are shortened to fit
-OpenShell's 19-character limit and include a six-character suffix, with retries
-if a name is already taken.
+Each run gets a workspace such as `midojo-docum-k7p2xa`, with a shortened suite
+name and a six-character suffix (retried if already taken). Each evaluation gets
+a 10-character hexadecimal ID, checked for uniqueness across runs in the control
+plane, and a sandbox named `eval-<id>`, such as `eval-c896124bda`. The same ID is
+used in the API, logs, and labels. Both names fit OpenShell's 19-character limit.
 
 Workspace labels retain `midojo.suite` and `midojo.run-id`. Sandbox labels add
 `midojo.eval-id`, `midojo.user-task`, and `midojo.injection-task` with their full

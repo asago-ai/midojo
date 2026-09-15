@@ -87,6 +87,7 @@ class InMemoryStore:
 
     def __init__(self) -> None:
         self._runs: dict[str, Run] = {}
+        self._evaluation_ids: set[str] = set()
         self._sessions: dict[str, tuple[str, str, float]] = {}
         self._lock = RLock()
 
@@ -120,8 +121,14 @@ class InMemoryStore:
         active_injections: dict[str, str],
         agent_input: str | None = None,
     ) -> Evaluation:
+        run = self._runs[run_id]
+        # Keep evaluation IDs short and unique across every run in this store.
+        # The method's lock covers allocation and insertion together.
+        eval_id = secrets.token_hex(5)
+        while eval_id in self._evaluation_ids:
+            eval_id = secrets.token_hex(5)
         evaluation = Evaluation(
-            id=_new_id(),
+            id=eval_id,
             run_id=run_id,
             user_task_id=user_task_id,
             injection_task_id=injection_task_id,
@@ -130,7 +137,8 @@ class InMemoryStore:
             active_injections=active_injections,
             agent_input=agent_input,
         )
-        self._runs[run_id].evaluations[evaluation.id] = evaluation
+        run.evaluations[evaluation.id] = evaluation
+        self._evaluation_ids.add(evaluation.id)
         return evaluation
 
     @_locked

@@ -167,6 +167,7 @@ async def test_benchmark_passes_resource_identity_and_prints_actual_workspace(
 
         def setup(self, env, *, session_token, eval_id, user_task_id, injection_task_id):
             self.eval_id = eval_id
+            assert re.fullmatch(r"[0-9a-f]{10}", eval_id)
             self.env = env
             evaluation = client.get(f"/runs/{self.run_id}/evaluations/{eval_id}").json()
             assert evaluation["user_task_id"] == user_task_id == "weather_new_york"
@@ -253,7 +254,7 @@ def test_openshell_tokens_and_labels_are_per_sandbox_creation(gateway):
         backend.setup(
             OpenShellEnvironment(),
             session_token=f"secret-{idx}",
-            eval_id=f"eval-{idx}",
+            eval_id=f"{idx:010x}",
             user_task_id="summarize_q4_report",
             injection_task_id=injection,
         )
@@ -266,15 +267,13 @@ def test_openshell_tokens_and_labels_are_per_sandbox_creation(gateway):
         labels = call.kwargs["labels"]
         assert labels["midojo.suite"] == "external.test_suite"
         assert labels["midojo.run-id"] == "run"
-        assert labels["midojo.eval-id"] == f"eval-{idx}"
+        assert labels["midojo.eval-id"] == f"{idx:010x}"
         assert labels["midojo.user-task"] == "summarize_q4_report"
         assert f"secret-{idx}" not in str(labels)
-        assert len(call.kwargs["name"]) <= 19
+        assert call.kwargs["name"] == f"eval-{idx:010x}"
         assert call.kwargs["workspace"] == backend.workspace_name
     assert calls[0].kwargs["labels"]["midojo.injection-task"] == "exfiltrate_report_via_curl"
     assert "midojo.injection-task" not in calls[1].kwargs["labels"]
-    assert calls[0].kwargs["name"].startswith("summa-x-exfi-")
-    assert calls[1].kwargs["name"].startswith("summa-x-base-")
     backend.end_run()
     assert backend._run_labels == {}
 
@@ -317,7 +316,6 @@ def test_workspace_creation_handles_full_run_ids_and_failure_cleanup(gateway, fa
         assert [call.args[0] for call in workspace_client.delete.call_args_list] == names
 
 
-@pytest.mark.parametrize("resource", ["workspace", "sandbox"])
 @pytest.mark.parametrize(
     "status,succeed,expected_attempts",
     [
@@ -326,9 +324,8 @@ def test_workspace_creation_handles_full_run_ids_and_failure_cleanup(gateway, fa
         ("UNAVAILABLE", False, 1),
     ],
 )
-def test_named_resources_retry_only_conflicts_without_reusing_or_deleting_them(
+def test_workspaces_retry_only_conflicts_without_reusing_or_deleting_them(
     gateway,
-    resource,
     status,
     succeed,
     expected_attempts,
@@ -343,37 +340,49 @@ def test_named_resources_retry_only_conflicts_without_reusing_or_deleting_them(
             raise gateway.RpcError(gateway.StatusCode[status])
         return SimpleNamespace(name=name, id=name)
 
-    if resource == "workspace":
-        gateway.workspaces.create.side_effect = create
-        operation = lambda: backend.start_run("run")
-    else:
-        backend.start_run("run")
-        gateway.sandboxes.create.side_effect = create
-        operation = lambda: backend.setup(
-            OpenShellEnvironment(),
-            session_token="secret",
-            eval_id="eval",
-            user_task_id="summarize_q4_report",
-            injection_task_id="exfiltrate_report_via_curl",
-        )
+    gateway.workspaces.create.side_effect = create
     try:
         if succeed:
-            operation()
-            actual = backend.workspace_name if resource == "workspace" else backend._ref.name
+            backend.start_run("run")
+            actual = backend.workspace_name
             assert actual == attempts[-1]
             assert actual != attempts[0]
         else:
             with pytest.raises(gateway.RpcError) as error:
-                operation()
+                backend.start_run("run")
             assert error.value.code() == gateway.StatusCode[status]
-            assert (backend.workspace_name if resource == "workspace" else backend._ref) in ("", None)
+            assert backend.workspace_name == ""
     finally:
         backend.teardown()
         backend.end_run()
     assert len(attempts) == expected_attempts
     assert len(set(attempts)) == len(attempts)
-    sdk = gateway.workspaces if resource == "workspace" else gateway.sandboxes
-    assert [call.args[0] for call in sdk.delete.call_args_list] == ([attempts[-1]] if succeed else [])
+    assert [call.args[0] for call in gateway.workspaces.delete.call_args_list] == ([attempts[-1]] if succeed else [])
+
+
+@pytest.mark.parametrize("status", ["ALREADY_EXISTS", "UNAVAILABLE"])
+def test_sandbox_creation_failure_does_not_rename_reuse_or_delete_existing_sandbox(gateway, status):
+    backend = OpenShellBackend("document_assistant", image="base", workdir_files={})
+    backend.start_run("run")
+    gateway.sandboxes.create.side_effect = gateway.RpcError(gateway.StatusCode[status])
+    try:
+        with pytest.raises(gateway.RpcError) as error:
+            backend.setup(
+                OpenShellEnvironment(),
+                session_token="secret",
+                eval_id="c896124bda",
+                user_task_id="summarize_q4_report",
+                injection_task_id=None,
+            )
+        assert error.value.code() == gateway.StatusCode[status]
+        assert backend._ref is None
+    finally:
+        backend.teardown()
+        backend.end_run()
+    assert gateway.sandboxes.create.call_count == 1
+    assert gateway.sandboxes.create.call_args.kwargs["name"] == "eval-c896124bda"
+    gateway.sandboxes.wait_ready.assert_not_called()
+    gateway.sandboxes.delete.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -388,7 +397,7 @@ def test_readable_names_are_valid_and_full_labels_survive_shortening(gateway, su
     backend = OpenShellBackend(suite, image="base", workdir_files={})
     backend.start_run("run")
     names = [backend.workspace_name]
-    for eval_id in ("first", "second"):
+    for eval_id in ("c896124bda", "7a33e5fec0"):
         backend.setup(
             OpenShellEnvironment(),
             session_token="secret",
@@ -397,6 +406,7 @@ def test_readable_names_are_valid_and_full_labels_survive_shortening(gateway, su
             injection_task_id=injection,
         )
         names.append(backend._ref.name)
+        assert backend._ref.name == f"eval-{eval_id}"
         labels = gateway.sandboxes.create.call_args.kwargs["labels"]
         assert labels["midojo.suite"] == suite
         assert labels["midojo.user-task"] == task
