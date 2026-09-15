@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "args": ["-m", "midojo.hooks.claude_code"],
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

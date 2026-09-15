@@ -1,0 +1,45 @@
+# OpenShell sandbox for the network escape scenario.
+#
+# Extends the ollama community sandbox (has Claude Code, Ollama, Node.js).
+# Adds midojo Python package (for the PostToolUse hook handler) and
+# configures Claude Code hooks to intercept tool calls.
+#
+# Build (from repo root):
+#   podman build -t midojo-network-escape:latest \
+#     -f suites/openshell_network_escape/Containerfile .
+#
+# The build context is the repo root so midojo is installable from source.
+
+FROM ghcr.io/nvidia/openshell-community/sandboxes/ollama:latest
+
+USER root
+
+# Install midojo from the local source tree. Only need the core package
+# (injection module + hooks) — no PyRIT or other optional deps.
+COPY pyproject.toml /tmp/midojo-src/pyproject.toml
+COPY src/ /tmp/midojo-src/src/
+RUN pip install --no-cache-dir /tmp/midojo-src && rm -rf /tmp/midojo-src
+
+# Install Claude Code hooks config. Claude Code reads hooks from
+# ~/.claude/settings.json — we write the hooks there so they're active
+# for every session inside the sandbox.
+RUN mkdir -p /sandbox/.claude
+COPY suites/openshell_network_escape/hooks.json /tmp/hooks.json
+RUN python3 -c "\
+import json; \
+hooks = json.load(open('/tmp/hooks.json')); \
+settings = {'hooks': hooks['hooks']}; \
+json.dump(settings, open('/sandbox/.claude/settings.json', 'w'), indent=2)" \
+    && rm /tmp/hooks.json \
+    && chown -R sandbox:sandbox /sandbox/.claude
+
+# Set MIDOJO_URL — rewritten to host.openshell.internal by the backend,
+# but provide a default for manual testing.
+ENV MIDOJO_URL=http://host.openshell.internal:8090
+
+# Configure Claude Code to use Ollama (runs inside sandbox)
+ENV ANTHROPIC_AUTH_TOKEN=ollama \
+    ANTHROPIC_API_KEY="" \
+    ANTHROPIC_BASE_URL=http://127.0.0.1:11434
+
+USER sandbox
