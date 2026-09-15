@@ -13,10 +13,10 @@ from ..models import SuiteInfoResponse
 router = APIRouter(prefix="/suites")
 
 
-@router.get("/{suite_id}", response_model=SuiteInfoResponse, status_code=status.HTTP_200_OK)
-def suite_info(suite_id: str, suite: Annotated[YAMLTaskSuite, Depends(get_suite)]):
+@router.get("/{suite_name}", response_model=SuiteInfoResponse, status_code=status.HTTP_200_OK)
+def suite_info(suite_name: str, suite: Annotated[YAMLTaskSuite, Depends(get_suite)]):
     return SuiteInfoResponse(
-        id=suite_id,
+        name=suite_name,
         version=suite.version,
         user_tasks=list(suite.user_tasks.keys()),
         injection_tasks=list(suite.injection_tasks.keys()),
@@ -26,4 +26,4 @@ def suite_info(suite_id: str, suite: Annotated[YAMLTaskSuite, Depends(get_suite)
 
 @router.get("")
 def list_suites(catalog: Annotated[SuiteCatalog, Depends(get_catalog)]) -> list[str]:
-    return catalog.list_ids()
+    return catalog.list_names()

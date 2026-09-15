@@ -1,4 +1,5 @@
 import asyncio
+import json
 import re
 import sys
 from enum import Enum
@@ -85,7 +86,7 @@ class ReportingAgent(AgentClient):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("fail", [False, True])
 async def test_runner_revokes_sessions_on_success_and_agent_failure(local_http, client, fail):
-    run = client.post("/runs", json={"suite_id": "weather"}).json()
+    run = client.post("/runs", json={"suite_name": "weather"}).json()
     agent = ReportingAgent(fail)
     task = run_task("http://control", agent, run["id"], "weather_new_york", None, {})
     if fail:
@@ -124,7 +125,7 @@ async def test_partial_sandbox_setup_is_cleaned_and_session_revoked(local_http, 
             self.cleaned = True
 
     backend = Backend()
-    run = client.post("/runs", json={"suite_id": "weather"}).json()
+    run = client.post("/runs", json={"suite_name": "weather"}).json()
     with pytest.raises(RuntimeError, match="Seed failed"):
         await run_task("http://control", ReportingAgent(), run["id"], "weather_new_york", None, {}, backend=backend)
     assert backend.cleaned
@@ -147,6 +148,7 @@ async def test_benchmark_selects_suite_and_creates_unique_sessions(local_http, c
     )
     assert len(set(agent.tokens)) == 2
     output = (tmp_path / "results.json").read_text()
+    assert json.loads(output)["suite_name"] == "weather"
     assert all(token not in output for token in agent.tokens)
 
 
@@ -158,9 +160,9 @@ async def test_benchmark_passes_resource_identity_and_prints_actual_workspace(
         environment_type = suite.environment_type
         workspace_name = "midojo-weath-retry2"
 
-        def start_run(self, run_id, *, suite_id):
+        def start_run(self, run_id, *, suite_name):
             self.run_id = run_id
-            assert suite_id == "weather"
+            assert suite_name == "weather"
 
         def provision(self, injections):
             return suite.provision_environment(injections)
@@ -249,7 +251,7 @@ async def test_pi_subprocess_receives_session_at_launch(monkeypatch, tmp_path):
 def test_openshell_tokens_and_labels_are_per_sandbox_creation(gateway):
     backend = OpenShellBackend("test", image="base", workdir_files={}, env_vars={"MIDOJO_SESSION_TOKEN": "stale"})
     backend.configure(cluster="test", control_url="http://localhost:8090")
-    backend.start_run("run", suite_id="external.test_suite")
+    backend.start_run("run", suite_name="external.test_suite")
     for idx, injection in enumerate(["exfiltrate_report_via_curl", None]):
         backend.setup(
             OpenShellEnvironment(),
@@ -302,9 +304,9 @@ def test_workspace_creation_handles_full_run_ids_and_failure_cleanup(gateway, fa
         try:
             if fail:
                 with pytest.raises(RuntimeError, match="Workspace rejected"):
-                    backend.start_run(run_id, suite_id="external.document_assistant")
+                    backend.start_run(run_id, suite_name="external.document_assistant")
             else:
-                backend.start_run(run_id, suite_id="external.document_assistant")
+                backend.start_run(run_id, suite_name="external.document_assistant")
         finally:
             backend.end_run()
     assert len(set(names)) == 2

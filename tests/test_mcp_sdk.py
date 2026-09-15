@@ -17,7 +17,7 @@ def control_plane(client) -> TestClient:
 
 @pytest.fixture()
 def eval_context(control_plane: TestClient) -> tuple[TestClient, str, str, str]:
-    run_id = control_plane.post("/runs", json={"suite_id": "weather"}).json()["id"]
+    run_id = control_plane.post("/runs", json={"suite_name": "weather"}).json()["id"]
     eval_resp = control_plane.post(
         f"/runs/{run_id}/evaluations",
         json={"user_task_id": "weather_new_york"},

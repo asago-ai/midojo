@@ -31,8 +31,8 @@ user_tasks:
     return YAMLTaskSuite(name, path)
 
 
-def new_evaluation(client, suite_id="weather", task_id="weather_new_york"):
-    response = client.post("/runs", json={"suite_id": suite_id})
+def new_evaluation(client, suite_name="weather", task_id="weather_new_york"):
+    response = client.post("/runs", json={"suite_name": suite_name})
     assert response.status_code == 201, response.text
     run = response.json()
     response = client.post(f"/runs/{run['id']}/evaluations", json={"user_task_id": task_id})
@@ -59,7 +59,7 @@ def test_interleaved_suites_validate_and_grade_their_own_environment(tmp_path):
         url = f"/runs/{run['id']}/evaluations/{ev['id']}"
         client.post(f"{url}/complete", json={"agent_output": "done"})
         assert client.post(f"{url}/grade").json()["utility"] is expected
-        assert client.get(f"/runs/{run['id']}").json()["suite_id"] == run["suite_id"]
+        assert client.get(f"/runs/{run['id']}").json()["suite_name"] == run["suite_name"]
         assert client.get("/agent/environment", headers=auth(ev)).status_code == 401
 
 
@@ -128,21 +128,25 @@ def test_apps_have_independent_catalogs_stores_and_routes(suite):
     run, ev = new_evaluation(first, "first")
     assert first.get("/suites").json() == ["first"]
     assert second.get("/suites").json() == ["second"]
+    assert first.get("/suites/first").json()["name"] == "first"
+    assert second.get("/suites/second").json()["name"] == "second"
     assert second.get(f"/runs/{run['id']}").status_code == 404
     assert second.get("/agent/environment", headers=auth(ev)).status_code == 401
     assert first.get("/agent/environment", headers=auth(ev)).status_code == 200
     for client in [first, second]:
         assert client.get("/current/environment").status_code == 404
         assert client.get("/suite").status_code == 404
-        assert client.post("/runs", json={"suite_id": "os.path"}).status_code == 404
+        assert client.post("/runs", json={"suite_name": "os.path"}).status_code == 404
         paths = client.get("/openapi.json").json()["paths"]
+        assert "/suites/{suite_name}" in paths
+        assert "/suites/{suite_name}/tasks/user/{task_id}" in paths
         assert "/runs/{run_id}/evaluations/{eval_id}/environment" in paths
 
 
 def test_run_requires_suite_and_rejects_version_mismatch(client, suite):
     assert client.post("/runs").status_code == 422
-    assert client.post("/runs", json={"suite_id": "weather", "suite_version": "wrong"}).status_code == 409
-    response = client.post("/runs", json={"suite_id": "weather", "suite_version": suite.version})
+    assert client.post("/runs", json={"suite_name": "weather", "suite_version": "wrong"}).status_code == 409
+    response = client.post("/runs", json={"suite_name": "weather", "suite_version": suite.version})
     assert response.status_code == 201
     assert response.json()["suite_version"] == suite.version
 

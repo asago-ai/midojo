@@ -50,16 +50,16 @@ def create_run(
     catalog: Annotated[SuiteCatalog, Depends(get_catalog)],
     store: Annotated[Store, Depends(get_store)],
 ):
-    suite = resolve_suite(catalog, req.suite_id, req.suite_version)
-    run = store.create_run(req.suite_id, suite.version)
-    return CreateRunResponse(id=run.id, suite_id=run.suite_id, suite_version=run.suite_version)
+    suite = resolve_suite(catalog, req.suite_name, req.suite_version)
+    run = store.create_run(req.suite_name, suite.version)
+    return CreateRunResponse(id=run.id, suite_name=run.suite_name, suite_version=run.suite_version)
 
 
 @router.get("/{run_id}", response_model=RunResponse, status_code=status.HTTP_200_OK)
 def retrieve_run(run: Annotated[Run, Depends(get_run)]):
     return RunResponse(
         id=run.id,
-        suite_id=run.suite_id,
+        suite_name=run.suite_name,
         suite_version=run.suite_version,
         created_at=run.created_at,
         evaluations=[

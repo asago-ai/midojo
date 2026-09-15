@@ -38,13 +38,13 @@ class CreateEvaluationRequest(BaseModel):
 
 
 class CreateRunRequest(BaseModel):
-    suite_id: str
+    suite_name: str
     suite_version: str | None = None
 
 
 class CreateRunResponse(BaseModel):
     id: str
-    suite_id: str
+    suite_name: str
     suite_version: str
 
 
@@ -93,7 +93,7 @@ class EvaluationSummary(BaseModel):
 
 class RunResponse(BaseModel):
     id: str
-    suite_id: str
+    suite_name: str
     suite_version: str
     created_at: str
     evaluations: list[EvaluationSummary]
@@ -116,7 +116,7 @@ class EvaluationResponse(BaseModel):
 
 
 class SuiteInfoResponse(BaseModel):
-    id: str
+    name: str
     version: str
     user_tasks: list[str]
     injection_tasks: list[str]

@@ -23,17 +23,17 @@ def get_catalog(request: Request) -> SuiteCatalog:
     return request.app.state.catalog
 
 
-def resolve_suite(catalog: SuiteCatalog, suite_id: str, version: str | None = None) -> YAMLTaskSuite:
+def resolve_suite(catalog: SuiteCatalog, suite_name: str, version: str | None = None) -> YAMLTaskSuite:
     try:
-        return catalog.get(suite_id, version)
+        return catalog.get(suite_name, version)
     except KeyError:
-        raise HTTPException(404, f"Unknown suite: {suite_id}") from None
+        raise HTTPException(404, f"Unknown suite: {suite_name}") from None
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
 
 
-def get_suite(suite_id: str, catalog: Annotated[SuiteCatalog, Depends(get_catalog)]) -> YAMLTaskSuite:
-    return resolve_suite(catalog, suite_id)
+def get_suite(suite_name: str, catalog: Annotated[SuiteCatalog, Depends(get_catalog)]) -> YAMLTaskSuite:
+    return resolve_suite(catalog, suite_name)
 
 
 def get_run(run_id: str, store: Annotated[Store, Depends(get_store)]) -> Run:
@@ -46,7 +46,7 @@ def get_run(run_id: str, store: Annotated[Store, Depends(get_store)]) -> Run:
 def get_run_suite(
     run: Annotated[Run, Depends(get_run)], catalog: Annotated[SuiteCatalog, Depends(get_catalog)]
 ) -> YAMLTaskSuite:
-    return resolve_suite(catalog, run.suite_id, run.suite_version)
+    return resolve_suite(catalog, run.suite_name, run.suite_version)
 
 
 def get_evaluation_by_id(

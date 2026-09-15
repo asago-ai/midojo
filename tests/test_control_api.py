@@ -12,8 +12,9 @@ def _evaluation(client: TestClient, run_id: str, eval_id: str) -> Evaluation:
 
 
 def _create_run(client: TestClient) -> str:
-    resp = client.post("/runs", json={"suite_id": "weather"})
+    resp = client.post("/runs", json={"suite_name": "weather"})
     assert resp.status_code == 201
+    assert resp.json()["suite_name"] == "weather"
     return resp.json()["id"]
 
 
@@ -37,6 +38,7 @@ def test_get_run(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["id"] == run_id
+    assert data["suite_name"] == "weather"
     assert data["evaluations"] == []
 
 

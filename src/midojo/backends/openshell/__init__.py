@@ -376,14 +376,14 @@ class OpenShellBackend:
 
     # --- Run-level lifecycle ---
 
-    def start_run(self, run_id: str, *, suite_id: str | None = None) -> None:
+    def start_run(self, run_id: str, *, suite_name: str | None = None) -> None:
         """Open the run's OpenShell workspace and gRPC client.
 
         Called once per orchestrator run, before the first ``setup()``. Connects
         via ``SandboxClient.from_active_cluster(cluster=...)``, which reads the
         gateway's gRPC endpoint and mTLS bundle from ``~/.config/openshell/``
         (written by the CLI). Names contain a shortened suite name; labels retain
-        the full registered suite ID and run ID.
+        the full registered suite name and run ID.
         """
         from openshell import SandboxClient, WorkspaceClient  # pyright: ignore[reportMissingImports]
         from openshell._proto import openshell_pb2  # pyright: ignore[reportMissingImports]
@@ -391,7 +391,7 @@ class OpenShellBackend:
         self._pb2 = openshell_pb2
         self._client = SandboxClient.from_active_cluster(cluster=self._cluster, timeout=_CLIENT_TIMEOUT_SECONDS)
         self._workspace_client = WorkspaceClient.from_sandbox_client(self._client)
-        labels = {"midojo.suite": suite_id or self._suite_name, "midojo.run-id": run_id}
+        labels = {"midojo.suite": suite_name or self._suite_name, "midojo.run-id": run_id}
         prefix = f"midojo-{_short_name(self._suite_name, 5, 'suite')}"
         workspace = _create_named_resource(
             prefix, run_id, lambda name: self._workspace_client.create(name, labels=labels)

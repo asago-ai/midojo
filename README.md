@@ -55,6 +55,11 @@ The server exposes an installed suite catalog at `/suites`. Each run pins one
 suite and its version, and each evaluation gets a private session token.
 SDK callbacks use `/agent/*` with that token; `/current` has been removed.
 
+The API selects suites by name: `POST /runs` accepts `{"suite_name": "weather"}`
+and an optional `suite_version`. Run responses and saved results include
+`suite_name`; `GET /suites/{suite_name}` returns the suite's `name` and `version`.
+External suites use their registered dotted module path as the name.
+
 For PI subprocesses and OpenShell sandboxes, the orchestrator supplies
 `MIDOJO_URL` and `MIDOJO_SESSION_TOKEN` at launch. Persistent HTTP/A2A agents
 receive `X-Midojo-Session` on each task request and must propagate it to their

@@ -79,7 +79,7 @@ async def _fetch_suite_info(control_url: str, suite_name: str) -> dict:
 
 async def _create_run(control_url: str, suite_name: str, suite_version: str) -> str:
     async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(f"{control_url}/runs", json={"suite_id": suite_name, "suite_version": suite_version})
+        resp = await client.post(f"{control_url}/runs", json={"suite_name": suite_name, "suite_version": suite_version})
         resp.raise_for_status()
         return resp.json()["id"]
 
@@ -329,7 +329,7 @@ async def run_benchmark(
         # eval loop; the sandbox itself is created/torn down per evaluation.
         if lifecycle_backend is not None:
             with console.status("[dim]opening workspace on the gateway…[/dim]", spinner="dots"):
-                await asyncio.to_thread(lifecycle_backend.start_run, run_id, suite_id=suite_name)  # type: ignore[attr-defined]
+                await asyncio.to_thread(lifecycle_backend.start_run, run_id, suite_name=suite_name)  # type: ignore[attr-defined]
             workspace_name = lifecycle_backend.workspace_name  # type: ignore[attr-defined]
             console.print(
                 f"  [magenta]openshell[/magenta] [dim]workspace[/dim] [cyan]{workspace_name}[/cyan] [green]ready[/green]\n"
@@ -388,7 +388,7 @@ async def run_benchmark(
         json.dump(
             {
                 "run_id": run_id,
-                "suite_id": suite_name,
+                "suite_name": suite_name,
                 "suite_version": suite.version,
                 "utility": {f"{k.user_task_id},{k.injection_task_id}": v for k, v in utility_results.items()},
                 "security": all_security,

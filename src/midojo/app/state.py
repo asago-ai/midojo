@@ -41,7 +41,7 @@ class Run(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     id: str
-    suite_id: str
+    suite_name: str
     suite_version: str
     evaluations: dict[str, Evaluation] = {}
     created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
