@@ -1,5 +1,7 @@
 import asyncio
+import re
 import sys
+from enum import Enum
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -10,6 +12,45 @@ from midojo.agent_client import AgentClient, PIAgentClient, SimpleHTTPAgentClien
 from midojo.backends.openshell import OpenShellBackend, OpenShellEnvironment
 from midojo.mcp_sdk import ControlPlaneClient
 from midojo.orchestrator import run_benchmark, run_task
+
+
+@pytest.fixture
+def gateway(monkeypatch):
+    """Fake the optional OpenShell/gRPC dependencies at their SDK boundary."""
+
+    class StatusCode(Enum):
+        ALREADY_EXISTS = 1
+        UNAVAILABLE = 2
+
+    class RpcError(Exception):
+        def __init__(self, status):
+            self.status = status
+
+        def code(self):
+            return self.status
+
+    sandboxes = MagicMock()
+    sandboxes.list_ids.return_value = []
+    sandboxes.create.side_effect = lambda **kw: SimpleNamespace(name=kw["name"], id=kw["name"])
+    workspaces = MagicMock()
+    workspaces.create.side_effect = lambda name, **kw: SimpleNamespace(name=name)
+    monkeypatch.setitem(sys.modules, "grpc", SimpleNamespace(RpcError=RpcError, StatusCode=StatusCode))
+    monkeypatch.setitem(
+        sys.modules,
+        "openshell",
+        SimpleNamespace(
+            SandboxClient=SimpleNamespace(from_active_cluster=lambda **kw: sandboxes),
+            WorkspaceClient=SimpleNamespace(from_sandbox_client=lambda client: workspaces),
+        ),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "openshell._proto",
+        SimpleNamespace(
+            openshell_pb2=SimpleNamespace(SandboxSpec=SimpleNamespace, SandboxTemplate=SimpleNamespace),
+        ),
+    )
+    return SimpleNamespace(sandboxes=sandboxes, workspaces=workspaces, RpcError=RpcError, StatusCode=StatusCode)
 
 
 @pytest.fixture
@@ -72,7 +113,10 @@ async def test_partial_sandbox_setup_is_cleaned_and_session_revoked(local_http, 
         def provision(self, injections):
             return suite.provision_environment(injections)
 
-        def setup(self, env, *, session_token):
+        def setup(self, env, *, session_token, eval_id, user_task_id, injection_task_id):
+            evaluation = client.get(f"/runs/{run['id']}/evaluations/{eval_id}").json()
+            assert evaluation["user_task_id"] == user_task_id
+            assert evaluation["injection_task_id"] == injection_task_id
             self.token = session_token
             raise RuntimeError("Seed failed")
 
@@ -104,6 +148,57 @@ async def test_benchmark_selects_suite_and_creates_unique_sessions(local_http, c
     assert len(set(agent.tokens)) == 2
     output = (tmp_path / "results.json").read_text()
     assert all(token not in output for token in agent.tokens)
+
+
+@pytest.mark.asyncio
+async def test_benchmark_passes_resource_identity_and_prints_actual_workspace(
+    local_http, client, suite, tmp_path, capsys
+):
+    class Backend:
+        environment_type = suite.environment_type
+        workspace_name = "midojo-weath-retry2"
+
+        def start_run(self, run_id, *, suite_id):
+            self.run_id = run_id
+            assert suite_id == "weather"
+
+        def provision(self, injections):
+            return suite.provision_environment(injections)
+
+        def setup(self, env, *, session_token, eval_id, user_task_id, injection_task_id):
+            self.eval_id = eval_id
+            self.env = env
+            evaluation = client.get(f"/runs/{self.run_id}/evaluations/{eval_id}").json()
+            assert evaluation["user_task_id"] == user_task_id == "weather_new_york"
+            assert evaluation["injection_task_id"] == injection_task_id is None
+            assert (
+                client.get("/agent/environment", headers={"Authorization": f"Bearer {session_token}"}).status_code
+                == 200
+            )
+
+        def snapshot(self):
+            return self.env
+
+        def teardown(self):
+            pass
+
+        def end_run(self):
+            assert client.get(f"/runs/{self.run_id}/evaluations/{self.eval_id}").json()["completed"]
+
+    backend = Backend()
+    await run_benchmark(
+        control_url="http://control",
+        agent_client=ReportingAgent(),
+        agent_uri="openshell",
+        protocol="openshell",
+        suite=suite,
+        suite_name="weather",
+        user_task_ids=["weather_new_york"],
+        injection_task_ids=[],
+        logdir=tmp_path,
+        lifecycle_backend=backend,
+    )
+    assert backend.workspace_name in capsys.readouterr().out
 
 
 @pytest.mark.asyncio
@@ -150,54 +245,67 @@ async def test_pi_subprocess_receives_session_at_launch(monkeypatch, tmp_path):
     assert all(launch["env"]["MIDOJO_URL"] == "http://control" for launch in launches)
 
 
-def test_openshell_tokens_are_per_sandbox_creation():
+def test_openshell_tokens_and_labels_are_per_sandbox_creation(gateway):
     backend = OpenShellBackend("test", image="base", workdir_files={}, env_vars={"MIDOJO_SESSION_TOKEN": "stale"})
     backend.configure(cluster="test", control_url="http://localhost:8090")
-    backend._workspace_name = "run"
-    backend._pb2 = SimpleNamespace(SandboxSpec=SimpleNamespace, SandboxTemplate=SimpleNamespace)
-    backend._client = MagicMock()
-    backend._client.create.side_effect = [SimpleNamespace(name="a", id="a"), SimpleNamespace(name="b", id="b")]
-    for token in ["first", "second"]:
-        backend.setup(OpenShellEnvironment(), session_token=token)
+    backend.start_run("run", suite_id="external.test_suite")
+    for idx, injection in enumerate(["exfiltrate_report_via_curl", None]):
+        backend.setup(
+            OpenShellEnvironment(),
+            session_token=f"secret-{idx}",
+            eval_id=f"eval-{idx}",
+            user_task_id="summarize_q4_report",
+            injection_task_id=injection,
+        )
         backend.teardown()
-    specs = [call.kwargs["spec"] for call in backend._client.create.call_args_list]
-    assert [spec.environment["MIDOJO_SESSION_TOKEN"] for spec in specs] == ["first", "second"]
+    calls = gateway.sandboxes.create.call_args_list
+    specs = [call.kwargs["spec"] for call in calls]
+    assert [spec.environment["MIDOJO_SESSION_TOKEN"] for spec in specs] == ["secret-0", "secret-1"]
     assert all(spec.environment["MIDOJO_URL"] == "http://host.openshell.internal:8090" for spec in specs)
+    for idx, call in enumerate(calls):
+        labels = call.kwargs["labels"]
+        assert labels["midojo.suite"] == "external.test_suite"
+        assert labels["midojo.run-id"] == "run"
+        assert labels["midojo.eval-id"] == f"eval-{idx}"
+        assert labels["midojo.user-task"] == "summarize_q4_report"
+        assert f"secret-{idx}" not in str(labels)
+        assert len(call.kwargs["name"]) <= 19
+        assert call.kwargs["workspace"] == backend.workspace_name
+    assert calls[0].kwargs["labels"]["midojo.injection-task"] == "exfiltrate_report_via_curl"
+    assert "midojo.injection-task" not in calls[1].kwargs["labels"]
+    assert calls[0].kwargs["name"].startswith("summa-x-exfi-")
+    assert calls[1].kwargs["name"].startswith("summa-x-base-")
+    backend.end_run()
+    assert backend._run_labels == {}
 
 
 @pytest.mark.parametrize("fail", [False, True])
-def test_workspace_creation_handles_full_run_ids_and_failure_cleanup(monkeypatch, fail):
-    sandbox_client = MagicMock()
-    sandbox_client.list_ids.return_value = []
-    workspace_client = MagicMock()
+def test_workspace_creation_handles_full_run_ids_and_failure_cleanup(gateway, fail):
+    sandbox_client = gateway.sandboxes
+    workspace_client = gateway.workspaces
     names = []
 
-    def create(name):
+    def create(name, *, labels):
         assert len(name) <= 19
         assert name[0].isalpha()
         assert all(char.islower() or char.isdigit() or char == "-" for char in name)
+        assert name.startswith("midojo-docum-")
+        assert labels["midojo.suite"] == "external.document_assistant"
+        assert labels["midojo.run-id"] == run_id
         names.append(name)
         if fail:
             raise RuntimeError("Workspace rejected")
+        return SimpleNamespace(name=name)
 
     workspace_client.create.side_effect = create
-    monkeypatch.setitem(
-        sys.modules,
-        "openshell",
-        SimpleNamespace(
-            SandboxClient=SimpleNamespace(from_active_cluster=lambda **kw: sandbox_client),
-            WorkspaceClient=SimpleNamespace(from_sandbox_client=lambda client: workspace_client),
-        ),
-    )
-    monkeypatch.setitem(sys.modules, "openshell._proto", SimpleNamespace(openshell_pb2=object()))
-    backend = OpenShellBackend("test", image="base", workdir_files={})
+    backend = OpenShellBackend("document_assistant", image="base", workdir_files={})
     for run_id in ["a" * 31 + "1", "a" * 31 + "2"]:
         try:
             if fail:
                 with pytest.raises(RuntimeError, match="Workspace rejected"):
-                    backend.start_run(run_id)
+                    backend.start_run(run_id, suite_id="external.document_assistant")
             else:
-                backend.start_run(run_id)
+                backend.start_run(run_id, suite_id="external.document_assistant")
         finally:
             backend.end_run()
     assert len(set(names)) == 2
@@ -207,3 +315,96 @@ def test_workspace_creation_handles_full_run_ids_and_failure_cleanup(monkeypatch
         workspace_client.delete.assert_not_called()
     else:
         assert [call.args[0] for call in workspace_client.delete.call_args_list] == names
+
+
+@pytest.mark.parametrize("resource", ["workspace", "sandbox"])
+@pytest.mark.parametrize(
+    "status,succeed,expected_attempts",
+    [
+        ("ALREADY_EXISTS", True, 2),
+        ("ALREADY_EXISTS", False, 5),
+        ("UNAVAILABLE", False, 1),
+    ],
+)
+def test_named_resources_retry_only_conflicts_without_reusing_or_deleting_them(
+    gateway,
+    resource,
+    status,
+    succeed,
+    expected_attempts,
+):
+    backend = OpenShellBackend("document_assistant", image="base", workdir_files={})
+    attempts = []
+
+    def create(*args, **kwargs):
+        name = args[0] if args else kwargs["name"]
+        attempts.append(name)
+        if not succeed or len(attempts) == 1:
+            raise gateway.RpcError(gateway.StatusCode[status])
+        return SimpleNamespace(name=name, id=name)
+
+    if resource == "workspace":
+        gateway.workspaces.create.side_effect = create
+        operation = lambda: backend.start_run("run")
+    else:
+        backend.start_run("run")
+        gateway.sandboxes.create.side_effect = create
+        operation = lambda: backend.setup(
+            OpenShellEnvironment(),
+            session_token="secret",
+            eval_id="eval",
+            user_task_id="summarize_q4_report",
+            injection_task_id="exfiltrate_report_via_curl",
+        )
+    try:
+        if succeed:
+            operation()
+            actual = backend.workspace_name if resource == "workspace" else backend._ref.name
+            assert actual == attempts[-1]
+            assert actual != attempts[0]
+        else:
+            with pytest.raises(gateway.RpcError) as error:
+                operation()
+            assert error.value.code() == gateway.StatusCode[status]
+            assert (backend.workspace_name if resource == "workspace" else backend._ref) in ("", None)
+    finally:
+        backend.teardown()
+        backend.end_run()
+    assert len(attempts) == expected_attempts
+    assert len(set(attempts)) == len(attempts)
+    sdk = gateway.workspaces if resource == "workspace" else gateway.sandboxes
+    assert [call.args[0] for call in sdk.delete.call_args_list] == ([attempts[-1]] if succeed else [])
+
+
+@pytest.mark.parametrize(
+    "suite,task,injection",
+    [
+        ("Document_Assistant", "Summarize_Q4_Report", "Exfiltrate_Report_Via_Curl"),
+        ("!!!", "☃", "___"),
+        ("Long.Suite--Name" * 10, "ab---cd_ef", "abc_def--ghi"),
+    ],
+)
+def test_readable_names_are_valid_and_full_labels_survive_shortening(gateway, suite, task, injection):
+    backend = OpenShellBackend(suite, image="base", workdir_files={})
+    backend.start_run("run")
+    names = [backend.workspace_name]
+    for eval_id in ("first", "second"):
+        backend.setup(
+            OpenShellEnvironment(),
+            session_token="secret",
+            eval_id=eval_id,
+            user_task_id=task,
+            injection_task_id=injection,
+        )
+        names.append(backend._ref.name)
+        labels = gateway.sandboxes.create.call_args.kwargs["labels"]
+        assert labels["midojo.suite"] == suite
+        assert labels["midojo.user-task"] == task
+        assert labels["midojo.injection-task"] == injection
+        assert labels["midojo.eval-id"] == eval_id
+        backend.teardown()
+    backend.end_run()
+    assert len(set(names)) == 3
+    for name in names:
+        assert len(name) <= 19
+        assert re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", name)

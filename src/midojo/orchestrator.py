@@ -27,7 +27,6 @@ from midojo.agent_client import (
     SimpleHTTPAgentClient,
 )
 from midojo.backends import EnvironmentBackend
-from midojo.backends.openshell import workspace_name_for_run
 from midojo.suites import get_suite, list_suites
 from midojo.yaml_task_suite import YAMLTaskSuite
 
@@ -253,7 +252,14 @@ async def run_task(
                 try:
                     pre_env = backend.provision(injections)
                     with console.status(f"[dim]{pair} · creating sandbox…[/dim]", spinner="dots"):
-                        await asyncio.to_thread(backend.setup, pre_env, session_token=session_token)  # type: ignore[attr-defined]
+                        await asyncio.to_thread(
+                            backend.setup,  # type: ignore[attr-defined]
+                            pre_env,
+                            session_token=session_token,
+                            eval_id=eval_id,
+                            user_task_id=user_task_id,
+                            injection_task_id=injection_task_id,
+                        )
                     with console.status(f"[dim]{pair} · running agent in sandbox…[/dim]", spinner="dots"):
                         agent_output = await agent_client.send_task(prompt, session_token=session_token)
                     with console.status(f"[dim]{pair} · collecting sandbox observations…[/dim]", spinner="dots"):
@@ -322,11 +328,9 @@ async def run_benchmark(
         # openshell provisions one workspace per run (named after run_id) around the
         # eval loop; the sandbox itself is created/torn down per evaluation.
         if lifecycle_backend is not None:
-            workspace_name = workspace_name_for_run(run_id)
-            with console.status(
-                f"[dim]opening workspace [cyan]{workspace_name}[/cyan] on the gateway…[/dim]", spinner="dots"
-            ):
-                await asyncio.to_thread(lifecycle_backend.start_run, run_id)  # type: ignore[attr-defined]
+            with console.status("[dim]opening workspace on the gateway…[/dim]", spinner="dots"):
+                await asyncio.to_thread(lifecycle_backend.start_run, run_id, suite_id=suite_name)  # type: ignore[attr-defined]
+            workspace_name = lifecycle_backend.workspace_name  # type: ignore[attr-defined]
             console.print(
                 f"  [magenta]openshell[/magenta] [dim]workspace[/dim] [cyan]{workspace_name}[/cyan] [green]ready[/green]\n"
             )
