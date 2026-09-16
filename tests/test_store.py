@@ -95,7 +95,7 @@ def test_evaluation_id_collision_preserves_existing_records_and_sessions(store, 
     assert store.get_evaluation(run.id, first.id) is first
     assert first.agent_input == "first"
     assert store.get_evaluation(next_run.id, second.id) is second
-    with store.session(token) as bound:
+    with store.session_evaluation(token) as bound:
         assert bound is first
 
 

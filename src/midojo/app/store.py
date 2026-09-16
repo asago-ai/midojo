@@ -50,7 +50,7 @@ class Store(Protocol):
     def get_evaluation(self, run_id: str, eval_id: str) -> Evaluation | None: ...
     def create_session(self, run_id: str, eval_id: str, ttl_seconds: int) -> tuple[str, str]: ...
     def close_session(self, run_id: str, eval_id: str) -> None: ...
-    def session(self, token: str) -> AbstractContextManager[Evaluation]: ...
+    def session_evaluation(self, session_token: str) -> AbstractContextManager[Evaluation]: ...
 
     # --- per-evaluation mutations (ID-based) ---
     # Each returns the mutated evaluation, or None if (run_id, eval_id) is unknown.
@@ -167,13 +167,13 @@ class InMemoryStore:
             self._sessions = {key: value for key, value in self._sessions.items() if value[:2] != (run_id, eval_id)}
 
     @contextmanager
-    def session(self, token: str) -> Iterator[Evaluation]:
+    def session_evaluation(self, session_token: str) -> Iterator[Evaluation]:
         """Hold the binding valid for a complete callback, including its mutation.
 
         The lock prevents completion or revocation between validation and mutation.
         """
         with self._lock:
-            binding = self._sessions.get(_token_hash(token))
+            binding = self._sessions.get(_token_hash(session_token))
             if binding is None or binding[2] <= time.time():
                 raise InvalidSessionError("Invalid, expired, or closed evaluation session")
             evaluation = self.get_evaluation(binding[0], binding[1])
