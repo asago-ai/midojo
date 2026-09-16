@@ -168,7 +168,10 @@ class InMemoryStore:
 
     @contextmanager
     def session(self, token: str) -> Iterator[Evaluation]:
-        """Hold the binding valid for a complete callback, including its mutation."""
+        """Hold the binding valid for a complete callback, including its mutation.
+
+        The lock prevents completion or revocation between validation and mutation.
+        """
         with self._lock:
             binding = self._sessions.get(_token_hash(token))
             if binding is None or binding[2] <= time.time():
