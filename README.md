@@ -42,44 +42,11 @@ A few concepts first:
 
 The system has three moving parts:
 
-1. **The control plane** (`midojo-serve`) — a shared REST API that hosts multiple suites and keeps each evaluation's environment separate. Suites are loaded from `suite.yaml` at startup. For each evaluation, the control plane creates a fresh environment with injection payloads spliced into the appropriate fields. The fake tools (MCP server, PI extension, etc.) read from and write to this environment via HTTP, so every tool call the agent makes is recorded and every mutation is captured.
+1. **The control plane** (`midojo-serve`) — a shared REST API that handles bookkeeping for red teaming sessions.
 
 2. **The orchestrator** (`midojo-run`) — a CLI that drives the benchmark. It creates a run, iterates over the task matrix (user task x injection task x attack), sends each prompt to the agent, and when the agent finishes, asks the control plane to grade the result by comparing the environment before and after execution.
 
-3. **The fake tools** — the interception layer you author for the agent you're testing. These sit between the agent and its real tools, forwarding calls upstream for authentic data and splicing in injection payloads from the control plane environment.
-
-## Shared control plane and evaluation sessions
-
-Start `midojo-serve` with an explicit `--load-suite` for each suite to expose,
-then select the suite on each `midojo-run` invocation. For example:
-
-```bash
-midojo-serve --load-suite weather --load-suite your.module.path
-```
-
-At least one `--load-suite` is required. Built-in names and installed external
-module paths follow the same flow: all selected suites are loaded and validated
-before the server starts. Unselected suites are unavailable; adding suites
-requires a restart.
-The server exposes the loaded suite catalog at `/suites`. Each run pins one
-suite and its version, and each evaluation gets a private session token.
-SDK callbacks use `/agent/*` with that token; `/current` has been removed.
-
-The API selects suites by name: `POST /runs` accepts `{"suite_name": "weather"}`
-and an optional `suite_version`. Run responses and saved results include
-`suite_name`; `GET /suites/{suite_name}` returns the suite's `name` and `version`.
-External suites use their registered dotted module path as the name.
-
-For PI subprocesses and OpenShell sandboxes, the orchestrator supplies
-`MIDOJO_URL` and `MIDOJO_SESSION_TOKEN` at launch. Persistent HTTP/A2A agents
-receive `X-Midojo-Session` on each task request and must propagate it to their
-hooks or fake MCP server. The bundled A2A agents already do this. The Responses
-clients supply the header in the remote MCP tool configuration; the inference
-server must support forwarding those headers.
-
-State uses `InMemoryStore`: run one control-plane process/worker and one replica.
-Independent runner Jobs can share it, but restarting it loses runs and sessions.
-Persistence and parallel sandbox scheduling are separate follow-up work.
+3. **Interception layer** — SDKs for framework-specific interception and services, such as MCP servers, for framework-agnostic interception.
 
 ## Environment backends
 
