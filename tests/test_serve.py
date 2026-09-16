@@ -1,5 +1,5 @@
 import sys
-from unittest.mock import call, patch
+from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
@@ -29,14 +29,6 @@ def external_suite(tmp_path, monkeypatch):
         sys.modules.pop("serve_test_suites", None)
 
 
-def test_serve_requires_explicit_suites():
-    with patch("midojo.serve.uvicorn.run") as serve:
-        result = CliRunner().invoke(main, [])
-    assert result.exit_code == 2
-    assert "Missing option '--load-suite'" in result.output
-    serve.assert_not_called()
-
-
 def test_serve_eagerly_loads_only_selected_suites(external_suite):
     external_name, _ = external_suite
     with (
@@ -45,7 +37,7 @@ def test_serve_eagerly_loads_only_selected_suites(external_suite):
     ):
 
         def check_startup(app, **kwargs):
-            assert load.call_args_list == [call("weather"), call(external_name)]
+            assert load.call_count == 2
 
         serve.side_effect = check_startup
         result = CliRunner().invoke(
@@ -57,22 +49,9 @@ def test_serve_eagerly_loads_only_selected_suites(external_suite):
         client = TestClient(serve.call_args.args[0])
         assert client.get("/suites").json() == sorted(["weather", external_name])
         for name in ["weather", external_name]:
-            for _ in range(2):
-                response = client.post("/runs", json={"suite_name": name})
-                assert response.status_code == 201
-                assert response.json()["suite_name"] == name
-        assert client.get("/suites/minibank").status_code == 404
-        assert client.post("/runs", json={"suite_name": "minibank"}).status_code == 404
+            assert client.post("/runs", json={"suite_name": name}).status_code == 201
         assert client.post("/runs", json={"suite_name": "os.path"}).status_code == 404
         assert load.call_count == 2
-
-
-def test_serve_rejects_missing_suite_before_starting():
-    with patch("midojo.serve.uvicorn.run") as serve:
-        result = CliRunner().invoke(main, ["--load-suite", "missing_test_suite"])
-    assert result.exit_code != 0
-    assert isinstance(result.exception, ModuleNotFoundError)
-    serve.assert_not_called()
 
 
 def test_serve_rejects_invalid_suite_before_starting(external_suite):

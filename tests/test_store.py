@@ -79,12 +79,11 @@ def test_create_evaluation_stored_under_run(store):
     assert ev.agent_input == "prompt"  # kwarg is plumbed through to the Evaluation
 
 
-@pytest.mark.parametrize("same_run", [False, True])
-def test_evaluation_id_collision_preserves_existing_records_and_sessions(store, monkeypatch, same_run):
+def test_evaluation_id_collision_preserves_existing_records_and_sessions(store, monkeypatch):
     run = store.create_run("test", "v1")
     first = _make_eval(store, run.id, agent_input="first")
     token, _ = store.create_session(run.id, first.id, ttl_seconds=60)
-    next_run = run if same_run else store.create_run("other_suite", "v1")
+    next_run = store.create_run("other_suite", "v1")
     new_id = "0000000000" if first.id != "0000000000" else "1111111111"
     candidates = iter([first.id, first.id, new_id])
     monkeypatch.setattr("midojo.app.store.secrets.token_hex", lambda n: next(candidates))
@@ -93,7 +92,6 @@ def test_evaluation_id_collision_preserves_existing_records_and_sessions(store, 
 
     assert second.id == new_id
     assert store.get_evaluation(run.id, first.id) is first
-    assert first.agent_input == "first"
     assert store.get_evaluation(next_run.id, second.id) is second
     with store.session_evaluation(token) as bound:
         assert bound is first

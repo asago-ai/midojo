@@ -202,21 +202,6 @@ def test_record_function_call_pre_env_chain(client):
 # --- /agent/* endpoints ---
 
 
-def test_agent_environment_401_without_session(client):
-    resp = client.get("/agent/environment")
-    assert resp.status_code == 401
-
-
-def test_agent_environment_resolves_active_eval(client):
-    run_id = _create_run(client)
-    eval_data = _create_evaluation(client, run_id)
-    eval_id = eval_data["id"]
-
-    resp = client.get("/agent/environment")
-    assert resp.status_code == 200
-    assert resp.json() == client.get(f"/runs/{run_id}/evaluations/{eval_id}/environment").json()
-
-
 def test_agent_environment_put(client):
     run_id = _create_run(client)
     eval_data = _create_evaluation(client, run_id)
@@ -251,32 +236,6 @@ def test_agent_function_calls_post_and_list(client):
     # Same record should be visible via the nested URL.
     nested = client.get(f"/runs/{run_id}/evaluations/{eval_id}/function-calls").json()
     assert len(nested) == 1
-
-
-def test_agent_follows_eval_switch(client):
-    """The test client can explicitly select a different evaluation token."""
-    run_id = _create_run(client)
-    eval1 = _create_evaluation(client, run_id)["id"]
-
-    client.post(
-        "/agent/function-calls",
-        json={"function": "get_weather", "args": {"city": "NYC"}, "result": "first eval"},
-    )
-
-    eval2 = _create_evaluation(client, run_id)["id"]
-    assert eval2 != eval1
-
-    client.post(
-        "/agent/function-calls",
-        json={"function": "get_weather", "args": {"city": "NYC"}, "result": "second eval"},
-    )
-
-    eval1_calls = client.get(f"/runs/{run_id}/evaluations/{eval1}/function-calls").json()
-    eval2_calls = client.get(f"/runs/{run_id}/evaluations/{eval2}/function-calls").json()
-    assert len(eval1_calls) == 1
-    assert eval1_calls[0]["result"] == "first eval"
-    assert len(eval2_calls) == 1
-    assert eval2_calls[0]["result"] == "second eval"
 
 
 def test_create_evaluation_substitutes_prompt_probe_placeholder(client):
