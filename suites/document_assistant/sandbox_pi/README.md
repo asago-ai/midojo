@@ -31,7 +31,7 @@ to the build command below when building for Apple Silicon.
 The suite already points at a pre-built image. Just run:
 
 ```bash
-uv run midojo-serve --port 8090
+uv run midojo-serve --load-suite document_assistant --port 8090
 uv run midojo-run --protocol openshell --suite document_assistant \
   --agent-uri openshell --control-url http://localhost:8090
 ```

@@ -42,7 +42,7 @@ A few concepts first:
 
 The system has three moving parts:
 
-1. **The control plane** (`midojo-serve`) — a shared REST API that hosts multiple suites and keeps each evaluation's environment separate. When a run starts, the orchestrator creates an evaluation and the control plane loads the environment from `suite.yaml` with injection payloads spliced into the appropriate fields. The fake tools (MCP server, PI extension, etc.) read from and write to this environment via HTTP, so every tool call the agent makes is recorded and every mutation is captured.
+1. **The control plane** (`midojo-serve`) — a shared REST API that hosts multiple suites and keeps each evaluation's environment separate. Suites are loaded from `suite.yaml` at startup. For each evaluation, the control plane creates a fresh environment with injection payloads spliced into the appropriate fields. The fake tools (MCP server, PI extension, etc.) read from and write to this environment via HTTP, so every tool call the agent makes is recorded and every mutation is captured.
 
 2. **The orchestrator** (`midojo-run`) — a CLI that drives the benchmark. It creates a run, iterates over the task matrix (user task x injection task x attack), sends each prompt to the agent, and when the agent finishes, asks the control plane to grade the result by comparing the environment before and after execution.
 
@@ -50,10 +50,18 @@ The system has three moving parts:
 
 ## Shared control plane and evaluation sessions
 
-Start `midojo-serve` once; select the suite on each `midojo-run` invocation.
-Built-in suites are available automatically. Use `--load-suite your.module.path`
-to add an installed external suite; repeat the option to add more suites.
-The server exposes an installed suite catalog at `/suites`. Each run pins one
+Start `midojo-serve` with an explicit `--load-suite` for each suite to expose,
+then select the suite on each `midojo-run` invocation. For example:
+
+```bash
+midojo-serve --load-suite weather --load-suite your.module.path
+```
+
+At least one `--load-suite` is required. Built-in names and installed external
+module paths follow the same flow: all selected suites are loaded and validated
+before the server starts. Unselected suites are unavailable; adding suites
+requires a restart.
+The server exposes the loaded suite catalog at `/suites`. Each run pins one
 suite and its version, and each evaluation gets a private session token.
 SDK callbacks use `/agent/*` with that token; `/current` has been removed.
 
@@ -132,7 +140,7 @@ Start three processes — the real weather MCP server, the control plane, and th
 
 ```bash
 weather-real-mcp-serve --port 8081
-midojo-serve --host 127.0.0.1 --port 8080
+midojo-serve --load-suite weather --host 127.0.0.1 --port 8080
 weather-fake-mcp-serve --port 8082 --upstream-url http://localhost:8081/mcp
 ```
 
@@ -173,7 +181,7 @@ PI agents run as local subprocesses (the orchestrator spawns `pi` per task), so 
 Start the control plane:
 
 ```bash
-midojo-serve --host 127.0.0.1 --port 8080
+midojo-serve --load-suite weather --host 127.0.0.1 --port 8080
 ```
 
 Run the benchmark (PI agents use a directory path, not a URL):
@@ -191,7 +199,7 @@ Start three processes — the real MCP server, the control plane, and the fake M
 
 ```bash
 weather-real-mcp-serve --port 8081
-midojo-serve --host 127.0.0.1 --port 8080
+midojo-serve --load-suite weather --host 127.0.0.1 --port 8080
 weather-fake-mcp-serve --port 8082 --upstream-url http://localhost:8081/mcp
 ```
 

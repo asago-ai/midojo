@@ -49,7 +49,7 @@ task; pass `-ut`/`-it` to target specific ones (see [Demo](#demo)).
 
 ```bash
 minibank-real-mcp-serve --port 8083
-midojo-serve --host 127.0.0.1 --port 8080
+midojo-serve --load-suite minibank --host 127.0.0.1 --port 8080
 minibank-fake-mcp-serve --port 8082 --upstream-url http://localhost:8083/mcp
 midojo-run --agent-url http://localhost:8000 --protocol a2a --suite minibank
 ```

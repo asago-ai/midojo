@@ -14,7 +14,7 @@ from .store import InMemoryStore, InvalidSessionError, Store
 
 
 def create_app(
-    suites: Mapping[str, YAMLTaskSuite] | Sequence[str] | None = None,
+    suites: Mapping[str, YAMLTaskSuite] | Sequence[str],
     *,
     store: Store | None = None,
     config: AppConfig | None = None,

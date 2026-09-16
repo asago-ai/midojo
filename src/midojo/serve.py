@@ -5,7 +5,6 @@ import uvicorn
 
 from midojo.app.config import AppConfig
 from midojo.app.main import create_app
-from midojo.suites import list_suites
 
 
 @click.command()
@@ -14,8 +13,9 @@ from midojo.suites import list_suites
 @click.option(
     "--load-suite",
     multiple=True,
+    required=True,
     metavar="NAME_OR_MODULE",
-    help="Add an installed suite to the built-in catalog by name or module path. Repeat to add more suites.",
+    help="Load a suite at startup by name or module path. Repeat to expose multiple suites.",
 )
 @click.option(
     "--session-ttl",
@@ -25,7 +25,7 @@ from midojo.suites import list_suites
 )
 def main(host: str, port: int, load_suite: tuple[str, ...], session_ttl: int) -> None:
     config = AppConfig(session_ttl_seconds=session_ttl)
-    app = create_app([*list_suites(), *load_suite], config=config)
+    app = create_app(load_suite, config=config)
     uvicorn.run(app, host=host, port=port)
 
 

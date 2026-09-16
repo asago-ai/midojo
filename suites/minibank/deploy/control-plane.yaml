@@ -19,7 +19,7 @@ spec:
       containers:
         - name: control-plane
           image: midojo
-          command: ["midojo-serve", "--host", "0.0.0.0", "--port", "8080"]
+          command: ["midojo-serve", "--load-suite", "minibank", "--host", "0.0.0.0", "--port", "8080"]
           ports:
             - containerPort: 8080
           readinessProbe:

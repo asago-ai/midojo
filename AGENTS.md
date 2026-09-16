@@ -43,7 +43,7 @@ Start them in order, for example of OGX Agent:
 
 ```sh
 weather-real-mcp-serve --port 8081                                                 # 1. the real MCP
-midojo-serve --port 8080                                           # 2. Control Plane (must be UP before anything else talks to it)
+midojo-serve --load-suite weather --port 8080                                           # 2. Control Plane (must be UP before anything else talks to it)
 weather-fake-mcp-serve --port 8082 --upstream-url http://localhost:8081/mcp        # 3. fake tools (registers with control plane)
 LITELLM_API_KEY=... LITELLM_API_URL=... ogx run suites/weather/ogx_agent/run.yaml  # 4. Start the OGX server for the OGX Agent
 midojo-run --agent-uri http://localhost:8000 --protocol a2a --suite weather        # 5. runs the benchmark (exits when done)
