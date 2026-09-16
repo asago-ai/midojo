@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
@@ -7,8 +8,7 @@ from fastapi import APIRouter, Depends, status
 from midojo.types import SuiteName
 from midojo.yaml_task_suite import YAMLTaskSuite
 
-from ..catalog import SuiteCatalog
-from ..dependencies import get_catalog, get_suite
+from ..dependencies import get_suite, get_suites
 from ..models import SuiteInfoResponse
 
 router = APIRouter(prefix="/suites")
@@ -26,5 +26,5 @@ def suite_info(suite_name: SuiteName, suite: Annotated[YAMLTaskSuite, Depends(ge
 
 
 @router.get("")
-def list_suites(catalog: Annotated[SuiteCatalog, Depends(get_catalog)]) -> list[str]:
-    return catalog.list_names()
+def list_suites(suites: Annotated[Mapping[SuiteName, YAMLTaskSuite], Depends(get_suites)]) -> list[SuiteName]:
+    return sorted(suites)

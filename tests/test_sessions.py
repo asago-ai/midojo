@@ -147,9 +147,11 @@ def test_explicit_close_does_not_affect_another_session(client):
     assert client.get("/agent/environment", headers=auth(other)).status_code == 200
 
 
-def test_apps_have_independent_catalogs_stores_and_routes(suite):
-    first = TestClient(create_app({"first": suite}))
+def test_apps_have_independent_suites_stores_and_routes(suite):
+    suites = {"first": suite}
+    first = TestClient(create_app(suites))
     second = TestClient(create_app({"second": suite}))
+    suites.clear()
     run, ev = new_evaluation(first, "first")
     assert first.get("/suites").json() == ["first"]
     assert second.get("/suites").json() == ["second"]
@@ -177,11 +179,10 @@ def test_run_requires_suite_and_rejects_version_mismatch(client, suite):
 
 
 @pytest.mark.parametrize("name", ["bad name", "bad?name", "bad#name"])
-def test_suite_name_constraint_applies_to_catalog_requests_and_paths(client, suite, name):
+def test_suite_name_constraint_applies_to_app_requests_and_paths(client, suite, name):
     # Registered aliases must be checked even when the suite object's own name is valid.
-    for suites in ([name], {name: suite}):
-        with pytest.raises(ValidationError):
-            create_app(suites)
+    with pytest.raises(ValidationError):
+        create_app({name: suite})
     response = client.post("/runs", json={"suite_name": name})
     assert response.status_code == 422
     assert response.json()["detail"][0]["loc"] == ["body", "suite_name"]

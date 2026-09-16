@@ -1,11 +1,14 @@
 """Agent callbacks resolve an immutable evaluation session, never a global pointer."""
 
+from collections.abc import Mapping
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from ..catalog import SuiteCatalog
-from ..dependencies import get_catalog, get_session_token, get_store, resolve_suite, validate_environment
+from midojo.types import SuiteName
+from midojo.yaml_task_suite import YAMLTaskSuite
+
+from ..dependencies import get_session_token, get_store, get_suites, resolve_suite, validate_environment
 from ..models import CreateFunctionCallRecord, FunctionCallResponse, RecordObservationsRequest
 from ..store import Store
 
@@ -25,12 +28,12 @@ def put_environment(
     body: dict,
     session_token: Annotated[str, Depends(get_session_token)],
     store: Annotated[Store, Depends(get_store)],
-    catalog: Annotated[SuiteCatalog, Depends(get_catalog)],
+    suites: Annotated[Mapping[SuiteName, YAMLTaskSuite], Depends(get_suites)],
 ) -> dict:
     with store.session_evaluation(session_token) as evaluation:
         run = store.get_run(evaluation.run_id)
         assert run is not None
-        suite = resolve_suite(catalog, run.suite_name, run.suite_version)
+        suite = resolve_suite(suites, run.suite_name, run.suite_version)
         env = validate_environment(suite, body)
         store.set_environment(run.id, evaluation.id, env)
         return env.model_dump()

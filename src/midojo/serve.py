@@ -5,6 +5,7 @@ import uvicorn
 
 from midojo.app.config import AppConfig
 from midojo.app.main import create_app
+from midojo.suites import get_suite
 
 
 @click.command()
@@ -25,7 +26,8 @@ from midojo.app.main import create_app
 )
 def main(host: str, port: int, load_suite: tuple[str, ...], session_ttl: int) -> None:
     config = AppConfig(session_ttl_seconds=session_ttl)
-    app = create_app(load_suite, config=config)
+    suites = {name: get_suite(name) for name in dict.fromkeys(load_suite)}
+    app = create_app(suites, config=config)
     uvicorn.run(app, host=host, port=port)
 
 

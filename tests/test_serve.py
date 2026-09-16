@@ -40,7 +40,7 @@ def test_serve_requires_explicit_suites():
 def test_serve_eagerly_loads_only_selected_suites(external_suite):
     external_name, _ = external_suite
     with (
-        patch("midojo.app.catalog.get_suite", wraps=get_suite) as load,
+        patch("midojo.serve.get_suite", wraps=get_suite) as load,
         patch("midojo.serve.uvicorn.run") as serve,
     ):
 

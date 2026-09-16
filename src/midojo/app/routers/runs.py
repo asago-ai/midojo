@@ -1,21 +1,21 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from midojo.types import FunctionCallRecord
+from midojo.types import FunctionCallRecord, SuiteName
 from midojo.yaml_task_suite import YAMLTaskSuite
 
-from ..catalog import SuiteCatalog
 from ..config import AppConfig
 from ..dependencies import (
-    get_catalog,
     get_config,
     get_evaluation_by_id,
     get_run,
     get_run_suite,
     get_store,
+    get_suites,
     resolve_suite,
     validate_environment,
 )
@@ -49,10 +49,10 @@ def _require_eval(evaluation: Evaluation | None, eval_id: str) -> Evaluation:
 @router.post("", response_model=CreateRunResponse, status_code=status.HTTP_201_CREATED)
 def create_run(
     req: CreateRunRequest,
-    catalog: Annotated[SuiteCatalog, Depends(get_catalog)],
+    suites: Annotated[Mapping[SuiteName, YAMLTaskSuite], Depends(get_suites)],
     store: Annotated[Store, Depends(get_store)],
 ):
-    suite = resolve_suite(catalog, req.suite_name, req.suite_version)
+    suite = resolve_suite(suites, req.suite_name, req.suite_version)
     run = store.create_run(req.suite_name, suite.version)
     return CreateRunResponse(id=run.id, suite_name=run.suite_name, suite_version=run.suite_version)
 

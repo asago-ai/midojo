@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request
@@ -10,7 +11,6 @@ from pydantic import ValidationError
 from midojo.types import Environment, SuiteName
 from midojo.yaml_task_suite import YAMLTaskSuite
 
-from .catalog import SuiteCatalog
 from .config import AppConfig
 from .state import Evaluation, Run
 from .store import Store
@@ -24,21 +24,25 @@ def get_config(request: Request) -> AppConfig:
     return request.app.state.config
 
 
-def get_catalog(request: Request) -> SuiteCatalog:
-    return request.app.state.catalog
+def get_suites(request: Request) -> Mapping[SuiteName, YAMLTaskSuite]:
+    return request.app.state.suites
 
 
-def resolve_suite(catalog: SuiteCatalog, suite_name: SuiteName, version: str | None = None) -> YAMLTaskSuite:
-    try:
-        return catalog.get(suite_name, version)
-    except KeyError:
-        raise HTTPException(404, f"Unknown suite: {suite_name}") from None
-    except ValueError as exc:
-        raise HTTPException(409, str(exc)) from exc
+def resolve_suite(
+    suites: Mapping[SuiteName, YAMLTaskSuite], suite_name: SuiteName, version: str | None = None
+) -> YAMLTaskSuite:
+    suite = suites.get(suite_name)
+    if suite is None:
+        raise HTTPException(404, f"Unknown suite: {suite_name}")
+    if version is not None and suite.version != version:
+        raise HTTPException(409, f"Suite version mismatch: {suite_name}")
+    return suite
 
 
-def get_suite(suite_name: SuiteName, catalog: Annotated[SuiteCatalog, Depends(get_catalog)]) -> YAMLTaskSuite:
-    return resolve_suite(catalog, suite_name)
+def get_suite(
+    suite_name: SuiteName, suites: Annotated[Mapping[SuiteName, YAMLTaskSuite], Depends(get_suites)]
+) -> YAMLTaskSuite:
+    return resolve_suite(suites, suite_name)
 
 
 def get_run(run_id: str, store: Annotated[Store, Depends(get_store)]) -> Run:
@@ -49,9 +53,9 @@ def get_run(run_id: str, store: Annotated[Store, Depends(get_store)]) -> Run:
 
 
 def get_run_suite(
-    run: Annotated[Run, Depends(get_run)], catalog: Annotated[SuiteCatalog, Depends(get_catalog)]
+    run: Annotated[Run, Depends(get_run)], suites: Annotated[Mapping[SuiteName, YAMLTaskSuite], Depends(get_suites)]
 ) -> YAMLTaskSuite:
-    return resolve_suite(catalog, run.suite_name, run.suite_version)
+    return resolve_suite(suites, run.suite_name, run.suite_version)
 
 
 def get_evaluation_by_id(

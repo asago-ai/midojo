@@ -1,26 +1,29 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from pydantic import TypeAdapter
 
+from midojo.types import SuiteName
 from midojo.yaml_task_suite import YAMLTaskSuite
 
-from .catalog import SuiteCatalog
 from .config import AppConfig
 from .routers import agent, runs, suite, tasks
 from .store import InMemoryStore, InvalidSessionError, Store
 
+_SUITE_NAME = TypeAdapter(SuiteName)
+
 
 def create_app(
-    suites: Mapping[str, YAMLTaskSuite] | Sequence[str],
+    suites: Mapping[SuiteName, YAMLTaskSuite],
     *,
     store: Store | None = None,
     config: AppConfig | None = None,
 ) -> FastAPI:
     app = FastAPI()
-    app.state.catalog = SuiteCatalog(suites)
+    app.state.suites = {_SUITE_NAME.validate_python(name): suite for name, suite in suites.items()}
     app.state.store = store if store is not None else InMemoryStore()
     app.state.config = config if config is not None else AppConfig()
     app.include_router(suite.router)
