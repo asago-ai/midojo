@@ -4,6 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
 
+from midojo.types import SuiteName
 from midojo.yaml_task_suite import YAMLTaskSuite
 
 from ..catalog import SuiteCatalog
@@ -14,7 +15,7 @@ router = APIRouter(prefix="/suites")
 
 
 @router.get("/{suite_name}", response_model=SuiteInfoResponse, status_code=status.HTTP_200_OK)
-def suite_info(suite_name: str, suite: Annotated[YAMLTaskSuite, Depends(get_suite)]):
+def suite_info(suite_name: SuiteName, suite: Annotated[YAMLTaskSuite, Depends(get_suite)]):
     return SuiteInfoResponse(
         name=suite_name,
         version=suite.version,

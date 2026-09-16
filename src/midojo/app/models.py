@@ -4,7 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny
 
-from midojo.types import Environment
+from midojo.types import Environment, SuiteName
 
 # --- Run / Evaluation request/response models ---
 
@@ -38,13 +38,13 @@ class CreateEvaluationRequest(BaseModel):
 
 
 class CreateRunRequest(BaseModel):
-    suite_name: str
+    suite_name: SuiteName
     suite_version: str | None = None
 
 
 class CreateRunResponse(BaseModel):
     id: str
-    suite_name: str
+    suite_name: SuiteName
     suite_version: str
 
 
@@ -93,7 +93,7 @@ class EvaluationSummary(BaseModel):
 
 class RunResponse(BaseModel):
     id: str
-    suite_name: str
+    suite_name: SuiteName
     suite_version: str
     created_at: str
     evaluations: list[EvaluationSummary]
@@ -116,7 +116,7 @@ class EvaluationResponse(BaseModel):
 
 
 class SuiteInfoResponse(BaseModel):
-    name: str
+    name: SuiteName
     version: str
     user_tasks: list[str]
     injection_tasks: list[str]

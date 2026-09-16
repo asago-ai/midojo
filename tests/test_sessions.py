@@ -2,11 +2,13 @@
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import quote
 
 import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from midojo.app.main import create_app
 from midojo.mcp_sdk import ControlPlaneClient
@@ -149,6 +151,57 @@ def test_run_requires_suite_and_rejects_version_mismatch(client, suite):
     response = client.post("/runs", json={"suite_name": "weather", "suite_version": suite.version})
     assert response.status_code == 201
     assert response.json()["suite_version"] == suite.version
+
+
+@pytest.mark.parametrize("name", ["bad name", "bad?name", "bad#name"])
+def test_suite_name_constraint_applies_to_catalog_requests_and_paths(client, suite, name):
+    # Registered aliases must be checked even when the suite object's own name is valid.
+    for suites in ([name], {name: suite}):
+        with pytest.raises(ValidationError):
+            create_app(suites)
+    response = client.post("/runs", json={"suite_name": name})
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["body", "suite_name"]
+    for suffix in ("", "/tasks/user", "/tasks/user/task", "/tasks/injection", "/tasks/injection/task"):
+        response = client.get(f"/suites/{quote(name, safe='')}{suffix}")
+        assert response.status_code == 422
+        assert response.json()["detail"][0]["loc"] == ["path", "suite_name"]
+
+
+def test_suite_version_tracks_expanded_backend_configuration(tmp_path, monkeypatch):
+    path = tmp_path / "suite.yaml"
+    path.write_text("""
+environment:
+  backend:
+    type: openshell
+    image: '${env.MIDOJO_TEST_IMAGE}'
+  state: {}
+""")
+    monkeypatch.setenv("MIDOJO_TEST_IMAGE", "image-a")
+    first = YAMLTaskSuite("versioned", path)
+    assert YAMLTaskSuite("versioned", path).version == first.version
+    monkeypatch.setenv("MIDOJO_TEST_IMAGE", "image-b")
+    assert YAMLTaskSuite("versioned", path).version != first.version
+    assert YAMLTaskSuite("versioned", path, version="explicit-v1").version == "explicit-v1"
+
+
+def test_suite_version_tracks_resolved_payloads(tmp_path):
+    path = tmp_path / "suite.yaml"
+    path.write_text("""
+environment:
+  state: {text: '{inject:main}'}
+injection_tasks:
+  - id: inject
+    description: test
+    probes:
+      main: {source: 'file:payloads.json'}
+    security: {output_contains: injected}
+""")
+    payloads = tmp_path / "payloads.json"
+    payloads.write_text('{"id": "test", "description": "test", "payloads": ["first"]}')
+    first = YAMLTaskSuite("versioned", path)
+    payloads.write_text('{"id": "test", "description": "test", "payloads": ["second"]}')
+    assert YAMLTaskSuite("versioned", path).version != first.version
 
 
 @pytest.mark.asyncio

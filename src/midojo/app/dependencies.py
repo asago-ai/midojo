@@ -7,7 +7,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import ValidationError
 
-from midojo.types import Environment
+from midojo.types import Environment, SuiteName
 from midojo.yaml_task_suite import YAMLTaskSuite
 
 from .catalog import SuiteCatalog
@@ -23,7 +23,7 @@ def get_catalog(request: Request) -> SuiteCatalog:
     return request.app.state.catalog
 
 
-def resolve_suite(catalog: SuiteCatalog, suite_name: str, version: str | None = None) -> YAMLTaskSuite:
+def resolve_suite(catalog: SuiteCatalog, suite_name: SuiteName, version: str | None = None) -> YAMLTaskSuite:
     try:
         return catalog.get(suite_name, version)
     except KeyError:
@@ -32,7 +32,7 @@ def resolve_suite(catalog: SuiteCatalog, suite_name: str, version: str | None = 
         raise HTTPException(409, str(exc)) from exc
 
 
-def get_suite(suite_name: str, catalog: Annotated[SuiteCatalog, Depends(get_catalog)]) -> YAMLTaskSuite:
+def get_suite(suite_name: SuiteName, catalog: Annotated[SuiteCatalog, Depends(get_catalog)]) -> YAMLTaskSuite:
     return resolve_suite(catalog, suite_name)
 
 

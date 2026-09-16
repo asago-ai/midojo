@@ -3,20 +3,26 @@
 from collections.abc import Mapping, Sequence
 from threading import RLock
 
+from pydantic import TypeAdapter
+
 from midojo.suites import get_suite, list_suites
+from midojo.types import SuiteName
 from midojo.yaml_task_suite import YAMLTaskSuite
+
+_SUITE_NAME = TypeAdapter(SuiteName)
 
 
 class SuiteCatalog:
     def __init__(self, suites: Mapping[str, YAMLTaskSuite] | Sequence[str] | None = None) -> None:
         self._loaded = dict(suites) if isinstance(suites, Mapping) else {}
-        self._names = set(suites if suites is not None else list_suites())
+        names = suites if suites is not None else list_suites()
+        self._names = {_SUITE_NAME.validate_python(name) for name in names}
         self._lock = RLock()
 
-    def list_names(self) -> list[str]:
+    def list_names(self) -> list[SuiteName]:
         return sorted(self._names)
 
-    def get(self, suite_name: str, version: str | None = None) -> YAMLTaskSuite:
+    def get(self, suite_name: SuiteName, version: str | None = None) -> YAMLTaskSuite:
         with self._lock:
             if suite_name not in self._names:
                 raise KeyError(suite_name)

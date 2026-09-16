@@ -75,7 +75,7 @@ for additional examples refer to [README.md](./README.md).
    task_suite = YAMLTaskSuite("my_suite", suite_yaml_path=Path(__file__).parent / "suite.yaml")
    ```
 2. optionally export `SYSTEM_MESSAGE` — if defined, midojo forwards it as the system prompt for `--protocol ogx` and `--protocol openai`. Not required: if absent, the agent runs without one (your model endpoint may already have it configured)
-3. reference it by dotted module path: `midojo-serve --suite-package my_package.my_suite`; `midojo-run --suite my_package.my_suite ...`
+3. reference it by dotted module path: `midojo-serve --load-suite my_package.my_suite`; `midojo-run --suite my_package.my_suite ...`
 4. fake/real MCP servers import `from midojo.mcp_sdk import MidojoMCP, ToolContext` as normal — no changes needed
 
 **Add a new attack technique** — add an `AttackTechnique` to the `BUILTIN_TECHNIQUES` list in `src/midojo/attacks/builtin.py`. Each attack technique is a function `(payload: str) -> str` that wraps the payload in a delivery template.

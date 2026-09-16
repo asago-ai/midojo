@@ -51,6 +51,8 @@ The system has three moving parts:
 ## Shared control plane and evaluation sessions
 
 Start `midojo-serve` once; select the suite on each `midojo-run` invocation.
+Built-in suites are available automatically. Use `--load-suite your.module.path`
+to add an installed external suite; repeat the option to add more suites.
 The server exposes an installed suite catalog at `/suites`. Each run pins one
 suite and its version, and each evaluation gets a private session token.
 SDK callbacks use `/agent/*` with that token; `/current` has been removed.
@@ -258,7 +260,7 @@ Start by defining the benchmark — the environment, tasks, and grading logic:
 1. Create a new package under `suites/your_suite/` with an `__init__.py` that exports `SYSTEM_MESSAGE` (the agent's system prompt)
 2. Create `suite.yaml` in the package directory — defines environment, injection vectors, user tasks (with declarative utility predicates), and injection tasks (with declarative security predicates)
 
-The framework auto-loads `suite.yaml` and infers the environment type from the YAML structure — no `task_suite.py` needed. For out-of-tree suites, register the installed package with `midojo-serve --suite-package your.module.path`, then select it with `midojo-run --suite your.module.path`. The module must expose `task_suite`.
+Bundled suites load directly from `suite.yaml`; no Python code is needed to construct the suite. The framework infers the environment type from the YAML state. For out-of-tree suites, register the installed package with `midojo-serve --load-suite your.module.path`, then select it with `midojo-run --suite your.module.path`. The module must expose `task_suite`.
 
 Suite names start with an ASCII letter or digit and contain only letters, digits,
 underscores, hyphens, and dots (for example, `document_assistant` or

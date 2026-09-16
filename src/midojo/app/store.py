@@ -17,7 +17,7 @@ from functools import wraps
 from threading import RLock
 from typing import Any, Concatenate, Protocol
 
-from midojo.types import Environment, FunctionCallRecord
+from midojo.types import Environment, FunctionCallRecord, SuiteName
 
 from .models import CreateFunctionCallRecord
 from .state import Evaluation, Run
@@ -31,7 +31,7 @@ class Store(Protocol):
     """Interface for run/evaluation persistence."""
 
     # --- runs ---
-    def create_run(self, suite_name: str, suite_version: str) -> Run: ...
+    def create_run(self, suite_name: SuiteName, suite_version: str) -> Run: ...
     def get_run(self, run_id: str) -> Run | None: ...
     def list_runs(self) -> list[Run]: ...
 
@@ -94,7 +94,7 @@ class InMemoryStore:
     # --- runs ---
 
     @_locked
-    def create_run(self, suite_name: str, suite_version: str) -> Run:
+    def create_run(self, suite_name: SuiteName, suite_version: str) -> Run:
         run = Run(id=_new_id(), suite_name=suite_name, suite_version=suite_version)
         self._runs[run.id] = run
         return run
