@@ -2,14 +2,16 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from midojo.types import FunctionCallRecord
 from midojo.yaml_task_suite import YAMLTaskSuite
 
 from ..catalog import SuiteCatalog
+from ..config import AppConfig
 from ..dependencies import (
     get_catalog,
+    get_config,
     get_evaluation_by_id,
     get_run,
     get_run_suite,
@@ -79,7 +81,7 @@ def retrieve_run(run: Annotated[Run, Depends(get_run)]):
 @router.post("/{run_id}/evaluations", response_model=CreateEvaluationResponse, status_code=status.HTTP_201_CREATED)
 def create_evaluation(
     req: CreateEvaluationRequest,
-    request: Request,
+    config: Annotated[AppConfig, Depends(get_config)],
     run: Annotated[Run, Depends(get_run)],
     suite: Annotated[YAMLTaskSuite, Depends(get_run_suite)],
     store: Annotated[Store, Depends(get_store)],
@@ -104,7 +106,7 @@ def create_evaluation(
         active_injections=req.injections,
         agent_input=prompt,
     )
-    token, expires_at = store.create_session(run.id, evaluation.id, request.app.state.session_ttl_seconds)
+    token, expires_at = store.create_session(run.id, evaluation.id, config.session_ttl_seconds)
     return CreateEvaluationResponse(id=evaluation.id, prompt=prompt, session_token=token, session_expires_at=expires_at)
 
 

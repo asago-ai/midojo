@@ -11,12 +11,17 @@ from midojo.types import Environment, SuiteName
 from midojo.yaml_task_suite import YAMLTaskSuite
 
 from .catalog import SuiteCatalog
+from .config import AppConfig
 from .state import Evaluation, Run
 from .store import Store
 
 
 def get_store(request: Request) -> Store:
     return request.app.state.store
+
+
+def get_config(request: Request) -> AppConfig:
+    return request.app.state.config
 
 
 def get_catalog(request: Request) -> SuiteCatalog:

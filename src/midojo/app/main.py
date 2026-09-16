@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from midojo.yaml_task_suite import YAMLTaskSuite
 
 from .catalog import SuiteCatalog
+from .config import AppConfig
 from .routers import agent, runs, suite, tasks
 from .store import InMemoryStore, InvalidSessionError, Store
 
@@ -16,14 +17,12 @@ def create_app(
     suites: Mapping[str, YAMLTaskSuite] | Sequence[str] | None = None,
     *,
     store: Store | None = None,
-    session_ttl_seconds: int = 3600,
+    config: AppConfig | None = None,
 ) -> FastAPI:
-    if session_ttl_seconds <= 0:
-        raise ValueError("Session TTL must be positive")
     app = FastAPI()
     app.state.catalog = SuiteCatalog(suites)
     app.state.store = store if store is not None else InMemoryStore()
-    app.state.session_ttl_seconds = session_ttl_seconds
+    app.state.config = config if config is not None else AppConfig()
     app.include_router(suite.router)
     app.include_router(tasks.router)
     app.include_router(runs.router)

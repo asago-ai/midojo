@@ -2,6 +2,7 @@
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from urllib.parse import quote
 
 import httpx
@@ -10,6 +11,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from midojo.app.config import AppConfig
+from midojo.app.dependencies import get_config
 from midojo.app.main import create_app
 from midojo.mcp_sdk import ControlPlaneClient
 from midojo.session import MidojoSessionMiddleware, MissingSessionError, session_context
@@ -112,6 +115,26 @@ def test_sessions_are_private_expire_and_cannot_fall_back(client, monkeypatch):
         == 401
     )
     assert client.get(f"{url}/function-calls").json() == []
+
+
+def test_session_expiry_uses_per_app_config_and_dependency_overrides(suite, monkeypatch):
+    now = [1_700_000_000]
+    monkeypatch.setattr("midojo.app.store.time.time", lambda: now[0])
+    short_app = create_app({"weather": suite}, config=AppConfig(session_ttl_seconds=5))
+    long_app = create_app({"weather": suite}, config=AppConfig(session_ttl_seconds=30))
+    short_client, long_client = TestClient(short_app), TestClient(long_app)
+    _, short = new_evaluation(short_client)
+    _, long = new_evaluation(long_client)
+    assert datetime.fromisoformat(short["session_expires_at"]).timestamp() == now[0] + 5
+    assert datetime.fromisoformat(long["session_expires_at"]).timestamp() == now[0] + 30
+
+    now[0] += 5
+    assert short_client.get("/agent/environment", headers=auth(short)).status_code == 401
+    assert long_client.get("/agent/environment", headers=auth(long)).status_code == 200
+
+    short_app.dependency_overrides[get_config] = lambda: AppConfig(session_ttl_seconds=10)
+    _, overridden = new_evaluation(short_client)
+    assert datetime.fromisoformat(overridden["session_expires_at"]).timestamp() == now[0] + 10
 
 
 def test_explicit_close_does_not_affect_another_session(client):
