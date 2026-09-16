@@ -1,4 +1,7 @@
-"""Agent callbacks resolve an immutable evaluation session, never a global pointer."""
+"""Callbacks used by the interception layer (MCP and framework SDKs).
+
+Each callback's session token authorizes access to one evaluation.
+"""
 
 from collections.abc import Mapping
 from typing import Annotated
