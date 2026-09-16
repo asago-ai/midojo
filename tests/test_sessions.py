@@ -6,7 +6,6 @@ from urllib.parse import quote
 
 import httpx
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
@@ -200,43 +199,6 @@ injection_tasks:
 
 
 @pytest.mark.asyncio
-async def test_persistent_agent_propagates_context_without_restart(app, client, monkeypatch):
-    monkeypatch.delenv("MIDOJO_SESSION_TOKEN", raising=False)
-    run_a, a = new_evaluation(client)
-    run_b, b = new_evaluation(client)
-    sdk = ControlPlaneClient("http://control", http=httpx.AsyncClient(transport=httpx.ASGITransport(app)))
-    agent = FastAPI()
-    agent.add_middleware(MidojoSessionMiddleware)
-
-    @agent.post("/")
-    async def task(body: dict):
-        await asyncio.sleep(0)
-        await sdk.record_function_call(function="task", args={}, result=body["prompt"])
-        return {"response": "done"}
-
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(agent), base_url="http://agent") as http:
-        responses = await asyncio.gather(
-            *[
-                http.post("/", headers={"X-Midojo-Session": ev["session_token"]}, json={"prompt": ev["id"]})
-                for ev in [a, b]
-            ]
-        )
-        assert all(response.status_code == 200 for response in responses)
-    for run, ev in [(run_a, a), (run_b, b)]:
-        calls = client.get(f"/runs/{run['id']}/evaluations/{ev['id']}/function-calls").json()
-        assert [call["result"] for call in calls] == [ev["id"]]
-    with pytest.raises(MissingSessionError):
-        await sdk.get_environment()
-    with session_context(a["session_token"]):
-        assert "cities" in await sdk.get_environment()
-    client.delete(f"/runs/{run_a['id']}/evaluations/{a['id']}/session")
-    with session_context(a["session_token"]), pytest.raises(httpx.HTTPStatusError) as failure:
-        await sdk.record_function_call(function="late", args={}, result="late")
-    assert failure.value.response.status_code == 401
-    await sdk.aclose()
-
-
-@pytest.mark.asyncio
 async def test_remote_mcp_server_reads_session_from_each_request(app, client):
     from midojo.mcp_sdk import MidojoMCP, ToolContext
 
@@ -250,30 +212,36 @@ async def test_remote_mcp_server_reads_session_from_each_request(app, client):
     @mcp.tool()
     async def report(ctx: ToolContext, message: str) -> str:
         assert "New York" in await ctx.env("cities")
+        await ctx.env_update("weather_alerts", [{"city": "New York", "message": message}])
         return message
 
     mcp_app = mcp._fastmcp.http_app(path="/mcp", stateless_http=True)
     async with mcp_app.router.lifespan_context(mcp_app):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(mcp_app), base_url="http://mcp") as http:
-            for ev in [a, b]:
-                response = await http.post(
-                    "/mcp",
-                    headers={
-                        "X-Midojo-Session": ev["session_token"],
-                        "Accept": "application/json, text/event-stream",
-                    },
-                    json={
-                        "jsonrpc": "2.0",
-                        "id": 1,
-                        "method": "tools/call",
-                        "params": {"name": "report", "arguments": {"message": ev["id"]}},
-                    },
-                )
-                assert response.status_code == 200, response.text
-                assert ev["id"] in response.text
+            responses = await asyncio.gather(
+                *[
+                    http.post(
+                        "/mcp",
+                        headers={
+                            "X-Midojo-Session": ev["session_token"],
+                            "Accept": "application/json, text/event-stream",
+                        },
+                        json={
+                            "jsonrpc": "2.0",
+                            "id": 1,
+                            "method": "tools/call",
+                            "params": {"name": "report", "arguments": {"message": ev["id"]}},
+                        },
+                    )
+                    for ev in [a, b]
+                ]
+            )
+            assert all(response.status_code == 200 for response in responses)
     for run, ev in [(run_a, a), (run_b, b)]:
         calls = client.get(f"/runs/{run['id']}/evaluations/{ev['id']}/function-calls").json()
         assert [call["result"] for call in calls] == [ev["id"]]
+        environment = client.get(f"/runs/{run['id']}/evaluations/{ev['id']}/environment").json()
+        assert environment["weather_alerts"] == [{"city": "New York", "message": ev["id"]}]
     await mcp._client.aclose()
 
 
@@ -289,6 +257,7 @@ async def test_a2a_transport_keeps_executor_callbacks_scoped(app, client, monkey
 
     from midojo.agent_client import A2AAgentClient
 
+    monkeypatch.delenv("MIDOJO_SESSION_TOKEN", raising=False)
     run_a, a = new_evaluation(client)
     run_b, b = new_evaluation(client)
     sdk = ControlPlaneClient("http://control", http=httpx.AsyncClient(transport=httpx.ASGITransport(app)))
@@ -326,5 +295,11 @@ async def test_a2a_transport_keeps_executor_callbacks_scoped(app, client, monkey
         for run, ev in [(run_a, a), (run_b, b)]:
             calls = client.get(f"/runs/{run['id']}/evaluations/{ev['id']}/function-calls").json()
             assert [call["result"] for call in calls] == [ev["id"]]
+        with pytest.raises(MissingSessionError):
+            await sdk.get_environment()
+        client.delete(f"/runs/{run_a['id']}/evaluations/{a['id']}/session")
+        with session_context(a["session_token"]), pytest.raises(httpx.HTTPStatusError) as failure:
+            await sdk.record_function_call(function="late", args={}, result="late")
+        assert failure.value.response.status_code == 401
     finally:
         await sdk.aclose()
