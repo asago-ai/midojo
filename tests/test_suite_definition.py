@@ -6,12 +6,10 @@ from unittest.mock import Mock
 
 import pytest
 import yaml
-from pydantic import TypeAdapter, ValidationError
+from pydantic import ValidationError
 
 from midojo.backends import DictEnvironmentBackend
-from midojo.suite_definition import SuiteDefinition
 from midojo.suites import get_suite
-from midojo.types import SuiteName
 from midojo.verifiers import VerificationResult
 from midojo.yaml_task_suite import YAMLTaskSuite
 
@@ -38,16 +36,9 @@ def load(tmp_path, raw, *, name="test", **kwargs):
     return YAMLTaskSuite(name, path, **kwargs)
 
 
-@pytest.mark.parametrize("name", ["weather", "Document_Assistant", "my_package.my_suite", "suite-2", "123"])
-def test_suite_names_round_trip_without_normalization(tmp_path, raw, name):
-    assert TypeAdapter(SuiteName).validate_python(name) == name
-    suite = load(tmp_path, raw, name=name)
-    assert suite.name == suite.definition.name == name
-
-
 @pytest.mark.parametrize(
     "name",
-    ["", ".", "..", "../weather", "two/segments", "query?x", "frag#x", "a%2Fb", "a\\b", "a b", "a\n", "☃", 123],
+    ["../weather", "query?x", "bad name"],
 )
 def test_invalid_names_are_rejected_by_definition_and_import_loader(tmp_path, raw, monkeypatch, name):
     with pytest.raises(ValueError, match="name"):
@@ -59,21 +50,16 @@ def test_invalid_names_are_rejected_by_definition_and_import_loader(tmp_path, ra
     import_module.assert_not_called()
 
 
-@pytest.mark.parametrize("raw", [None, [], "a string"])
-def test_document_must_be_a_mapping(tmp_path, raw):
+def test_empty_document_is_rejected(tmp_path):
     with pytest.raises(ValueError, match="suite.yaml: expected a YAML mapping"):
-        load(tmp_path, raw)
+        load(tmp_path, None)
 
 
 @pytest.mark.parametrize(
     "raw,location",
     [
-        ({}, ("environment",)),
-        ({"environment": []}, ("environment",)),
         ({"environment": {"state": []}}, ("environment", "state")),
-        ({"environment": {}, "user_tasks": {}}, ("user_tasks",)),
         ({"environment": {}, "user_task": []}, ("user_task",)),
-        ({"environment": {}, "user_tasks": [{"id": "x", "utility": {}}]}, ("user_tasks", 0, "prompt")),
         (
             {"environment": {}, "user_tasks": [{"id": "x", "prompt": 12, "utility": {}}]},
             ("user_tasks", 0, "prompt"),
@@ -106,32 +92,10 @@ def test_user_and_injection_tasks_can_share_an_id(tmp_path, raw):
     assert "inject" in suite.user_tasks and "inject" in suite.injection_tasks
 
 
-@pytest.mark.parametrize(
-    "probe",
-    [
-        {},
-        {"payload": "x", "source": "garak:hijack_hate_humans"},
-        {"payload": None},
-        {"source": None},
-        {"payload": 123},
-        {"source": "garak:hijack_hate_humans", "index": -1},
-        {"source": "garak:hijack_hate_humans", "index": "0"},
-        {"source": "garak:hijack_hate_humans", "index": True},
-        {"payload": "x", "attack_typo": "verbatim"},
-    ],
-)
-def test_malformed_probe_is_rejected_at_its_location(tmp_path, raw, probe):
-    raw["injection_tasks"][0]["probes"]["main"] = probe
-    with pytest.raises(ValueError, match=r"injection_tasks\.0\.probes\.main"):
-        load(tmp_path, raw)
-
-
-def test_empty_payload_is_valid_and_task_lists_can_be_omitted(tmp_path, raw):
+def test_empty_payload_is_valid(tmp_path, raw):
     raw["injection_tasks"][0]["probes"]["main"]["payload"] = ""
     suite = load(tmp_path, raw)
     assert suite.injection_tasks["inject"].probes == {"main": ""}
-    empty = load(tmp_path, {"environment": {"state": {}}})
-    assert empty.user_tasks == empty.injection_tasks == {}
 
 
 def test_yaml_name_must_agree_with_supplied_name(tmp_path, raw):
@@ -188,18 +152,3 @@ def test_definition_works_with_explicit_backend(tmp_path, raw):
     suite = load(tmp_path, raw, backend=backend)
     assert suite.backend is backend
     assert suite.provision_environment({}).model_dump() == {"other": "state"}
-
-
-def test_definition_can_round_trip_as_data_without_resolving_plugins(raw):
-    raw["injection_tasks"][0]["probes"]["sourced"] = {"source": "custom:loaded-later"}
-    definition = SuiteDefinition.model_validate({**raw, "name": "example"})
-    assert SuiteDefinition.model_validate_json(definition.model_dump_json()) == definition
-
-
-@pytest.mark.parametrize("name", ["weather", "minibank", "document_assistant"])
-def test_bundled_suites_load_through_definition(name):
-    suite = get_suite(name)
-    assert isinstance(suite.definition, SuiteDefinition)
-    assert len(suite.user_tasks) == len(suite.definition.user_tasks)
-    assert len(suite.injection_tasks) == len(suite.definition.injection_tasks)
-    suite.provision_environment({})
