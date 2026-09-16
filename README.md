@@ -237,6 +237,21 @@ Start by defining the benchmark — the environment, tasks, and grading logic:
 
 The framework auto-loads `suite.yaml` and infers the environment type from the YAML structure — no `task_suite.py` needed. For out-of-tree suites or custom setup, use `--suite your.module.path`; the module must expose a `task_suite` attribute.
 
+Suite names start with an ASCII letter or digit and contain only letters, digits,
+underscores, hyphens, and dots (for example, `document_assistant` or
+`my_package.my_suite`). The loader validates the supplied name together with the
+YAML using the Pydantic `SuiteDefinition` model before constructing the backend.
+Existing YAML files do not need a `name` field; if present, it must match the
+name passed to `YAMLTaskSuite`.
+
+Definition validation reports the file and field location for missing or wrongly
+typed fields, duplicate IDs within each task list, and invalid probe definitions.
+A probe must have exactly one non-null `payload` or `source`; source indices must
+be non-negative integers. Unknown fields at the suite, task, and probe levels are
+rejected. Backend options and additional environment fields remain extensible,
+and backend/verifier implementations still validate their own configuration.
+`${env.VAR}` expansion remains limited to backend configuration.
+
 Then author the interception layer for the agent you're testing. The agent already has its real tools — you only write the fake side using the appropriate SDK.
 
 ### For MCP-speaking agents
