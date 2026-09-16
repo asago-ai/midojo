@@ -1,4 +1,10 @@
-from pydantic import BaseModel, ConfigDict, SerializeAsAny
+from typing import Annotated
+
+from pydantic import BaseModel, ConfigDict, SerializeAsAny, StringConstraints
+
+# A suite name is also a URL path segment. Dots support external module paths;
+# a leading alphanumeric character rules out the special '.' and '..' segments.
+SuiteName = Annotated[str, StringConstraints(strict=True, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")]
 
 
 class Environment(BaseModel):
