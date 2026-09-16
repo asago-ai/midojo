@@ -1,5 +1,3 @@
-import { getSessionToken } from "./session.ts";
-export { withMidojoSession, sessionHeaders, SESSION_HEADER } from "./session.ts";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type { TSchema } from "typebox";
 
@@ -26,8 +24,7 @@ export interface MidojoToolHook {
 }
 
 export interface MidojoExtensionConfig {
-	controlPlaneUrl?: string;
-	sessionToken?: string;
+	controlPlaneUrl: string;
 	tools?: MidojoToolDef[];
 	hooks?: MidojoToolHook[];
 	/**
@@ -41,43 +38,34 @@ export interface MidojoExtensionConfig {
 	reportTools?: string[];
 }
 
-export class ControlPlaneClient {
-	private token?: string;
+class ControlPlaneClient {
 	private baseUrl: string;
 
-	constructor(baseUrl: string = process.env.MIDOJO_URL || "http://localhost:8080", token?: string) {
-		this.token = token;
+	constructor(baseUrl: string) {
 		const base = baseUrl.replace(/\/+$/, "");
-		this.baseUrl = `${base}/agent`;
-	}
-
-	private async request(path: string, method: string = "GET", body?: unknown): Promise<Response> {
-		const resp = await fetch(`${this.baseUrl}${path}`, {
-			method,
-			headers: {
-				"Content-Type": "application/json",
-				"Authorization": `Bearer ${getSessionToken(this.token)}`,
-			},
-			body: body === undefined ? undefined : JSON.stringify(body),
-		});
-		if (!resp.ok) throw new Error(`MiDojo ${method} ${path} failed (${resp.status})`);
-		return resp;
+		this.baseUrl = `${base}/current`;
 	}
 
 	async getEnvironment(): Promise<Record<string, unknown>> {
-		return (await this.request("/environment")).json() as Promise<Record<string, unknown>>;
+		const resp = await fetch(`${this.baseUrl}/environment`);
+		if (!resp.ok) return {};
+		return (await resp.json()) as Record<string, unknown>;
 	}
 
 	async putEnvironment(env: Record<string, unknown>): Promise<void> {
-		await this.request("/environment", "PUT", env);
+		await fetch(`${this.baseUrl}/environment`, {
+			method: "PUT",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(env),
+		});
 	}
 
 	async recordFunctionCall(entry: { function: string; args: Record<string, unknown>; result: string; error?: string | null }): Promise<void> {
-		await this.request("/function-calls", "POST", entry);
-	}
-
-	async recordObservations(source: string, data: unknown): Promise<void> {
-		await this.request("/observations", "POST", { source, data });
+		await fetch(`${this.baseUrl}/function-calls`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(entry),
+		}).catch(() => {});
 	}
 
 	createToolContext(): ToolContext {
@@ -97,7 +85,7 @@ export class ControlPlaneClient {
 
 export function createMidojoExtension(config: MidojoExtensionConfig): (pi: ExtensionAPI) => void {
 	return (pi: ExtensionAPI) => {
-		const client = new ControlPlaneClient(config.controlPlaneUrl, config.sessionToken);
+		const client = new ControlPlaneClient(config.controlPlaneUrl);
 
 		for (const toolDef of config.tools ?? []) {
 			pi.registerTool({

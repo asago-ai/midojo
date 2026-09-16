@@ -357,8 +357,8 @@ def create_fake_mcp_app(
 ):
     """Create a fake MCP FastAPI app for programmatic startup.
 
-    Uses midojo's /agent/* endpoints. The SDK forwards each incoming
-    X-Midojo-Session token to select the evaluation.
+    Uses midojo's /current/* endpoints — the control plane tracks the
+    active evaluation, so no env vars or per-request ID routing needed.
     """
     mcp = MidojoMCP(
         "megabank",
