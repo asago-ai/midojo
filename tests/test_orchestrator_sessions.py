@@ -11,6 +11,7 @@ import pytest
 
 from midojo.agent_client import AgentClient, PIAgentClient, SimpleHTTPAgentClient
 from midojo.backends.openshell import OpenShellBackend, OpenShellEnvironment
+from midojo.mcp_sdk import ControlPlaneClient
 from midojo.orchestrator import run_benchmark, run_task
 
 
@@ -72,16 +73,14 @@ class ReportingAgent(AgentClient):
 
     async def send_task(self, prompt, *, session_token):
         self.tokens.append(session_token)
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                "http://control/agent/function-calls",
-                headers={"Authorization": f"Bearer {session_token}"},
-                json={"function": "read", "args": {}, "result": prompt},
-            )
-            response.raise_for_status()
-        if self.fail:
-            raise RuntimeError("Agent failed")
-        return "New York is 72°F and sunny"
+        sdk = ControlPlaneClient("http://control", token=session_token)
+        try:
+            await sdk.record_function_call(function="read", args={}, result=prompt)
+            if self.fail:
+                raise RuntimeError("Agent failed")
+            return "New York is 72°F and sunny"
+        finally:
+            await sdk.aclose()
 
 
 @pytest.mark.asyncio
