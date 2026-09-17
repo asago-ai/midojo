@@ -165,7 +165,9 @@ class TestProbeSources:
         assert suite.injection_tasks["injection_task_0"].probes["main"] == "custom cargo"
 
     def test_payload_and_source_together_raises(self, tmp_path):
-        with pytest.raises(ValueError, match="injection_task_0:main.*exactly one of 'payload' or 'source'"):
+        with pytest.raises(
+            ValueError, match=r"(?s)injection_tasks\.0\.probes\.main.*exactly one of 'payload' or 'source'"
+        ):
             _probe_suite(tmp_path, "{payload: x, source: 'garak:sql_injection'}")
 
     def test_neither_payload_nor_source_raises(self, tmp_path):
