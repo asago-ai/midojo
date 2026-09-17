@@ -1,25 +1,30 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from midojo.types import FunctionCallRecord
+from midojo.types import FunctionCallRecord, SuiteName
 from midojo.yaml_task_suite import YAMLTaskSuite
 
+from ..config import AppConfig
 from ..dependencies import (
-    get_current_evaluation,
-    get_current_ids,
+    get_config,
     get_evaluation_by_id,
     get_run,
+    get_run_suite,
     get_store,
-    get_suite,
+    get_suites,
+    resolve_suite,
+    validate_environment,
 )
 from ..models import (
     CompleteRequest,
     CreateEvaluationRequest,
     CreateEvaluationResponse,
     CreateFunctionCallRecord,
+    CreateRunRequest,
     CreateRunResponse,
     EvaluationResponse,
     EvaluationSummary,
@@ -33,11 +38,6 @@ from ..store import Store
 
 router = APIRouter(prefix="/runs")
 
-# Mirrors of the per-eval environment + function-call endpoints that resolve the
-# active eval from the store. Used by long-lived MCP servers / PI extensions that
-# don't have a run/eval ID at construction time. See dependencies.get_current_evaluation.
-current_router = APIRouter(prefix="/current")
-
 
 def _require_eval(evaluation: Evaluation | None, eval_id: str) -> Evaluation:
     """404 when an ID-based store mutation reports the evaluation doesn't exist."""
@@ -46,23 +46,23 @@ def _require_eval(evaluation: Evaluation | None, eval_id: str) -> Evaluation:
     return evaluation
 
 
-def _require_current(evaluation: Evaluation | None) -> Evaluation:
-    """400 when the current-eval pointer no longer resolves to a live evaluation."""
-    if evaluation is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No evaluation in progress.")
-    return evaluation
-
-
 @router.post("", response_model=CreateRunResponse, status_code=status.HTTP_201_CREATED)
-def create_run(store: Annotated[Store, Depends(get_store)]):
-    run = store.create_run()
-    return CreateRunResponse(id=run.id)
+def create_run(
+    req: CreateRunRequest,
+    suites: Annotated[Mapping[SuiteName, YAMLTaskSuite], Depends(get_suites)],
+    store: Annotated[Store, Depends(get_store)],
+):
+    suite = resolve_suite(suites, req.suite_name, req.suite_version)
+    run = store.create_run(req.suite_name, suite.version)
+    return CreateRunResponse(id=run.id, suite_name=run.suite_name, suite_version=run.suite_version)
 
 
 @router.get("/{run_id}", response_model=RunResponse, status_code=status.HTTP_200_OK)
 def retrieve_run(run: Annotated[Run, Depends(get_run)]):
     return RunResponse(
         id=run.id,
+        suite_name=run.suite_name,
+        suite_version=run.suite_version,
         created_at=run.created_at,
         evaluations=[
             EvaluationSummary(
@@ -73,7 +73,7 @@ def retrieve_run(run: Annotated[Run, Depends(get_run)]):
                 utility=e.utility,
                 security=e.security,
             )
-            for e in run.evaluations.values()
+            for e in list(run.evaluations.values())
         ],
     )
 
@@ -81,8 +81,9 @@ def retrieve_run(run: Annotated[Run, Depends(get_run)]):
 @router.post("/{run_id}/evaluations", response_model=CreateEvaluationResponse, status_code=status.HTTP_201_CREATED)
 def create_evaluation(
     req: CreateEvaluationRequest,
+    config: Annotated[AppConfig, Depends(get_config)],
     run: Annotated[Run, Depends(get_run)],
-    suite: Annotated[YAMLTaskSuite, Depends(get_suite)],
+    suite: Annotated[YAMLTaskSuite, Depends(get_run_suite)],
     store: Annotated[Store, Depends(get_store)],
 ):
     if req.user_task_id not in suite.user_tasks:
@@ -105,7 +106,8 @@ def create_evaluation(
         active_injections=req.injections,
         agent_input=prompt,
     )
-    return CreateEvaluationResponse(id=evaluation.id, prompt=prompt)
+    token, expires_at = store.create_session(run.id, evaluation.id, config.session_ttl_seconds)
+    return CreateEvaluationResponse(id=evaluation.id, prompt=prompt, session_token=token, session_expires_at=expires_at)
 
 
 @router.get(
@@ -142,7 +144,7 @@ def complete_evaluation(
 @router.post("/{run_id}/evaluations/{eval_id}/grade", response_model=GradeResponse, status_code=status.HTTP_200_OK)
 def grade_evaluation(
     evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)],
-    suite: Annotated[YAMLTaskSuite, Depends(get_suite)],
+    suite: Annotated[YAMLTaskSuite, Depends(get_run_suite)],
     store: Annotated[Store, Depends(get_store)],
 ):
     if not evaluation.completed:
@@ -178,39 +180,24 @@ def get_environment(evaluation: Annotated[Evaluation, Depends(get_evaluation_by_
     return evaluation.environment.model_dump()
 
 
-def register_environment_update_route(env_type: type) -> None:
-    """Register PUT routes for environment updates using the suite's concrete environment type.
+@router.put("/{run_id}/evaluations/{eval_id}/environment")
+def update_environment(
+    body: dict,
+    evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)],
+    suite: Annotated[YAMLTaskSuite, Depends(get_run_suite)],
+    store: Annotated[Store, Depends(get_store)],
+) -> dict:
+    env = validate_environment(suite, body)
+    updated = _require_eval(store.set_environment(evaluation.run_id, evaluation.id, env), evaluation.id)
+    return updated.environment.model_dump()
 
-    Each suite defines its own Pydantic environment model (e.g. WeatherEnvironment).
-    FastAPI needs the concrete type annotation on the request body to validate and
-    deserialize it, but the router module doesn't know which suite is loaded. So we
-    register these routes at startup once the suite type is known, patching __annotations__
-    on the handler to give FastAPI the right body type.
-    """
 
-    def update_environment(
-        eval_id: str,
-        body,
-        run: Annotated[Run, Depends(get_run)],
-        store: Annotated[Store, Depends(get_store)],
-    ) -> dict:
-        evaluation = _require_eval(store.set_environment(run.id, eval_id, body), eval_id)
-        return evaluation.environment.model_dump()
-
-    update_environment.__annotations__["body"] = env_type
-    router.add_api_route("/{run_id}/evaluations/{eval_id}/environment", update_environment, methods=["PUT"])
-
-    def update_current_environment(
-        body,
-        ids: Annotated[tuple[str, str], Depends(get_current_ids)],
-        store: Annotated[Store, Depends(get_store)],
-    ) -> dict:
-        run_id, eval_id = ids
-        evaluation = _require_current(store.set_environment(run_id, eval_id, body))
-        return evaluation.environment.model_dump()
-
-    update_current_environment.__annotations__["body"] = env_type
-    current_router.add_api_route("/environment", update_current_environment, methods=["PUT"])
+@router.delete("/{run_id}/evaluations/{eval_id}/session", status_code=204)
+def close_session(
+    evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)],
+    store: Annotated[Store, Depends(get_store)],
+) -> None:
+    store.close_session(evaluation.run_id, evaluation.id)
 
 
 # --- Function call endpoints ---
@@ -271,67 +258,4 @@ def record_observations(
     store: Annotated[Store, Depends(get_store)],
 ) -> dict:
     evaluation = _require_eval(store.record_observations(run.id, eval_id, req.source, req.data), eval_id)
-    return evaluation.observations
-
-
-# --- /current mirrors ---
-
-
-@current_router.get("/environment", status_code=status.HTTP_200_OK)
-def get_current_environment(evaluation: Annotated[Evaluation, Depends(get_current_evaluation)]) -> dict:
-    return evaluation.environment.model_dump()
-
-
-@current_router.get(
-    "/function-calls",
-    response_model=list[FunctionCallResponse],
-    status_code=status.HTTP_200_OK,
-)
-def list_current_function_calls(
-    evaluation: Annotated[Evaluation, Depends(get_current_evaluation)],
-) -> list[FunctionCallRecord]:
-    return evaluation.function_calls
-
-
-@current_router.get(
-    "/function-calls/{idx}",
-    response_model=FunctionCallResponse,
-    status_code=status.HTTP_200_OK,
-)
-def get_current_function_call(
-    idx: int, evaluation: Annotated[Evaluation, Depends(get_current_evaluation)]
-) -> FunctionCallRecord:
-    if idx < 0 or idx >= len(evaluation.function_calls):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Function call index out of range: {idx}")
-    return evaluation.function_calls[idx]
-
-
-@current_router.post(
-    "/function-calls",
-    response_model=FunctionCallResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-def record_current_function_call(
-    req: CreateFunctionCallRecord,
-    ids: Annotated[tuple[str, str], Depends(get_current_ids)],
-    store: Annotated[Store, Depends(get_store)],
-) -> FunctionCallRecord:
-    run_id, eval_id = ids
-    evaluation = _require_current(store.append_function_call(run_id, eval_id, req))
-    return evaluation.function_calls[-1]
-
-
-@current_router.get("/observations", status_code=status.HTTP_200_OK)
-def get_current_observations(evaluation: Annotated[Evaluation, Depends(get_current_evaluation)]) -> dict:
-    return evaluation.observations
-
-
-@current_router.post("/observations", status_code=status.HTTP_200_OK)
-def record_current_observations(
-    req: RecordObservationsRequest,
-    ids: Annotated[tuple[str, str], Depends(get_current_ids)],
-    store: Annotated[Store, Depends(get_store)],
-) -> dict:
-    run_id, eval_id = ids
-    evaluation = _require_current(store.record_observations(run_id, eval_id, req.source, req.data))
     return evaluation.observations

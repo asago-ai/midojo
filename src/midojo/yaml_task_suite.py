@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
 from dataclasses import dataclass, field
@@ -87,6 +89,8 @@ class YAMLTaskSuite:
         name: SuiteName,
         suite_yaml_path: Path,
         backend: EnvironmentBackend | None = None,
+        *,
+        version: str | None = None,
     ) -> None:
         self._suite_yaml_path = suite_yaml_path
         raw = yaml.safe_load(suite_yaml_path.read_text())
@@ -108,6 +112,17 @@ class YAMLTaskSuite:
         self.user_tasks: dict[str, UserTask] = {}
         self.injection_tasks: dict[str, InjectionTask] = {}
         self._register_tasks()
+        # Include resolved payloads and the concrete schema, not just the YAML.
+        # Custom Python suites can supply an explicit version for code changes.
+        definition = {
+            "suite": self.definition.model_dump(exclude={"name"}),
+            "probes": {key: task.probes for key, task in self.injection_tasks.items()},
+            "environment_schema": self.environment_type.model_json_schema(),
+        }
+        self.version = (
+            version
+            or "sha256:" + hashlib.sha256(json.dumps(definition, sort_keys=True, default=str).encode()).hexdigest()
+        )
 
     @property
     def environment_type(self) -> type[Environment]:

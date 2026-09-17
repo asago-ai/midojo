@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import importlib
 import json
+import logging
 import os
+import sys
 from collections import Counter
 from pathlib import Path
 from typing import NamedTuple
@@ -68,16 +70,16 @@ def _security(value: bool) -> Text:
     return Text("🛡️ attack failed", style="bold green")
 
 
-async def _fetch_suite_info(control_url: str) -> dict:
+async def _fetch_suite_info(control_url: str, suite_name: str) -> dict:
     async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.get(f"{control_url}/suite")
+        resp = await client.get(f"{control_url}/suites/{suite_name}")
         resp.raise_for_status()
         return resp.json()
 
 
-async def _create_run(control_url: str) -> str:
+async def _create_run(control_url: str, suite_name: str, suite_version: str) -> str:
     async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(f"{control_url}/runs")
+        resp = await client.post(f"{control_url}/runs", json={"suite_name": suite_name, "suite_version": suite_version})
         resp.raise_for_status()
         return resp.json()["id"]
 
@@ -187,8 +189,8 @@ async def _create_evaluation(
     user_task_id: str,
     injection_task_id: str | None,
     injections: dict[str, str],
-) -> tuple[str, str]:
-    """POST /evaluations and return (eval_id, prompt)."""
+) -> tuple[str, str, str]:
+    """Create an evaluation and return its ID, prompt, and private callback token."""
     resp = await client.post(
         f"{control_url}/runs/{run_id}/evaluations",
         json={
@@ -199,7 +201,7 @@ async def _create_evaluation(
     )
     resp.raise_for_status()
     data = resp.json()
-    return data["id"], data["prompt"]
+    return data["id"], data["prompt"], data["session_token"]
 
 
 async def _complete_and_grade(
@@ -240,38 +242,53 @@ async def run_task(
     For dict-backed suites ``backend=None`` and the normal flow applies.
     """
     async with httpx.AsyncClient(timeout=300.0) as client:
-        eval_id, prompt = await _create_evaluation(
+        eval_id, prompt, session_token = await _create_evaluation(
             client, control_url, run_id, user_task_id, injection_task_id, injections
         )
 
-        if backend is not None:
-            # OpenShell provisioning (sandbox create/boot, seeding, teardown) is
-            # slow and blocking; show a live spinner per phase so the run isn't
-            # silent while it works. Label each with the task pair being run.
-            pair = f"{user_task_id} x {injection_task_id}" if injection_task_id else user_task_id
-            pre_env = backend.provision(injections)  # type: ignore[union-attr]
-            with console.status(f"[dim]{pair} · creating sandbox (image pull + boot)…[/dim]", spinner="dots"):
-                await asyncio.to_thread(backend.setup, pre_env)  # type: ignore[union-attr]
-            try:
-                with console.status(f"[dim]{pair} · running agent in sandbox…[/dim]", spinner="dots"):
-                    agent_output = await agent_client.send_task(prompt)
-                with console.status(f"[dim]{pair} · collecting sandbox observations…[/dim]", spinner="dots"):
-                    post_env = await asyncio.to_thread(backend.snapshot)  # type: ignore[union-attr]
-                env_resp = await client.put(
-                    f"{control_url}/runs/{run_id}/evaluations/{eval_id}/environment",
-                    json=post_env.model_dump(),  # type: ignore[union-attr]
-                )
-                env_resp.raise_for_status()
-            finally:
-                with console.status(f"[dim]{pair} · tearing down sandbox…[/dim]", spinner="dots"):
-                    await asyncio.to_thread(backend.teardown)  # type: ignore[union-attr]
-        else:
-            agent_output = await agent_client.send_task(prompt)
+        try:
+            if backend is not None:
+                pair = f"{user_task_id} x {injection_task_id}" if injection_task_id else user_task_id
+                try:
+                    pre_env = backend.provision(injections)
+                    with console.status(f"[dim]{pair} · creating sandbox…[/dim]", spinner="dots"):
+                        await asyncio.to_thread(
+                            backend.setup,  # type: ignore[attr-defined]
+                            pre_env,
+                            session_token=session_token,
+                            eval_id=eval_id,
+                            user_task_id=user_task_id,
+                            injection_task_id=injection_task_id,
+                        )
+                    with console.status(f"[dim]{pair} · running agent in sandbox…[/dim]", spinner="dots"):
+                        agent_output = await agent_client.send_task(prompt, session_token=session_token)
+                    with console.status(f"[dim]{pair} · collecting sandbox observations…[/dim]", spinner="dots"):
+                        post_env = await asyncio.to_thread(backend.snapshot)  # type: ignore[attr-defined]
+                    env_resp = await client.put(
+                        f"{control_url}/runs/{run_id}/evaluations/{eval_id}/environment",
+                        json=post_env.model_dump(),
+                    )
+                    env_resp.raise_for_status()
+                finally:
+                    with console.status(f"[dim]{pair} · tearing down sandbox…[/dim]", spinner="dots"):
+                        await asyncio.to_thread(backend.teardown)  # type: ignore[attr-defined]
+            else:
+                agent_output = await agent_client.send_task(prompt, session_token=session_token)
 
-        result = await _complete_and_grade(client, control_url, run_id, eval_id, agent_output)
-        result["prompt"] = prompt
-        result["agent_output"] = agent_output
-        return result
+            result = await _complete_and_grade(client, control_url, run_id, eval_id, agent_output)
+            result["prompt"] = prompt
+            result["agent_output"] = agent_output
+            return result
+        finally:
+            # Completion also revokes the session. This covers agent/setup failures.
+            failed = sys.exception() is not None
+            try:
+                response = await client.delete(f"{control_url}/runs/{run_id}/evaluations/{eval_id}/session")
+                response.raise_for_status()
+            except httpx.HTTPError:
+                if not failed:
+                    raise
+                logging.getLogger(__name__).warning("Could not revoke failed evaluation %s's session", eval_id)
 
 
 async def run_benchmark(
@@ -296,23 +313,11 @@ async def run_benchmark(
         # -ut without -it: utility-only run
         injection_tasks_to_run = []
 
-    suite_info = await _fetch_suite_info(control_url)
+    suite_info = await _fetch_suite_info(control_url, suite_name)
     _print_banner(suite_name, suite_info, agent_uri, protocol, user_tasks_to_run, injection_tasks_to_run)
 
-    run_id = await _create_run(control_url)
+    run_id = await _create_run(control_url, suite_name, suite.version)
     console.print(f"  [dim]run[/dim] [cyan underline]{run_id}[/cyan underline]\n")
-
-    # openshell provisions one workspace per run (named after run_id) around the
-    # eval loop; the sandbox itself is created/torn down per evaluation.
-    if lifecycle_backend is not None:
-        workspace_name = f"midojo-run-{run_id}"  # mirrors OpenShellBackend.start_run
-        with console.status(
-            f"[dim]opening workspace [cyan]{workspace_name}[/cyan] on the gateway…[/dim]", spinner="dots"
-        ):
-            await asyncio.to_thread(lifecycle_backend.start_run, run_id)  # type: ignore[attr-defined]
-        console.print(
-            f"  [magenta]openshell[/magenta] [dim]workspace[/dim] [cyan]{workspace_name}[/cyan] [green]ready[/green]\n"
-        )
 
     utility_results: dict[TaskPair, bool] = {}
     security_results: dict[TaskPair, bool] = {}
@@ -320,6 +325,16 @@ async def run_benchmark(
 
     it_ids_to_run: list[str | None] = [*injection_tasks_to_run] if injection_tasks_to_run else [None]
     try:
+        # openshell provisions one workspace per run (named after run_id) around the
+        # eval loop; the sandbox itself is created/torn down per evaluation.
+        if lifecycle_backend is not None:
+            with console.status("[dim]opening workspace on the gateway…[/dim]", spinner="dots"):
+                await asyncio.to_thread(lifecycle_backend.start_run, run_id, suite_name=suite_name)  # type: ignore[attr-defined]
+            workspace_name = lifecycle_backend.workspace_name  # type: ignore[attr-defined]
+            console.print(
+                f"  [magenta]openshell[/magenta] [dim]workspace[/dim] [cyan]{workspace_name}[/cyan] [green]ready[/green]\n"
+            )
+
         for ut_id in user_tasks_to_run:
             for it_id in it_ids_to_run:
                 injections = suite.get_probes_for_task(it_id) if it_id else {}
@@ -372,6 +387,9 @@ async def run_benchmark(
     with open(results_file, "w") as f:
         json.dump(
             {
+                "run_id": run_id,
+                "suite_name": suite_name,
+                "suite_version": suite.version,
                 "utility": {f"{k.user_task_id},{k.injection_task_id}": v for k, v in utility_results.items()},
                 "security": all_security,
                 "security_reason": all_security_reason,

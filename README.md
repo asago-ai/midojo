@@ -42,18 +42,18 @@ A few concepts first:
 
 The system has three moving parts:
 
-1. **The control plane** (`midojo-serve`) — a REST API that holds the environment for the current evaluation. When a run starts, the orchestrator creates an evaluation and the control plane loads the environment from `suite.yaml` with injection payloads spliced into the appropriate fields. The fake tools (MCP server, PI extension, etc.) read from and write to this environment via HTTP, so every tool call the agent makes is recorded and every mutation is captured.
+1. **The control plane** (`midojo-serve`) — a shared REST API that handles bookkeeping for red teaming sessions.
 
 2. **The orchestrator** (`midojo-run`) — a CLI that drives the benchmark. It creates a run, iterates over the task matrix (user task x injection task x attack), sends each prompt to the agent, and when the agent finishes, asks the control plane to grade the result by comparing the environment before and after execution.
 
-3. **The fake tools** — the interception layer you author for the agent you're testing. These sit between the agent and its real tools, forwarding calls upstream for authentic data and splicing in injection payloads from the control plane environment.
+3. **Interception layer** — SDKs for framework-specific interception and services, such as MCP servers, for framework-agnostic interception.
 
 ## Environment backends
 
 What the agent operates on is pluggable. A suite picks its backend in `suite.yaml` (`environment.backend`); the engine provisions it and grades against the resulting pre/post state plus any runtime observations.
 
 - **`dict`** (default) — an in-memory state model declared inline; fake tools read/write it via the control plane.
-- **`openshell`** — a sandboxed [OpenShell](https://github.com/NVIDIA/OpenShell) container where the agent runs inside: the workspace diff is the pre/post environment, and the kernel's OCSF events feed verifiers. *(Scaffold — see `openshell_backend.py`.)*
+- **`openshell`** — a sandboxed [OpenShell](https://github.com/NVIDIA/OpenShell) container where the agent runs inside: the workspace diff is the pre/post environment, and the kernel's OCSF events feed verifiers.
 
 `backend` is a bare name (`backend: dict`) or an object carrying infra config (`backend: {type: openshell, image: pi}`); the declared `state` is a sibling key either way.
 
@@ -107,7 +107,7 @@ Start three processes — the real weather MCP server, the control plane, and th
 
 ```bash
 weather-real-mcp-serve --port 8081
-midojo-serve --suite weather --host 127.0.0.1 --port 8080
+midojo-serve --load-suite weather --host 127.0.0.1 --port 8080
 weather-fake-mcp-serve --port 8082 --upstream-url http://localhost:8081/mcp
 ```
 
@@ -115,7 +115,7 @@ Run the benchmark against your A2A agent:
 
 ```bash
 midojo-run \
-    --agent-url http://my-agent:8000 \
+    --agent-uri http://my-agent:8000 \
     --protocol a2a \
     --suite weather
 ```
@@ -148,14 +148,14 @@ PI agents run as local subprocesses (the orchestrator spawns `pi` per task), so 
 Start the control plane:
 
 ```bash
-midojo-serve --suite weather --host 127.0.0.1 --port 8080
+midojo-serve --load-suite weather --host 127.0.0.1 --port 8080
 ```
 
 Run the benchmark (PI agents use a directory path, not a URL):
 
 ```bash
 uv run --env-file .env midojo-run \
-    --agent-url suites/weather/pi_agent \
+    --agent-uri suites/weather/pi_agent \
     --protocol pi \
     --suite weather
 ```
@@ -166,7 +166,7 @@ Start three processes — the real MCP server, the control plane, and the fake M
 
 ```bash
 weather-real-mcp-serve --port 8081
-midojo-serve --suite weather --host 127.0.0.1 --port 8080
+midojo-serve --load-suite weather --host 127.0.0.1 --port 8080
 weather-fake-mcp-serve --port 8082 --upstream-url http://localhost:8081/mcp
 ```
 
@@ -180,7 +180,7 @@ Run the benchmark:
 
 ```bash
 midojo-run \
-    --agent-url http://localhost:8321 \
+    --agent-uri http://localhost:8321 \
     --protocol ogx \
     --suite weather
 ```
@@ -235,7 +235,22 @@ Start by defining the benchmark — the environment, tasks, and grading logic:
 1. Create a new package under `suites/your_suite/` with an `__init__.py` that exports `SYSTEM_MESSAGE` (the agent's system prompt)
 2. Create `suite.yaml` in the package directory — defines environment, injection vectors, user tasks (with declarative utility predicates), and injection tasks (with declarative security predicates)
 
-The framework auto-loads `suite.yaml` and infers the environment type from the YAML structure — no `task_suite.py` needed. For out-of-tree suites or custom setup, use `--suite your.module.path`; the module must expose a `task_suite` attribute.
+Bundled suites load directly from `suite.yaml`; no Python code is needed to construct the suite. The framework infers the environment type from the YAML state. For out-of-tree suites, register the installed package with `midojo-serve --load-suite your.module.path`, then select it with `midojo-run --suite your.module.path`. The module must expose `task_suite`.
+
+Suite names start with an ASCII letter or digit and contain only letters, digits,
+underscores, hyphens, and dots (for example, `document_assistant` or
+`my_package.my_suite`). The loader validates the supplied name together with the
+YAML using the Pydantic `SuiteDefinition` model before constructing the backend.
+Existing YAML files do not need a `name` field; if present, it must match the
+name passed to `YAMLTaskSuite`.
+
+Definition validation reports the file and field location for missing or wrongly
+typed fields, duplicate IDs within each task list, and invalid probe definitions.
+A probe must have exactly one non-null `payload` or `source`; source indices must
+be non-negative integers. Unknown fields at the suite, task, and probe levels are
+rejected. Backend options and additional environment fields remain extensible,
+and backend/verifier implementations still validate their own configuration.
+`${env.VAR}` expansion remains limited to backend configuration.
 
 Suite names start with an ASCII letter or digit and contain only letters, digits,
 underscores, hyphens, and dots (for example, `document_assistant` or

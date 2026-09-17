@@ -9,7 +9,7 @@ from midojo.yaml_task_suite import YAMLTaskSuite
 from ..dependencies import get_suite
 from ..models import TaskDetailResponse
 
-router = APIRouter(prefix="/tasks")
+router = APIRouter(prefix="/suites/{suite_name}/tasks")
 
 
 @router.get("/user", status_code=status.HTTP_200_OK)

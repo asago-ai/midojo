@@ -1,25 +1,14 @@
-"""Process-local application state.
-
-Run/evaluation state lives behind the :class:`~midojo.app.store.Store` seam
-(see ``store.py``); this module holds only the process-global handles wired up
-at startup — the loaded ``suite`` and the active ``store``. The default store is
-in-memory (lost on restart); a db-backed store may replace it later.
-"""
+"""Run and evaluation records. Application handles live on FastAPI app.state."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from midojo.types import Environment, FunctionCallRecord
-from midojo.yaml_task_suite import YAMLTaskSuite
-
-if TYPE_CHECKING:
-    from .store import Store
-
+from midojo.types import Environment, FunctionCallRecord, SuiteName
 
 # --- State models ---
 
@@ -52,15 +41,7 @@ class Run(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     id: str
+    suite_name: SuiteName
+    suite_version: str
     evaluations: dict[str, Evaluation] = {}
     created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
-
-
-# --- Module-level state ---
-#
-# Set by create_app() at startup. `store` is the seam through which all
-# run/evaluation state is accessed; routers reach it via the get_store
-# dependency rather than touching this module directly.
-
-suite: YAMLTaskSuite = None  # type: ignore[assignment]
-store: Store = None  # type: ignore[assignment]
