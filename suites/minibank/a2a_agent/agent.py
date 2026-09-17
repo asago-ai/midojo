@@ -41,6 +41,7 @@ from mcp.client.streamable_http import streamablehttp_client
 from openai import OpenAI
 from starlette.applications import Starlette
 
+from midojo.session import MidojoSessionMiddleware, session_headers
 from suites.minibank import SYSTEM_MESSAGE
 
 
@@ -63,7 +64,7 @@ def mcp_tools_to_openai(mcp_tools: list) -> list[dict]:
 
 async def run_agent_loop(prompt: str, llm: OpenAI, model: str, mcp_server_url: str) -> str:
     """Connect to MCP, discover tools, run tool-use loop with LLM."""
-    async with streamablehttp_client(mcp_server_url) as (read_stream, write_stream, _):
+    async with streamablehttp_client(mcp_server_url, headers=session_headers()) as (read_stream, write_stream, _):
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
 
@@ -197,6 +198,7 @@ def main(
     routes.extend(create_jsonrpc_routes(request_handler, "/"))
 
     app = Starlette(routes=routes)
+    app.add_middleware(MidojoSessionMiddleware)
 
     print(f"Starting A2A MiniBank agent on port {port}")
     print(f"MCP server: {mcp_server_url}")
