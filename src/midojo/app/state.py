@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from midojo.types import Environment, FunctionCallRecord, SuiteName
+from midojo.types import Environment, FunctionCallRecord, InjectionInstruction, SuiteName
 
 # --- State models ---
 
@@ -32,6 +32,9 @@ class Evaluation:
     completed: bool = False
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     active_injections: dict[str, str] = field(default_factory=dict)
+    # Channel-typed instructions for the interception adapters. Derived from
+    # the suite at creation; replaceable via PUT for attacker-driven runs.
+    injection_plan: list[InjectionInstruction] = field(default_factory=list)
     utility: bool | None = None
     security: bool | None = None
     security_reason: str | None = None

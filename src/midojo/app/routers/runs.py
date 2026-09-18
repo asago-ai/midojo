@@ -5,7 +5,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from midojo.types import FunctionCallRecord, SuiteName
+from midojo.channels import Channel
+from midojo.types import FunctionCallRecord, InjectionInstruction, SuiteName
 from midojo.yaml_task_suite import YAMLTaskSuite
 
 from ..config import AppConfig
@@ -32,6 +33,7 @@ from ..models import (
     GradeResponse,
     RecordObservationsRequest,
     RunResponse,
+    SetInjectionPlanRequest,
 )
 from ..state import Evaluation, Run
 from ..store import Store
@@ -105,6 +107,12 @@ async def create_evaluation(
         active_injections=req.injections,
         agent_input=prompt,
     )
+
+    if req.injection_task_id:
+        _, plan = suite.build_injection_inputs(req.injection_task_id)
+        if plan:
+            store.set_injection_plan(run.id, evaluation.id, plan)
+
     token, expires_at = store.create_session(run.id, evaluation.id, config.session_ttl_seconds)
     return CreateEvaluationResponse(id=evaluation.id, prompt=prompt, session_token=token, session_expires_at=expires_at)
 
@@ -262,3 +270,47 @@ async def record_observations(
 ) -> dict:
     evaluation = _require_eval(store.record_observations(run.id, eval_id, req.source, req.data), eval_id)
     return evaluation.observations
+
+
+# --- Injection plan endpoints ---
+#
+# The channel-typed instructions an interception adapter executes. Derived from
+# the suite when the evaluation is created; the adapter reads its own channel's
+# instructions via GET /agent/injection-plan. PUT replaces the plan wholesale,
+# addressed by evaluation id -- the seam an attacker-driven run uses to supply
+# payloads the suite never declared.
+
+
+def _filter_plan(plan: list[InjectionInstruction], channel: Channel | None) -> list[InjectionInstruction]:
+    """The plan, narrowed to one channel when asked -- what an adapter fetches."""
+    if channel is None:
+        return plan
+    return [instruction for instruction in plan if instruction.channel == channel]
+
+
+@router.get(
+    "/{run_id}/evaluations/{eval_id}/injection-plan",
+    response_model=list[InjectionInstruction],
+    status_code=status.HTTP_200_OK,
+)
+def get_injection_plan(
+    evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)],
+    channel: Channel | None = None,
+) -> list[InjectionInstruction]:
+    return _filter_plan(evaluation.injection_plan, channel)
+
+
+@router.put(
+    "/{run_id}/evaluations/{eval_id}/injection-plan",
+    response_model=list[InjectionInstruction],
+    status_code=status.HTTP_200_OK,
+)
+def set_injection_plan(
+    eval_id: str,
+    req: SetInjectionPlanRequest,
+    run: Annotated[Run, Depends(get_run)],
+    store: Annotated[Store, Depends(get_store)],
+) -> list[InjectionInstruction]:
+    evaluation = _require_eval(store.set_injection_plan(run.id, eval_id, req.instructions), eval_id)
+    return evaluation.injection_plan
+

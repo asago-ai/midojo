@@ -34,7 +34,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
-from midojo.types import Environment, FunctionCallRecord, SuiteName
+from midojo.types import Environment, FunctionCallRecord, InjectionInstruction, SuiteName
 
 from .models import CreateFunctionCallRecord
 from .state import Evaluation, Run
@@ -78,6 +78,7 @@ class Store(Protocol):
         self, run_id: str, eval_id: str, *, utility: bool, security: bool, security_reason: str | None = None
     ) -> Evaluation | None: ...
     def complete_evaluation(self, run_id: str, eval_id: str, agent_output: str) -> Evaluation | None: ...
+    def set_injection_plan(self, run_id: str, eval_id: str, plan: list[InjectionInstruction]) -> Evaluation | None: ...
 
 
 class InvalidSessionError(ValueError):
@@ -240,4 +241,11 @@ class InMemoryStore:
         self._remove_sessions(run_id, eval_id)
         evaluation.agent_output = agent_output
         evaluation.completed = True
+        return evaluation
+
+    def set_injection_plan(self, run_id: str, eval_id: str, plan: list[InjectionInstruction]) -> Evaluation | None:
+        evaluation = self.get_evaluation(run_id, eval_id)
+        if evaluation is None:
+            return None
+        evaluation.injection_plan = plan
         return evaluation
