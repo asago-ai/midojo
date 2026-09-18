@@ -15,6 +15,14 @@ is delivered by substitution *or* by an adapter, never both.
 The set is closed for now. Adding a member is not a breaking change; a
 registry, mirroring :mod:`midojo.verifiers`, is the likely endgame once
 out-of-tree suites need channels the engine does not ship.
+
+Names come from the prototype in #113, which explored the whole surface
+before this contract existed. The rest of its vocabulary is reserved for
+the channels that ship with their adapters: ``user_prompt`` (a payload
+placed at a chosen turn, once conversations exist), ``environment_state``
+(an explicit spelling of what substitution does implicitly today),
+``memory`` and ``inter_agent``. Each lands with the adapter that delivers
+it, rather than being declared ahead of its semantics.
 """
 
 from __future__ import annotations
@@ -25,7 +33,7 @@ import enum
 class Channel(str, enum.Enum):
     """Where an injection payload enters the agent."""
 
-    TOOL_RESULT = "tool_result"
+    TOOL_OUTPUT = "tool_output"
     TOOL_DESCRIPTION = "tool_description"
 
 
@@ -44,7 +52,7 @@ class InjectionMode(str, enum.Enum):
 
 
 def parse_channel(value: str | Channel) -> Channel:
-    """Coerce a channel name (e.g. ``"tool_result"``) to a :class:`Channel`."""
+    """Coerce a channel name (e.g. ``"tool_output"``) to a :class:`Channel`."""
     if isinstance(value, Channel):
         return value
     try:
