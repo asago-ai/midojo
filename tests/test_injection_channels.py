@@ -54,17 +54,17 @@ class TestPartition:
         assert plan == []
 
     def test_probe_with_channel_goes_to_plan_only(self, tmp_path):
-        suite = _suite(tmp_path, "      via_env: {payload: 'PAYLOAD', channel: tool_result}\n")
+        suite = _suite(tmp_path, "      via_env: {payload: 'PAYLOAD', channel: tool_output}\n")
         injections, plan = suite.build_injection_inputs("exfil")
         assert injections == {}
         assert len(plan) == 1
-        assert plan[0].channel is Channel.TOOL_RESULT
+        assert plan[0].channel is Channel.TOOL_OUTPUT
         assert plan[0].payload == "PAYLOAD"
         assert plan[0].probe_key == "exfil:via_env"
 
     def test_channelled_probe_leaves_its_placeholder_empty(self, tmp_path):
         """The env placeholder must collapse, or the payload is delivered twice."""
-        suite = _suite(tmp_path, "      via_env: {payload: 'PAYLOAD', channel: tool_result}\n")
+        suite = _suite(tmp_path, "      via_env: {payload: 'PAYLOAD', channel: tool_output}\n")
         injections, _ = suite.build_injection_inputs("exfil")
         assert suite.provision_environment(injections).model_dump()["notes"] == ""
 
@@ -72,27 +72,27 @@ class TestPartition:
         suite = _suite(
             tmp_path,
             "      via_env: {payload: 'ENVPAY'}\n"
-            "      via_tool: {payload: 'TOOLPAY', channel: tool_result}\n"
+            "      via_tool: {payload: 'TOOLPAY', channel: tool_output}\n"
             "      via_desc: {payload: 'DESCPAY', channel: tool_description}\n",
         )
         injections, plan = suite.build_injection_inputs("exfil")
         assert injections == {"exfil:via_env": "ENVPAY"}
         assert {i.probe_key: i.channel for i in plan} == {
-            "exfil:via_tool": Channel.TOOL_RESULT,
+            "exfil:via_tool": Channel.TOOL_OUTPUT,
             "exfil:via_desc": Channel.TOOL_DESCRIPTION,
         }
 
     def test_get_probes_for_task_returns_the_substitution_half(self, tmp_path):
         suite = _suite(
             tmp_path,
-            "      via_env: {payload: 'ENVPAY'}\n      via_tool: {payload: 'TOOLPAY', channel: tool_result}\n",
+            "      via_env: {payload: 'ENVPAY'}\n      via_tool: {payload: 'TOOLPAY', channel: tool_output}\n",
         )
         assert suite.get_probes_for_task("exfil") == {"exfil:via_env": "ENVPAY"}
 
     def test_attack_type_wraps_channelled_payloads_too(self, tmp_path):
         suite = _suite(
             tmp_path,
-            "      via_env: {payload: 'do it', channel: tool_result, attack_type: important_instructions}\n",
+            "      via_env: {payload: 'do it', channel: tool_output, attack_type: important_instructions}\n",
         )
         _, plan = suite.build_injection_inputs("exfil")
         assert "do it" in plan[0].payload
@@ -105,7 +105,7 @@ class TestTargetingAndMode:
             tmp_path,
             "      via_env:\n"
             "        payload: 'PAYLOAD'\n"
-            "        channel: tool_result\n"
+            "        channel: tool_output\n"
             "        target: {tool: get_weather, field: notes}\n"
             "        mode: embed\n",
         )
@@ -115,7 +115,7 @@ class TestTargetingAndMode:
         assert plan[0].mode is InjectionMode.EMBED
 
     def test_defaults_are_unconstrained_target_and_append(self, tmp_path):
-        suite = _suite(tmp_path, "      via_env: {payload: 'PAYLOAD', channel: tool_result}\n")
+        suite = _suite(tmp_path, "      via_env: {payload: 'PAYLOAD', channel: tool_output}\n")
         _, plan = suite.build_injection_inputs("exfil")
         assert plan[0].target.tool is None
         assert plan[0].target.field is None
@@ -129,7 +129,7 @@ class TestLoadTimeValidation:
 
     def test_unknown_mode_names_the_probe(self, tmp_path):
         with pytest.raises(ValueError, match="exfil:via_env.*Unknown injection mode 'osmosis'"):
-            _suite(tmp_path, "      via_env: {payload: 'p', channel: tool_result, mode: osmosis}\n")
+            _suite(tmp_path, "      via_env: {payload: 'p', channel: tool_output, mode: osmosis}\n")
 
     def test_unknown_mode_rejected_even_without_a_channel(self, tmp_path):
         """A deliberate `mode:` is never silently ignored."""
@@ -138,7 +138,7 @@ class TestLoadTimeValidation:
 
     def test_misspelled_target_key_rejected(self, tmp_path):
         with pytest.raises(ValueError, match="Invalid suite definition"):
-            _suite(tmp_path, "      via_env: {payload: 'p', channel: tool_result, target: {tol: x}}\n")
+            _suite(tmp_path, "      via_env: {payload: 'p', channel: tool_output, target: {tol: x}}\n")
 
     def test_unknown_channel_is_a_load_time_failure(self, tmp_path):
         """Suites fail when the control plane starts, not on the first eval."""
@@ -156,7 +156,7 @@ def channel_suite(tmp_path) -> YAMLTaskSuite:
     return _suite(
         tmp_path,
         "      via_env: {payload: 'ENVPAY'}\n"
-        "      via_tool: {payload: 'TOOLPAY', channel: tool_result, target: {tool: get_weather}}\n"
+        "      via_tool: {payload: 'TOOLPAY', channel: tool_output, target: {tool: get_weather}}\n"
         "      via_desc: {payload: 'DESCPAY', channel: tool_description}\n",
     )
 
@@ -199,7 +199,7 @@ class TestPlanAPI:
 
     def test_channel_filter(self, channel_client):
         _eval(channel_client, injection_task_id="exfil")
-        plan = channel_client.get("/current/injection-plan", params={"channel": "tool_result"}).json()
+        plan = channel_client.get("/current/injection-plan", params={"channel": "tool_output"}).json()
         assert [i["probe_key"] for i in plan] == ["exfil:via_tool"]
 
     def test_unknown_channel_filter_rejected(self, channel_client):
@@ -210,7 +210,7 @@ class TestPlanAPI:
         run_id, eval_id = _eval(channel_client, injection_task_id="exfil")
         body = {
             "instructions": [
-                {"channel": "tool_result", "probe_key": "attacker:v2", "payload": "REFINED", "mode": "replace"}
+                {"channel": "tool_output", "probe_key": "attacker:v2", "payload": "REFINED", "mode": "replace"}
             ]
         }
         resp = channel_client.put(f"/runs/{run_id}/evaluations/{eval_id}/injection-plan", json=body)
@@ -220,7 +220,7 @@ class TestPlanAPI:
 
     def test_put_via_current(self, channel_client):
         _eval(channel_client, injection_task_id="exfil")
-        body = {"instructions": [{"channel": "tool_result", "probe_key": "a:b", "payload": "X"}]}
+        body = {"instructions": [{"channel": "tool_output", "probe_key": "a:b", "payload": "X"}]}
         assert channel_client.put("/current/injection-plan", json=body).status_code == 200
         assert channel_client.get("/current/injection-plan").json()[0]["payload"] == "X"
 
@@ -238,7 +238,7 @@ class TestPlanAPI:
         run_id, first = _eval(channel_client, injection_task_id="exfil")
         channel_client.put(
             "/current/injection-plan",
-            json={"instructions": [{"channel": "tool_result", "probe_key": "a:b", "payload": "FIRST"}]},
+            json={"instructions": [{"channel": "tool_output", "probe_key": "a:b", "payload": "FIRST"}]},
         )
         second = channel_client.post(f"/runs/{run_id}/evaluations", json={"user_task_id": "read_notes"}).json()["id"]
 
@@ -272,5 +272,5 @@ class TestInstructionModel:
 
         with pytest.raises(ValidationError):
             InjectionInstruction.model_validate(
-                {"channel": "tool_result", "probe_key": "a:b", "payload": "p", "bogus": 1}
+                {"channel": "tool_output", "probe_key": "a:b", "payload": "p", "bogus": 1}
             )
