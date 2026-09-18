@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from midojo.types import Environment, FunctionCallRecord
+from midojo.types import Environment, FunctionCallRecord, InjectionInstruction
 from midojo.yaml_task_suite import YAMLTaskSuite
 
 if TYPE_CHECKING:
@@ -43,6 +43,9 @@ class Evaluation:
     completed: bool = False
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     active_injections: dict[str, str] = field(default_factory=dict)
+    # Channel-typed instructions for the interception adapters. Derived from
+    # the suite at creation; replaceable via PUT for attacker-driven runs.
+    injection_plan: list[InjectionInstruction] = field(default_factory=list)
     utility: bool | None = None
     security: bool | None = None
     security_reason: str | None = None

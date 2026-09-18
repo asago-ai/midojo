@@ -4,7 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from midojo.types import Environment
+from midojo.types import Environment, InjectionInstruction
 
 # --- Run / Evaluation request/response models ---
 
@@ -59,6 +59,12 @@ class RecordObservationsRequest(BaseModel):
 
     source: str
     data: Any
+
+
+class SetInjectionPlanRequest(BaseModel):
+    """Replace an evaluation's injection plan wholesale."""
+
+    instructions: list[InjectionInstruction]
 
 
 class GradeResponse(BaseModel):
