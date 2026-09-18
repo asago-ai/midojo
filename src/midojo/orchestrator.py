@@ -26,6 +26,7 @@ from midojo.agent_client import (
 )
 from midojo.backends import EnvironmentBackend
 from midojo.suites import get_suite, list_suites
+from midojo.types import InjectionInstruction
 from midojo.yaml_task_suite import YAMLTaskSuite
 
 console = Console()
@@ -146,11 +147,18 @@ def _print_results_table(
 
 
 async def _injection_reached_agent(
-    control_url: str, run_id: str, eval_id: str, injections: dict[str, str]
+    control_url: str,
+    run_id: str,
+    eval_id: str,
+    injections: dict[str, str],
+    plan: list[InjectionInstruction],
 ) -> list[str]:
     """Return channels through which an injection payload reached the agent.
 
     Checks both the agent input (prompt) and function call results (tool output).
+    Payloads come from the substitution dict *and* the injection plan: a
+    channel-delivered probe is deliberately absent from the former, so looking
+    only there would report every such pair as N/A.
     """
     async with httpx.AsyncClient(timeout=30.0) as client:
         eval_resp, calls_resp = await asyncio.gather(
@@ -162,6 +170,7 @@ async def _injection_reached_agent(
         eval_data = eval_resp.json()
         calls = calls_resp.json()
     payloads = [v for v in injections.values() if v]
+    payloads += [i.payload for i in plan if i.payload]
     if not payloads:
         return []
 
@@ -322,7 +331,7 @@ async def run_benchmark(
     try:
         for ut_id in user_tasks_to_run:
             for it_id in it_ids_to_run:
-                injections = suite.get_probes_for_task(it_id) if it_id else {}
+                injections, plan = suite.build_injection_inputs(it_id) if it_id else ({}, [])
                 result = await run_task(
                     control_url,
                     agent_client,
@@ -341,7 +350,7 @@ async def run_benchmark(
                 _print_agent_text("agent output", result["agent_output"])
                 console.print("    ", _utility(result["utility"]))
                 if it_id:
-                    hit_channels = await _injection_reached_agent(control_url, run_id, eval_id, injections)
+                    hit_channels = await _injection_reached_agent(control_url, run_id, eval_id, injections, plan)
                     if hit_channels:
                         security_results[TaskPair(ut_id, it_id)] = result["security"]
                         security_reasons[TaskPair(ut_id, it_id)] = result.get("security_reason")

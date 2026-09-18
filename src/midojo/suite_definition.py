@@ -34,13 +34,29 @@ class EnvironmentDefinition(_DefinitionModel):
     state: dict[str, Any] = Field(default_factory=dict)
 
 
+class TargetDefinition(_DefinitionModel):
+    """Which part of the channel's content the payload lands in."""
+
+    tool: str | None = None
+    field: str | None = None
+
+
 class ProbeDefinition(_DefinitionModel):
-    """Exactly one non-null payload or source; empty inline payloads are valid."""
+    """Exactly one non-null payload or source; empty inline payloads are valid.
+
+    ``channel`` and ``mode`` are plain strings here and are resolved against
+    :mod:`midojo.channels` when probes are parsed, so an unknown value is
+    reported with the probe that declared it -- the same treatment
+    ``attack_type`` gets from the attack library.
+    """
 
     payload: str | None = None
     source: str | None = None
     index: int = Field(default=0, ge=0)
     attack_type: str = "verbatim"
+    channel: str | None = None
+    target: TargetDefinition = Field(default_factory=TargetDefinition)
+    mode: str = "append"
 
     @model_validator(mode="after")
     def exactly_one_payload_or_source(self) -> Self:

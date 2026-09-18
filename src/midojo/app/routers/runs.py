@@ -4,7 +4,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from midojo.types import FunctionCallRecord
+from midojo.channels import Channel
+from midojo.types import FunctionCallRecord, InjectionInstruction
 from midojo.yaml_task_suite import YAMLTaskSuite
 
 from ..dependencies import (
@@ -27,6 +28,7 @@ from ..models import (
     GradeResponse,
     RecordObservationsRequest,
     RunResponse,
+    SetInjectionPlanRequest,
 )
 from ..state import Evaluation, Run
 from ..store import Store
@@ -105,6 +107,12 @@ def create_evaluation(
         active_injections=req.injections,
         agent_input=prompt,
     )
+
+    if req.injection_task_id:
+        _, plan = suite.build_injection_inputs(req.injection_task_id)
+        if plan:
+            store.set_injection_plan(run.id, evaluation.id, plan)
+
     return CreateEvaluationResponse(id=evaluation.id, prompt=prompt)
 
 
@@ -274,6 +282,48 @@ def record_observations(
     return evaluation.observations
 
 
+# --- Injection plan endpoints ---
+#
+# The channel-typed instructions an interception adapter executes. Derived from
+# the suite when the evaluation is created, so the orchestrator sends nothing
+# extra; PUT replaces the derived plan wholesale, which is how an attacker-driven
+# run supplies payloads the suite never declared.
+
+
+def _filter_plan(plan: list[InjectionInstruction], channel: Channel | None) -> list[InjectionInstruction]:
+    """The plan, narrowed to one channel when asked -- what an adapter fetches."""
+    if channel is None:
+        return plan
+    return [instruction for instruction in plan if instruction.channel == channel]
+
+
+@router.get(
+    "/{run_id}/evaluations/{eval_id}/injection-plan",
+    response_model=list[InjectionInstruction],
+    status_code=status.HTTP_200_OK,
+)
+def get_injection_plan(
+    evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)],
+    channel: Channel | None = None,
+) -> list[InjectionInstruction]:
+    return _filter_plan(evaluation.injection_plan, channel)
+
+
+@router.put(
+    "/{run_id}/evaluations/{eval_id}/injection-plan",
+    response_model=list[InjectionInstruction],
+    status_code=status.HTTP_200_OK,
+)
+def set_injection_plan(
+    eval_id: str,
+    req: SetInjectionPlanRequest,
+    run: Annotated[Run, Depends(get_run)],
+    store: Annotated[Store, Depends(get_store)],
+) -> list[InjectionInstruction]:
+    evaluation = _require_eval(store.set_injection_plan(run.id, eval_id, req.instructions), eval_id)
+    return evaluation.injection_plan
+
+
 # --- /current mirrors ---
 
 
@@ -335,3 +385,30 @@ def record_current_observations(
     run_id, eval_id = ids
     evaluation = _require_current(store.record_observations(run_id, eval_id, req.source, req.data))
     return evaluation.observations
+
+
+@current_router.get(
+    "/injection-plan",
+    response_model=list[InjectionInstruction],
+    status_code=status.HTTP_200_OK,
+)
+def get_current_injection_plan(
+    evaluation: Annotated[Evaluation, Depends(get_current_evaluation)],
+    channel: Channel | None = None,
+) -> list[InjectionInstruction]:
+    return _filter_plan(evaluation.injection_plan, channel)
+
+
+@current_router.put(
+    "/injection-plan",
+    response_model=list[InjectionInstruction],
+    status_code=status.HTTP_200_OK,
+)
+def set_current_injection_plan(
+    req: SetInjectionPlanRequest,
+    ids: Annotated[tuple[str, str], Depends(get_current_ids)],
+    store: Annotated[Store, Depends(get_store)],
+) -> list[InjectionInstruction]:
+    run_id, eval_id = ids
+    evaluation = _require_current(store.set_injection_plan(run_id, eval_id, req.instructions))
+    return evaluation.injection_plan
