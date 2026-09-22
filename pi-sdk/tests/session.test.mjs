@@ -13,7 +13,7 @@ test("one SDK client keeps concurrent task tokens separate on every callback", a
 	};
 	try {
 		delete process.env.MIDOJO_SESSION_TOKEN;
-		const client = new ControlPlaneClient("http://control");
+		const client = new ControlPlaneClient("http://control///");
 		process.env.MIDOJO_SESSION_TOKEN = "sandbox";
 		await Promise.all(["a", "b"].map(token => withMidojoSession(token, async () => {
 			assert.deepEqual(await client.getEnvironment(), { count: 1 });
