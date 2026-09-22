@@ -5,13 +5,16 @@ import { ControlPlaneClient, createMidojoExtension, withMidojoSession } from "..
 test("one SDK client keeps concurrent task tokens separate on every callback", async () => {
 	const requests = [];
 	const originalFetch = globalThis.fetch;
+	const previousToken = process.env.MIDOJO_SESSION_TOKEN;
 	globalThis.fetch = async (url, init) => {
 		await new Promise(resolve => setImmediate(resolve));
 		requests.push({ token: init.headers.Authorization, path: new URL(url).pathname, method: init.method, body: init.body });
 		return new Response(init.method === "GET" ? '{"count": 1}' : '{}', { status: 200 });
 	};
 	try {
+		delete process.env.MIDOJO_SESSION_TOKEN;
 		const client = new ControlPlaneClient("http://control");
+		process.env.MIDOJO_SESSION_TOKEN = "sandbox";
 		await Promise.all(["a", "b"].map(token => withMidojoSession(token, async () => {
 			assert.deepEqual(await client.getEnvironment(), { count: 1 });
 			await client.putEnvironment({ count: 2 });
@@ -26,15 +29,16 @@ test("one SDK client keeps concurrent task tokens separate on every callback", a
 			]);
 			assert.equal(JSON.parse(own[2].body).result, token);
 		}
-		const previous = process.env.MIDOJO_SESSION_TOKEN;
+		await client.getEnvironment();
+		assert.equal(requests.at(-1).token, "Bearer sandbox");
 		delete process.env.MIDOJO_SESSION_TOKEN;
-		try {
-			await assert.rejects(() => client.getEnvironment(), /No MiDojo evaluation session/);
-		} finally {
-			if (previous !== undefined) process.env.MIDOJO_SESSION_TOKEN = previous;
-		}
+		const requestCount = requests.length;
+		await assert.rejects(() => client.getEnvironment(), /No MiDojo evaluation session/);
+		assert.equal(requests.length, requestCount);
 	} finally {
 		globalThis.fetch = originalFetch;
+		if (previousToken === undefined) delete process.env.MIDOJO_SESSION_TOKEN;
+		else process.env.MIDOJO_SESSION_TOKEN = previousToken;
 	}
 });
 

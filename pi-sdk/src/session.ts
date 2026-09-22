@@ -9,13 +9,13 @@ export function withMidojoSession<T>(token: string, fn: () => T): T {
 	return sessions.run(token, fn);
 }
 
-export function getSessionToken(explicit?: string): string {
-	const token = explicit || sessions.getStore() || process.env.MIDOJO_SESSION_TOKEN;
+export function getSessionToken(): string {
+	const token = sessions.getStore() || process.env.MIDOJO_SESSION_TOKEN;
 	if (!token) throw new Error("No MiDojo evaluation session. Set MIDOJO_SESSION_TOKEN or use withMidojoSession().");
 	return token;
 }
 
 /** Forward context to a separate agent/tool server without replacing its auth. */
-export function sessionHeaders(token?: string): Record<string, string> {
-	return { [SESSION_HEADER]: getSessionToken(token) };
+export function sessionHeaders(): Record<string, string> {
+	return { [SESSION_HEADER]: getSessionToken() };
 }
