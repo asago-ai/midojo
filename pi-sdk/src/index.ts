@@ -24,7 +24,7 @@ export interface MidojoToolHook {
 }
 
 export interface MidojoExtensionConfig {
-	controlPlaneUrl?: string;
+	controlPlaneUrl: string;
 	tools?: MidojoToolDef[];
 	hooks?: MidojoToolHook[];
 	/**
