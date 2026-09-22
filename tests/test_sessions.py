@@ -11,8 +11,8 @@ from pydantic import ValidationError
 
 from midojo.app.config import AppConfig
 from midojo.app.main import create_app
-from midojo.mcp_sdk import ControlPlaneClient
-from midojo.session import MidojoSessionMiddleware, MissingSessionError, session_context
+from midojo.control_plane_client import ControlPlaneClient
+from midojo.session import MidojoSessionMiddleware, MissingSessionError, session_context, session_token
 from midojo.yaml_task_suite import YAMLTaskSuite
 
 
@@ -207,7 +207,8 @@ async def test_remote_mcp_server_reads_session_from_each_request(app, client):
     mcp = MidojoMCP("report", control_plane_url="http://control")
     await mcp._client.aclose()
 
-    mcp._client = ControlPlaneClient("http://control", http=httpx.AsyncClient(transport=httpx.ASGITransport(app)))
+    control_http = httpx.AsyncClient(transport=httpx.ASGITransport(app))
+    mcp._client = ControlPlaneClient("http://control", http=control_http)
 
     @mcp.tool()
     async def report(ctx: ToolContext, message: str) -> str:
@@ -242,7 +243,7 @@ async def test_remote_mcp_server_reads_session_from_each_request(app, client):
         assert [call["result"] for call in calls] == [ev["id"]]
         environment = client.get(f"/runs/{run['id']}/evaluations/{ev['id']}/environment").json()
         assert environment["weather_alerts"] == [{"city": "New York", "message": ev["id"]}]
-    await mcp._client.aclose()
+    await control_http.aclose()
 
 
 @pytest.mark.asyncio
@@ -260,14 +261,15 @@ async def test_a2a_transport_keeps_executor_callbacks_scoped(app, client, monkey
     monkeypatch.delenv("MIDOJO_SESSION_TOKEN", raising=False)
     run_a, a = new_evaluation(client)
     run_b, b = new_evaluation(client)
-    sdk = ControlPlaneClient("http://control", http=httpx.AsyncClient(transport=httpx.ASGITransport(app)))
+    control_http = httpx.AsyncClient(transport=httpx.ASGITransport(app))
+    sdk = ControlPlaneClient("http://control", http=control_http)
 
     class Executor(AgentExecutor):
         async def execute(self, context, event_queue):
             assert context.message is not None
             prompt = context.message.parts[0].text
             await asyncio.sleep(0)
-            await sdk.record_function_call(function="a2a_task", args={}, result=prompt)
+            await sdk.record_function_call(session_token(), function="a2a_task", args={}, result=prompt)
             await event_queue.enqueue_event(Message(role=Role.ROLE_AGENT, parts=[Part(text=prompt)]))
 
         async def cancel(self, context, event_queue):
@@ -296,10 +298,10 @@ async def test_a2a_transport_keeps_executor_callbacks_scoped(app, client, monkey
             calls = client.get(f"/runs/{run['id']}/evaluations/{ev['id']}/function-calls").json()
             assert [call["result"] for call in calls] == [ev["id"]]
         with pytest.raises(MissingSessionError):
-            await sdk.get_environment()
+            await sdk.get_environment(session_token())
         client.delete(f"/runs/{run_a['id']}/evaluations/{a['id']}/session")
         with session_context(a["session_token"]), pytest.raises(httpx.HTTPStatusError) as failure:
-            await sdk.record_function_call(function="late", args={}, result="late")
+            await sdk.record_function_call(session_token(), function="late", args={}, result="late")
         assert failure.value.response.status_code == 401
     finally:
-        await sdk.aclose()
+        await control_http.aclose()
