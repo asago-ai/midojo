@@ -15,7 +15,7 @@ from ..dependencies import get_session_token, get_store, get_suites, resolve_sui
 from ..models import CreateFunctionCallRecord, FunctionCallResponse, RecordObservationsRequest
 from ..store import Store
 
-router = APIRouter(prefix="/agent")
+router = APIRouter(prefix="/agent", dependencies=[Depends(get_session_token)])
 
 
 @router.get("/environment")
