@@ -269,7 +269,7 @@ async def test_a2a_transport_keeps_executor_callbacks_scoped(app, client, monkey
             assert context.message is not None
             prompt = context.message.parts[0].text
             await asyncio.sleep(0)
-            await sdk.record_function_call(session_token(), function="a2a_task", args={}, result=prompt)
+            await sdk.agent(session_token()).record_function_call(function="a2a_task", args={}, result=prompt)
             await event_queue.enqueue_event(Message(role=Role.ROLE_AGENT, parts=[Part(text=prompt)]))
 
         async def cancel(self, context, event_queue):
@@ -298,10 +298,10 @@ async def test_a2a_transport_keeps_executor_callbacks_scoped(app, client, monkey
             calls = client.get(f"/runs/{run['id']}/evaluations/{ev['id']}/function-calls").json()
             assert [call["result"] for call in calls] == [ev["id"]]
         with pytest.raises(MissingSessionError):
-            await sdk.get_environment(session_token())
+            await sdk.agent(session_token()).get_environment()
         client.delete(f"/runs/{run_a['id']}/evaluations/{a['id']}/session")
         with session_context(a["session_token"]), pytest.raises(httpx.HTTPStatusError) as failure:
-            await sdk.record_function_call(session_token(), function="late", args={}, result="late")
+            await sdk.agent(session_token()).record_function_call(function="late", args={}, result="late")
         assert failure.value.response.status_code == 401
     finally:
         await control_http.aclose()

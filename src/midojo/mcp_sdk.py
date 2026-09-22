@@ -14,7 +14,7 @@ from fastmcp import Client, FastMCP
 from fastmcp.server.dependencies import get_http_headers
 from mcp.types import TextContent
 
-from midojo.control_plane_client import ControlPlaneClient
+from midojo.control_plane_client import AgentControlPlaneClient, ControlPlaneClient
 from midojo.session import SESSION_HEADER, session_token
 
 
@@ -42,22 +42,20 @@ class ToolContext:
 
     def __init__(
         self,
-        client: ControlPlaneClient,
-        session_token: str,
+        client: AgentControlPlaneClient,
         upstream: UpstreamClient | None = None,
     ) -> None:
         self._client = client
-        self._session_token = session_token
         self._upstream = upstream
 
     async def env(self, field: str) -> Any:
-        environment = await self._client.get_environment(self._session_token)
+        environment = await self._client.get_environment()
         return environment[field]
 
     async def env_update(self, field: str, value: Any) -> None:
-        environment = await self._client.get_environment(self._session_token)
+        environment = await self._client.get_environment()
         environment[field] = value
-        await self._client.put_environment(self._session_token, environment)
+        await self._client.put_environment(environment)
 
     async def forward(self, tool_name: str, args: dict) -> str:
         """Forward a tool call to the upstream MCP server."""
@@ -108,7 +106,8 @@ class MidojoMCP:
             async def wrapper(**kwargs):
                 incoming = get_http_headers().get(SESSION_HEADER.lower())
                 token = session_token(incoming)
-                ctx = ToolContext(self._client, token, upstream=self._upstream)
+                agent = self._client.agent(token)
+                ctx = ToolContext(agent, upstream=self._upstream)
                 result: str = ""
                 error: str | None = None
                 try:
@@ -118,8 +117,7 @@ class MidojoMCP:
                     result = error
                     raise
                 finally:
-                    await self._client.record_function_call(
-                        token,
+                    await agent.record_function_call(
                         function=fn.__name__,
                         args=kwargs,
                         result=result,
