@@ -46,8 +46,9 @@ export class ControlPlaneClient {
 
 	constructor(baseUrl: string | undefined = process.env.MIDOJO_URL) {
 		if (!baseUrl) throw new Error("MiDojo control plane URL is required. Set MIDOJO_URL or configure controlPlaneUrl.");
-		const base = baseUrl.replace(/\/+$/, "");
-		this.baseUrl = `${base}/agent`;
+		let end = baseUrl.length;
+		while (end > 0 && baseUrl[end - 1] === "/") end--;
+		this.baseUrl = `${baseUrl.slice(0, end)}/agent`;
 	}
 
 	private async request(path: string, method: string = "GET", body?: unknown): Promise<Response> {
