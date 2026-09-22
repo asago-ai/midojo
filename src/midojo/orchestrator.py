@@ -434,6 +434,11 @@ async def run_benchmark(
     "--ogx-shield", default=None, envvar="OGX_SHIELD_ID", help="Shield ID for OGX guardrails (ogx protocol only)."
 )
 @click.option(
+    "--mcp-server-url",
+    envvar="MCP_SERVER_URL",
+    help="MCP server URL reachable by the inference server. Required for ogx/openai; env: MCP_SERVER_URL.",
+)
+@click.option(
     "--mcp-server-label",
     default=None,
     envvar="MCP_SERVER_LABEL",
@@ -444,8 +449,7 @@ async def run_benchmark(
     "--model-name",
     default=None,
     envvar="MODEL_NAME",
-    help="Model ID for the Responses API (ogx and openai protocols). "
-    "Env: MODEL_NAME. Example: gpt-4o-mini, ollama/qwen3.5:2b.",
+    help="Model ID. Required for ogx/openai; env: MODEL_NAME.",
 )
 def main(
     control_url: str,
@@ -457,6 +461,7 @@ def main(
     modules_to_load: tuple[str, ...],
     protocol: str,
     ogx_shield: str | None,
+    mcp_server_url: str | None,
     mcp_server_label: str | None,
     model_name: str | None,
 ) -> None:
@@ -475,26 +480,33 @@ def main(
         agent_client = A2AAgentClient(agent_uri)
     elif protocol == "pi":
         agent_client = PIAgentClient(agent_uri, control_url)
-    elif protocol == "ogx":
+    elif protocol in {"ogx", "openai"}:
+        if not model_name:
+            raise click.UsageError(f"--protocol {protocol} requires --model-name or MODEL_NAME.")
+        if not mcp_server_url:
+            raise click.UsageError(f"--protocol {protocol} requires --mcp-server-url or MCP_SERVER_URL.")
         system_message = _resolve_system_message(suite_name)
-        agent_client = OGXResponsesClient(
-            ogx_url=agent_uri,
-            model=model_name or os.environ.get("MODEL_NAME", "litellm/llama-scout-17b"),
-            mcp_server_url=os.environ.get("MCP_SERVER_URL", "http://localhost:8082/mcp"),
-            mcp_server_label=mcp_server_label or suite_name,
-            instructions=system_message,
-            shield_id=ogx_shield,
-        )
-    elif protocol == "openai":
-        system_message = _resolve_system_message(suite_name)
-        agent_client = OpenAIResponsesAgentClient(
-            base_url=agent_uri,
-            model=model_name or os.environ.get("MODEL_NAME", "gpt-4o-mini"),
-            mcp_server_url=os.environ.get("MCP_SERVER_URL", "http://localhost:8082/mcp"),
-            mcp_server_label=mcp_server_label or suite_name,
-            api_key=os.environ.get("OPENAI_API_KEY", "x"),
-            instructions=system_message,
-        )
+        if protocol == "ogx":
+            agent_client = OGXResponsesClient(
+                ogx_url=agent_uri,
+                model=model_name,
+                mcp_server_url=mcp_server_url,
+                mcp_server_label=mcp_server_label or suite_name,
+                instructions=system_message,
+                shield_id=ogx_shield,
+            )
+        else:
+            api_key = os.environ.get("OPENAI_API_KEY")
+            if not api_key:
+                raise click.UsageError("--protocol openai requires OPENAI_API_KEY.")
+            agent_client = OpenAIResponsesAgentClient(
+                base_url=agent_uri,
+                model=model_name,
+                mcp_server_url=mcp_server_url,
+                mcp_server_label=mcp_server_label or suite_name,
+                api_key=api_key,
+                instructions=system_message,
+            )
     else:
         agent_client = SimpleHTTPAgentClient(agent_uri)
 

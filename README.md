@@ -182,8 +182,14 @@ Run the benchmark:
 midojo-run \
     --agent-uri http://localhost:8321 \
     --protocol ogx \
+    --model-name YOUR_MODEL_ID \
+    --mcp-server-url http://localhost:8082/mcp \
     --suite weather
 ```
+
+The `ogx` and `openai` protocols require `--model-name` and `--mcp-server-url`
+(or `MODEL_NAME` and `MCP_SERVER_URL`). `openai` also requires `OPENAI_API_KEY`;
+for an endpoint without authentication, explicitly set the placeholder it accepts.
 
 ### Results
 
