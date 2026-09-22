@@ -1,5 +1,4 @@
 import { getSessionToken } from "./session.ts";
-export { withMidojoSession } from "./session.ts";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type { TSchema } from "typebox";
 
@@ -40,7 +39,7 @@ export interface MidojoExtensionConfig {
 	reportTools?: string[];
 }
 
-/** Resolve the session from task context or environment on every request. */
+/** Read the evaluation process's session token from the environment on every request. */
 export class ControlPlaneClient {
 	private baseUrl: string;
 
