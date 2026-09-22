@@ -366,7 +366,7 @@ class OpenShellBackend:
     def environment_type(self) -> type[Environment]:
         return OpenShellEnvironment
 
-    def provision(self, injections: dict[str, str]) -> Environment:
+    def provision(self, injections: dict[str, str]) -> OpenShellEnvironment:
         """Render seeded workdir files with active injections substituted.
 
         Pure — no sandbox connection needed. Suites load without a gateway.

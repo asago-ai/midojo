@@ -86,10 +86,10 @@ class ReportingAgent(AgentClient):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("fail", [False, True])
-async def test_runner_revokes_sessions_on_success_and_agent_failure(local_http, client, fail):
+async def test_runner_revokes_sessions_on_success_and_agent_failure(local_http, client, suite, fail):
     run = client.post("/runs", json={"suite_name": "weather"}).json()
     agent = ReportingAgent(fail)
-    task = run_task("http://control", agent, run["id"], "weather_new_york", None, {})
+    task = run_task("http://control", agent, run["id"], "weather_new_york", None, {}, backend=suite.backend)
     if fail:
         with pytest.raises(RuntimeError, match="Agent failed"):
             await task
@@ -106,14 +106,10 @@ async def test_runner_revokes_sessions_on_success_and_agent_failure(local_http, 
 
 
 @pytest.mark.asyncio
-async def test_partial_sandbox_setup_is_cleaned_and_session_revoked(local_http, client, suite):
-    class Backend:
-        environment_type = suite.environment_type
+async def test_partial_sandbox_setup_is_cleaned_and_session_revoked(local_http, client):
+    class Backend(OpenShellBackend):
         cleaned = False
         token = ""
-
-        def provision(self, injections):
-            return suite.provision_environment(injections)
 
         def setup(self, env, *, session_token, eval_id, user_task_id, injection_task_id):
             evaluation = client.get(f"/runs/{run['id']}/evaluations/{eval_id}").json()
@@ -125,7 +121,7 @@ async def test_partial_sandbox_setup_is_cleaned_and_session_revoked(local_http, 
         def teardown(self):
             self.cleaned = True
 
-    backend = Backend()
+    backend = Backend("test", image="base")
     run = client.post("/runs", json={"suite_name": "weather"}).json()
     with pytest.raises(RuntimeError, match="Seed failed"):
         await run_task("http://control", ReportingAgent(), run["id"], "weather_new_york", None, {}, backend=backend)
