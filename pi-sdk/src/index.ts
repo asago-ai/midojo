@@ -44,7 +44,8 @@ export interface MidojoExtensionConfig {
 export class ControlPlaneClient {
 	private baseUrl: string;
 
-	constructor(baseUrl: string = process.env.MIDOJO_URL || "http://localhost:8080") {
+	constructor(baseUrl: string | undefined = process.env.MIDOJO_URL) {
+		if (!baseUrl) throw new Error("MiDojo control plane URL is required. Set MIDOJO_URL or configure controlPlaneUrl.");
 		const base = baseUrl.replace(/\/+$/, "");
 		this.baseUrl = `${base}/agent`;
 	}
