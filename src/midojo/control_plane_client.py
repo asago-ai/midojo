@@ -86,36 +86,42 @@ class ControlPlaneClient:
         response = await self._http.delete(f"{self._base_url}/runs/{run_id}/evaluations/{eval_id}/session")
         response.raise_for_status()
 
-    def _agent_headers(self, session_token: str) -> dict[str, str]:
-        return {"Authorization": f"Bearer {session_token}"}
+    def agent(self, session_token: str) -> AgentControlPlaneClient:
+        """Access interception endpoints for one evaluation session."""
+        return AgentControlPlaneClient(self._base_url, self._http, session_token)
 
-    async def get_environment(self, session_token: str) -> dict[str, Any]:
-        response = await self._http.get(
-            f"{self._base_url}/agent/environment", headers=self._agent_headers(session_token)
-        )
+
+class AgentControlPlaneClient:
+    """Access interception endpoints for one evaluation session."""
+
+    def __init__(self, base_url: str, http: httpx.AsyncClient, session_token: str) -> None:
+        self._base_url = base_url
+        self._http = http
+        self._headers = {"Authorization": f"Bearer {session_token}"}
+
+    async def get_environment(self) -> dict[str, Any]:
+        response = await self._http.get(f"{self._base_url}/agent/environment", headers=self._headers)
         response.raise_for_status()
         return response.json()
 
-    async def put_environment(self, session_token: str, environment: dict[str, Any]) -> None:
+    async def put_environment(self, environment: dict[str, Any]) -> None:
         response = await self._http.put(
-            f"{self._base_url}/agent/environment", json=environment, headers=self._agent_headers(session_token)
+            f"{self._base_url}/agent/environment", json=environment, headers=self._headers
         )
         response.raise_for_status()
 
     async def record_function_call(
-        self, session_token: str, *, function: str, args: dict, result: str, error: str | None = None
+        self, *, function: str, args: dict, result: str, error: str | None = None
     ) -> None:
         response = await self._http.post(
             f"{self._base_url}/agent/function-calls",
-            headers=self._agent_headers(session_token),
+            headers=self._headers,
             json={"function": function, "args": args, "result": result, "error": error},
         )
         response.raise_for_status()
 
-    async def record_observations(self, session_token: str, source: str, data: Any) -> None:
+    async def record_observations(self, source: str, data: Any) -> None:
         response = await self._http.post(
-            f"{self._base_url}/agent/observations",
-            headers=self._agent_headers(session_token),
-            json={"source": source, "data": data},
+            f"{self._base_url}/agent/observations", headers=self._headers, json={"source": source, "data": data}
         )
         response.raise_for_status()
