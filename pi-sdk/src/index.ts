@@ -27,7 +27,6 @@ export interface MidojoToolHook {
 
 export interface MidojoExtensionConfig {
 	controlPlaneUrl?: string;
-	sessionToken?: string;
 	tools?: MidojoToolDef[];
 	hooks?: MidojoToolHook[];
 	/**
@@ -41,12 +40,11 @@ export interface MidojoExtensionConfig {
 	reportTools?: string[];
 }
 
+/** Resolve the session from task context or environment on every request. */
 export class ControlPlaneClient {
-	private token?: string;
 	private baseUrl: string;
 
-	constructor(baseUrl: string = process.env.MIDOJO_URL || "http://localhost:8080", token?: string) {
-		this.token = token;
+	constructor(baseUrl: string = process.env.MIDOJO_URL || "http://localhost:8080") {
 		const base = baseUrl.replace(/\/+$/, "");
 		this.baseUrl = `${base}/agent`;
 	}
@@ -56,7 +54,7 @@ export class ControlPlaneClient {
 			method,
 			headers: {
 				"Content-Type": "application/json",
-				"Authorization": `Bearer ${getSessionToken(this.token)}`,
+				"Authorization": `Bearer ${getSessionToken()}`,
 			},
 			body: body === undefined ? undefined : JSON.stringify(body),
 		});
@@ -97,7 +95,7 @@ export class ControlPlaneClient {
 
 export function createMidojoExtension(config: MidojoExtensionConfig): (pi: ExtensionAPI) => void {
 	return (pi: ExtensionAPI) => {
-		const client = new ControlPlaneClient(config.controlPlaneUrl, config.sessionToken);
+		const client = new ControlPlaneClient(config.controlPlaneUrl);
 
 		for (const toolDef of config.tools ?? []) {
 			pi.registerTool({
