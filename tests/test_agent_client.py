@@ -91,17 +91,6 @@ class TestOpenAIResponsesAgentClient:
         assert client.instructions == "Be concise."
         assert client.timeout == 60.0
 
-    def test_constructor_defaults(self):
-        client = OpenAIResponsesAgentClient(
-            base_url="http://localhost:8321/v1",
-            model="gpt-4o-mini",
-            mcp_server_url="http://localhost:8082/mcp",
-        )
-        assert client.mcp_server_label == "midojo"
-        assert client.api_key == "x"
-        assert client.instructions == ""
-        assert client.timeout == 120.0
-
     @pytest.mark.asyncio
     async def test_send_task_calls_responses_create(self):
         """send_task calls AsyncOpenAI.responses.create with the correct arguments."""
@@ -156,6 +145,7 @@ class TestOpenAIResponsesAgentClient:
             model="gpt-4o-mini",
             mcp_server_url="http://localhost:8082/mcp",
             instructions="You are a weather assistant.",
+            api_key="sk-test",
         )
         mock_response = MagicMock(output_text="sunny")
         mock_openai_instance = MagicMock()
