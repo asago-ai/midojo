@@ -1,4 +1,3 @@
-import { getSessionToken } from "./session.ts";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type { TSchema } from "typebox";
 
@@ -50,12 +49,18 @@ export class ControlPlaneClient {
 		this.baseUrl = `${baseUrl.slice(0, end)}/agent`;
 	}
 
+	private getSessionToken(): string {
+		const token = process.env.MIDOJO_SESSION_TOKEN;
+		if (!token) throw new Error("No MiDojo evaluation session. Set MIDOJO_SESSION_TOKEN.");
+		return token;
+	}
+
 	private async request(path: string, method: string = "GET", body?: unknown): Promise<Response> {
 		const resp = await fetch(`${this.baseUrl}${path}`, {
 			method,
 			headers: {
 				"Content-Type": "application/json",
-				"Authorization": `Bearer ${getSessionToken()}`,
+				"Authorization": `Bearer ${this.getSessionToken()}`,
 			},
 			body: body === undefined ? undefined : JSON.stringify(body),
 		});
