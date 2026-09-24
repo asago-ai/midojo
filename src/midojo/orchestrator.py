@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import importlib
 import json
-import logging
 import os
-import sys
 from collections import Counter
 from pathlib import Path
 from typing import NamedTuple
@@ -215,15 +214,10 @@ async def run_task(
         result["prompt"] = prompt
         result["agent_output"] = agent_output
         return result
-    finally:
-        # Completion also revokes the session. This covers agent/setup failures.
-        failed = sys.exception() is not None
-        try:
+    except BaseException:
+        with contextlib.suppress(httpx.HTTPError):
             await control.revoke_session(run_id, eval_id)
-        except httpx.HTTPError:
-            if not failed:
-                raise
-            logging.getLogger(__name__).warning("Could not revoke failed evaluation %s's session", eval_id)
+        raise
 
 
 async def _run_benchmark(
