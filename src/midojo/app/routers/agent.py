@@ -36,7 +36,7 @@ def put_environment(
     with store.session_evaluation(session_token) as evaluation:
         run = store.get_run(evaluation.run_id)
         assert run is not None
-        suite = resolve_suite(suites, run.suite_name, run.suite_version)
+        suite = resolve_suite(suites, run.suite_name)
         env = validate_environment(suite, body)
         store.set_environment(run.id, evaluation.id, env)
         return env.model_dump()
