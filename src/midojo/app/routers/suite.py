@@ -18,7 +18,6 @@ router = APIRouter(prefix="/suites")
 def suite_info(suite_name: SuiteName, suite: Annotated[YAMLTaskSuite, Depends(get_suite)]):
     return SuiteInfoResponse(
         name=suite_name,
-        version=suite.version,
         user_tasks=list(suite.user_tasks.keys()),
         injection_tasks=list(suite.injection_tasks.keys()),
         environment=suite.provision_environment({}),

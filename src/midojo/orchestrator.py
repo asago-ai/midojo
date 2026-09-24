@@ -78,9 +78,9 @@ async def _fetch_suite_info(control_url: str, suite_name: str) -> dict:
         return resp.json()
 
 
-async def _create_run(control_url: str, suite_name: str, suite_version: str) -> str:
+async def _create_run(control_url: str, suite_name: str) -> str:
     async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(f"{control_url}/runs", json={"suite_name": suite_name, "suite_version": suite_version})
+        resp = await client.post(f"{control_url}/runs", json={"suite_name": suite_name})
         resp.raise_for_status()
         return resp.json()["id"]
 
@@ -318,7 +318,7 @@ async def run_benchmark(
     suite_info = await _fetch_suite_info(control_url, suite_name)
     _print_banner(suite_name, suite_info, agent_uri, protocol, user_tasks_to_run, injection_tasks_to_run)
 
-    run_id = await _create_run(control_url, suite_name, suite.version)
+    run_id = await _create_run(control_url, suite_name)
     console.print(f"  [dim]run[/dim] [cyan underline]{run_id}[/cyan underline]\n")
 
     utility_results: dict[TaskPair, bool] = {}
@@ -391,7 +391,6 @@ async def run_benchmark(
             {
                 "run_id": run_id,
                 "suite_name": suite_name,
-                "suite_version": suite.version,
                 "utility": {f"{k.user_task_id},{k.injection_task_id}": v for k, v in utility_results.items()},
                 "security": all_security,
                 "security_reason": all_security_reason,

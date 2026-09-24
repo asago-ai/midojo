@@ -52,9 +52,9 @@ def create_run(
     suites: Annotated[Mapping[SuiteName, YAMLTaskSuite], Depends(get_suites)],
     store: Annotated[Store, Depends(get_store)],
 ):
-    suite = resolve_suite(suites, req.suite_name, req.suite_version)
-    run = store.create_run(req.suite_name, suite.version)
-    return CreateRunResponse(id=run.id, suite_name=run.suite_name, suite_version=run.suite_version)
+    resolve_suite(suites, req.suite_name)
+    run = store.create_run(req.suite_name)
+    return CreateRunResponse(id=run.id, suite_name=run.suite_name)
 
 
 @router.get("/{run_id}", response_model=RunResponse, status_code=status.HTTP_200_OK)
@@ -62,7 +62,6 @@ def retrieve_run(run: Annotated[Run, Depends(get_run)]):
     return RunResponse(
         id=run.id,
         suite_name=run.suite_name,
-        suite_version=run.suite_version,
         created_at=run.created_at,
         evaluations=[
             EvaluationSummary(
