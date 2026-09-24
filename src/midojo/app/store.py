@@ -31,7 +31,7 @@ class Store(Protocol):
     """Interface for run/evaluation persistence."""
 
     # --- runs ---
-    def create_run(self, suite_name: SuiteName, suite_version: str) -> Run: ...
+    def create_run(self, suite_name: SuiteName) -> Run: ...
     def get_run(self, run_id: str) -> Run | None: ...
     def list_runs(self) -> list[Run]: ...
 
@@ -94,8 +94,8 @@ class InMemoryStore:
     # --- runs ---
 
     @_locked
-    def create_run(self, suite_name: SuiteName, suite_version: str) -> Run:
-        run = Run(id=_new_id(), suite_name=suite_name, suite_version=suite_version)
+    def create_run(self, suite_name: SuiteName) -> Run:
+        run = Run(id=_new_id(), suite_name=suite_name)
         self._runs[run.id] = run
         return run
 

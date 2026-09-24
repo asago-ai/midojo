@@ -142,12 +142,10 @@ def test_apps_have_independent_suites_stores_and_routes(suite):
     assert first.get("/agent/environment", headers=auth(ev)).status_code == 200
 
 
-def test_run_requires_suite_and_rejects_version_mismatch(client, suite):
+def test_run_requires_loaded_suite(client):
     assert client.post("/runs").status_code == 422
-    assert client.post("/runs", json={"suite_name": "weather", "suite_version": "wrong"}).status_code == 409
-    response = client.post("/runs", json={"suite_name": "weather", "suite_version": suite.version})
+    response = client.post("/runs", json={"suite_name": "weather"})
     assert response.status_code == 201
-    assert response.json()["suite_version"] == suite.version
 
 
 def test_suite_name_constraint_applies_to_app_requests_and_paths(client, suite):
@@ -161,41 +159,6 @@ def test_suite_name_constraint_applies_to_app_requests_and_paths(client, suite):
     response = client.get(f"/suites/{quote(name, safe='')}/tasks/user")
     assert response.status_code == 422
     assert response.json()["detail"][0]["loc"] == ["path", "suite_name"]
-
-
-def test_suite_version_tracks_expanded_backend_configuration(tmp_path, monkeypatch):
-    path = tmp_path / "suite.yaml"
-    path.write_text("""
-environment:
-  backend:
-    type: openshell
-    image: '${env.MIDOJO_TEST_IMAGE}'
-  state: {}
-""")
-    monkeypatch.setenv("MIDOJO_TEST_IMAGE", "image-a")
-    first = YAMLTaskSuite("versioned", path)
-    assert YAMLTaskSuite("versioned", path).version == first.version
-    monkeypatch.setenv("MIDOJO_TEST_IMAGE", "image-b")
-    assert YAMLTaskSuite("versioned", path).version != first.version
-
-
-def test_suite_version_tracks_resolved_payloads(tmp_path):
-    path = tmp_path / "suite.yaml"
-    path.write_text("""
-environment:
-  state: {text: '{inject:main}'}
-injection_tasks:
-  - id: inject
-    description: test
-    probes:
-      main: {source: 'file:payloads.json'}
-    security: {output_contains: injected}
-""")
-    payloads = tmp_path / "payloads.json"
-    payloads.write_text('{"id": "test", "description": "test", "payloads": ["first"]}')
-    first = YAMLTaskSuite("versioned", path)
-    payloads.write_text('{"id": "test", "description": "test", "payloads": ["second"]}')
-    assert YAMLTaskSuite("versioned", path).version != first.version
 
 
 @pytest.mark.asyncio

@@ -28,14 +28,10 @@ def get_suites(request: Request) -> Mapping[SuiteName, YAMLTaskSuite]:
     return request.app.state.suites
 
 
-def resolve_suite(
-    suites: Mapping[SuiteName, YAMLTaskSuite], suite_name: SuiteName, version: str | None = None
-) -> YAMLTaskSuite:
+def resolve_suite(suites: Mapping[SuiteName, YAMLTaskSuite], suite_name: SuiteName) -> YAMLTaskSuite:
     suite = suites.get(suite_name)
     if suite is None:
         raise HTTPException(404, f"Unknown suite: {suite_name}")
-    if version is not None and suite.version != version:
-        raise HTTPException(409, f"Suite version mismatch: {suite_name}")
     return suite
 
 
@@ -55,7 +51,7 @@ def get_run(run_id: str, store: Annotated[Store, Depends(get_store)]) -> Run:
 def get_run_suite(
     run: Annotated[Run, Depends(get_run)], suites: Annotated[Mapping[SuiteName, YAMLTaskSuite], Depends(get_suites)]
 ) -> YAMLTaskSuite:
-    return resolve_suite(suites, run.suite_name, run.suite_version)
+    return resolve_suite(suites, run.suite_name)
 
 
 def get_evaluation_by_id(
