@@ -1,4 +1,4 @@
-"""Runtime evaluation context shared by agent integrations and SDK hooks."""
+"""Experimental request-header transport for development agent integrations."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def session_token(explicit: str | None = None) -> str:
 
 
 def session_headers(token: str | None = None) -> dict[str, str]:
-    """Forward context to an agent or MCP server without replacing its own auth."""
+    """Experimental helper to forward context to an agent or MCP server."""
     return {SESSION_HEADER: session_token(token)}
 
 
@@ -42,7 +42,7 @@ def session_context(token: str | None) -> Iterator[None]:
 
 
 class MidojoSessionMiddleware:
-    """ASGI entry point for persistent agents receiving X-Midojo-Session per task.
+    """Experimental ASGI entry point for agents receiving X-Midojo-Session per task.
 
     Install on the agent application, not on the MiDojo control plane. Queued
     work must carry the token explicitly if it outlives the request's task tree.
