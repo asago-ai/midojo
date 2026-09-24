@@ -1,8 +1,8 @@
-"""Evaluation-session transport used by the orchestrator's agent clients."""
+"""Experimental request-header transport for development agent integrations."""
 
 SESSION_HEADER = "X-Midojo-Session"
 
 
 def session_headers(token: str) -> dict[str, str]:
-    """Forward the evaluation token without replacing the agent's own auth."""
+    """Experimental helper to forward context to an agent or MCP server."""
     return {SESSION_HEADER: token}

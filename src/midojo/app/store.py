@@ -1,7 +1,8 @@
 """In-memory persistence seam with immutable evaluation session bindings.
 
-Session lookup and callback mutation share a lock so completion cannot race a
-late callback. Persistent storage can implement the same Store contract later.
+Session lookup and callback mutation share an evaluation lock so completion
+cannot race a late callback. Persistent storage can implement the same Store
+contract later.
 """
 
 from __future__ import annotations
