@@ -30,10 +30,8 @@ class ControlPlaneClient:
         response.raise_for_status()
         return response.json()
 
-    async def create_run(self, suite_name: str, suite_version: str) -> str:
-        response = await self._http.post(
-            f"{self._base_url}/runs", json={"suite_name": suite_name, "suite_version": suite_version}
-        )
+    async def create_run(self, suite_name: str) -> str:
+        response = await self._http.post(f"{self._base_url}/runs", json={"suite_name": suite_name})
         response.raise_for_status()
         return response.json()["id"]
 
