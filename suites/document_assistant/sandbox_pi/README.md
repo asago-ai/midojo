@@ -20,15 +20,32 @@ predicates) does not change — only the `image:` field in the backend config.
 - An OpenAI-compatible inference server at `localhost:8321` (e.g. Llama Stack, vLLM, Ollama)
 - The model `ollama/qwen3.5:2b` (or edit `models.json` for a different model)
 
+The image must bundle the current `pi-sdk` for evaluation-session callbacks.
+Rebuild older images that still use `/current`. On Apple Silicon, use a native
+ARM64 image: under x86 emulation, OpenShell identifies QEMU as the process, so
+the Node binary allowlist does not match. Add `--pull=always --platform linux/arm64`
+to the build command below when building for Apple Silicon.
+
 ## Run (pre-built image — no build required)
 
 The suite already points at a pre-built image. Just run:
 
 ```bash
-uv run midojo-serve --suite document_assistant --port 8090
+uv run midojo-serve --load-suite document_assistant --port 8090
 uv run midojo-run --protocol openshell --suite document_assistant \
-  --control-url http://localhost:8090
+  --agent-uri openshell --control-url http://localhost:8090
 ```
+
+Each run gets a workspace such as `midojo-docum-k7p2xa`, with a shortened suite
+name and a six-character suffix (retried if already taken). Each evaluation gets
+a 10-character hexadecimal ID, checked for uniqueness across runs in the control
+plane, and a sandbox named `eval-<id>`, such as `eval-c896124bda`. The same ID is
+used in the API, logs, and labels. Both names fit OpenShell's 19-character limit.
+
+Workspace labels retain `midojo.suite` and `midojo.run-id`. Sandbox labels add
+`midojo.eval-id`, `midojo.user-task`, and `midojo.injection-task` with their full
+values. The injection label is omitted for utility-only evaluations. Session
+tokens are never put in names or labels.
 
 ## How injections are observed
 

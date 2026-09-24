@@ -14,6 +14,12 @@ environment:
     # Add any endpoints your sandbox image needs (LLM provider, tool backends, etc.).
     # The sandbox proxy blocks all other egress by default.
     policy:
+      # An explicit policy replaces the image policy. Keep PI's filesystem
+      # access, including /dev/null for tool subprocess stdin/stdout.
+      filesystem:
+        includeWorkdir: true
+        readOnly: [/usr, /lib, /proc, /dev/urandom, /app, /etc, /var/log]
+        readWrite: [/sandbox, /tmp, /dev/null]
       networkPolicies:
         # midojo control plane. The in-sandbox agent SDK POSTs its tool calls
         # here so seeded-file injections are visible to the reachability check;
