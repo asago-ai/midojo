@@ -11,6 +11,7 @@ import pytest
 
 from midojo.agent_client import AgentClient, PIAgentClient, SimpleHTTPAgentClient
 from midojo.backends.openshell import OpenShellBackend, OpenShellEnvironment
+from midojo.control_plane_client import ControlPlaneClient
 from midojo.orchestrator import run_benchmark, run_task
 
 
@@ -89,14 +90,18 @@ class ReportingAgent(AgentClient):
 async def test_runner_revokes_sessions_on_success_and_agent_failure(local_http, client, suite, fail):
     run = client.post("/runs", json={"suite_name": "weather"}).json()
     agent = ReportingAgent(fail)
-    task = run_task("http://control", agent, run["id"], "weather_new_york", None, {}, backend=suite.backend)
-    if fail:
-        with pytest.raises(RuntimeError, match="Agent failed"):
-            await task
-    else:
-        result = await task
-        assert result["utility"] is True
-        assert "session_token" not in result
+    control = ControlPlaneClient("http://control")
+    try:
+        task = run_task(control, agent, run["id"], "weather_new_york", None, {}, backend=suite.backend)
+        if fail:
+            with pytest.raises(RuntimeError, match="Agent failed"):
+                await task
+        else:
+            result = await task
+            assert result["utility"] is True
+            assert "session_token" not in result
+    finally:
+        await control.aclose()
     response = client.get("/agent/environment", headers={"Authorization": f"Bearer {agent.tokens[0]}"})
     assert response.status_code == 401
     evaluations = client.get(f"/runs/{run['id']}").json()["evaluations"]
@@ -123,8 +128,12 @@ async def test_partial_sandbox_setup_is_cleaned_and_session_revoked(local_http, 
 
     backend = Backend("test", image="base")
     run = client.post("/runs", json={"suite_name": "weather"}).json()
-    with pytest.raises(RuntimeError, match="Seed failed"):
-        await run_task("http://control", ReportingAgent(), run["id"], "weather_new_york", None, {}, backend=backend)
+    control = ControlPlaneClient("http://control")
+    try:
+        with pytest.raises(RuntimeError, match="Seed failed"):
+            await run_task(control, ReportingAgent(), run["id"], "weather_new_york", None, {}, backend=backend)
+    finally:
+        await control.aclose()
     assert backend.cleaned
     assert client.get("/agent/environment", headers={"Authorization": f"Bearer {backend.token}"}).status_code == 401
 
