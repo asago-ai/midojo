@@ -47,8 +47,8 @@ def _make_eval(
 
 
 def test_create_run_round_trip(store):
-    r1 = store.create_run("test", "v1")
-    r2 = store.create_run("test", "v1")
+    r1 = store.create_run("test")
+    r2 = store.create_run("test")
     # Each run is retrievable by its own id: two creates coexist without clobbering
     # (if create_run reused an id, get_run(r1.id) would return r2).
     assert store.get_run(r1.id) is r1
@@ -62,8 +62,8 @@ def test_get_run_unknown_returns_none(store):
 
 def test_list_runs(store):
     assert store.list_runs() == []
-    r1 = store.create_run("test", "v1")
-    r2 = store.create_run("test", "v1")
+    r1 = store.create_run("test")
+    r2 = store.create_run("test")
     assert {r.id for r in store.list_runs()} == {r1.id, r2.id}
 
 
@@ -71,7 +71,7 @@ def test_list_runs(store):
 
 
 def test_create_evaluation_stored_under_run(store):
-    run = store.create_run("test", "v1")
+    run = store.create_run("test")
     ev = _make_eval(store, run.id, agent_input="prompt")
     assert ev.run_id == run.id
     assert store.get_evaluation(run.id, ev.id) is ev
@@ -80,10 +80,10 @@ def test_create_evaluation_stored_under_run(store):
 
 
 def test_evaluation_id_collision_preserves_existing_records_and_sessions(store, monkeypatch):
-    run = store.create_run("test", "v1")
+    run = store.create_run("test")
     first = _make_eval(store, run.id, agent_input="first")
     token, _ = store.create_session(run.id, first.id, ttl_seconds=60)
-    next_run = store.create_run("other_suite", "v1")
+    next_run = store.create_run("other_suite")
     new_id = "0000000000" if first.id != "0000000000" else "1111111111"
     candidates = iter([first.id, first.id, new_id])
     monkeypatch.setattr("midojo.app.store.secrets.token_hex", lambda n: next(candidates))
@@ -98,7 +98,7 @@ def test_evaluation_id_collision_preserves_existing_records_and_sessions(store, 
 
 
 def test_get_evaluation_unknown_returns_none(store):
-    run = store.create_run("test", "v1")
+    run = store.create_run("test")
     # Two distinct not-found branches: known run/unknown eval, and unknown run.
     assert store.get_evaluation(run.id, "nope") is None
     assert store.get_evaluation("nope", "nope") is None
@@ -108,7 +108,7 @@ def test_get_evaluation_unknown_returns_none(store):
 
 
 def test_append_function_call_first_call_chains_from_pre_environment(store):
-    run = store.create_run("test", "v1")
+    run = store.create_run("test")
     # pre_environment and the live environment differ so the assertion can tell
     # which one the first call's pre-env is taken from.
     ev = _make_eval(store, run.id, pre_environment=_Env(counter=7), environment=_Env(counter=9))
@@ -122,7 +122,7 @@ def test_append_function_call_first_call_chains_from_pre_environment(store):
 
 
 def test_append_function_call_chains_pre_env_across_environment_change(store):
-    run = store.create_run("test", "v1")
+    run = store.create_run("test")
     ev = _make_eval(store, run.id, environment=_Env(counter=0))
     store.append_function_call(run.id, ev.id, _fc("a", "r0"))
     store.set_environment(run.id, ev.id, _Env(counter=1))
@@ -136,7 +136,7 @@ def test_append_function_call_chains_pre_env_across_environment_change(store):
 
 
 def test_append_function_call_post_env_is_deep_copy(store):
-    run = store.create_run("test", "v1")
+    run = store.create_run("test")
     env = _Env(counter=0)
     ev = _make_eval(store, run.id, environment=env)
     store.append_function_call(run.id, ev.id, _fc("a", "r"))
@@ -151,7 +151,7 @@ def test_append_function_call_post_env_is_deep_copy(store):
 
 
 def test_set_environment_replaces(store):
-    run = store.create_run("test", "v1")
+    run = store.create_run("test")
     ev = _make_eval(store, run.id, environment=_Env(counter=1))
     new_env = _Env(counter=2)
     # Returns the mutated evaluation; the new env is installed on it.
@@ -160,7 +160,7 @@ def test_set_environment_replaces(store):
 
 
 def test_record_observations_keyed_by_source(store):
-    run = store.create_run("test", "v1")
+    run = store.create_run("test")
     ev = _make_eval(store, run.id)
     assert store.record_observations(run.id, ev.id, "openshell", ["e1"]) is ev
     assert ev.observations == {"openshell": ["e1"]}
@@ -172,7 +172,7 @@ def test_record_observations_keyed_by_source(store):
 
 
 def test_set_grade(store):
-    run = store.create_run("test", "v1")
+    run = store.create_run("test")
     ev = _make_eval(store, run.id)
     # Distinct values guard against the two flags being swapped.
     assert store.set_grade(run.id, ev.id, utility=True, security=True, security_reason="output contains X") is ev
@@ -182,7 +182,7 @@ def test_set_grade(store):
 
 
 def test_set_grade_security_reason_defaults_to_none(store):
-    run = store.create_run("test", "v1")
+    run = store.create_run("test")
     ev = _make_eval(store, run.id)
     # Reason is optional: an attack that failed (or a utility-only grade) leaves it None.
     assert store.set_grade(run.id, ev.id, utility=True, security=False) is ev
@@ -190,7 +190,7 @@ def test_set_grade_security_reason_defaults_to_none(store):
 
 
 def test_complete_evaluation(store):
-    run = store.create_run("test", "v1")
+    run = store.create_run("test")
     ev = _make_eval(store, run.id)
     assert store.complete_evaluation(run.id, ev.id, "final answer") is ev
     # Completing records both the flag and the agent's final output.

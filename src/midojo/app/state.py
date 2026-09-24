@@ -42,6 +42,5 @@ class Run(BaseModel):
 
     id: str
     suite_name: SuiteName
-    suite_version: str
     evaluations: dict[str, Evaluation] = {}
     created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())

@@ -252,7 +252,7 @@ async def _run_benchmark(
     suite_info = await control.suite_info(suite_name)
     _print_banner(suite_name, suite_info, agent_uri, protocol, user_tasks_to_run, injection_tasks_to_run)
 
-    run_id = await control.create_run(suite_name, suite.version)
+    run_id = await control.create_run(suite_name)
     console.print(f"  [dim]run[/dim] [cyan underline]{run_id}[/cyan underline]\n")
 
     utility_results: dict[TaskPair, bool] = {}
@@ -325,7 +325,6 @@ async def _run_benchmark(
             {
                 "run_id": run_id,
                 "suite_name": suite_name,
-                "suite_version": suite.version,
                 "utility": {f"{k.user_task_id},{k.injection_task_id}": v for k, v in utility_results.items()},
                 "security": all_security,
                 "security_reason": all_security_reason,
