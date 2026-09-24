@@ -34,7 +34,11 @@ OCSF caching:
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import re
 import time
+from collections.abc import Callable
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -68,6 +72,26 @@ _CLIENT_TIMEOUT_SECONDS = 120.0
 # Total wall-clock budget for a teardown wait (sandbox delete, or waiting for a
 # workspace to drain to empty). Polled in ~1s steps.
 _TEARDOWN_BUDGET_SECONDS = 120.0
+
+
+def _short_name(value: str, length: int, fallback: str) -> str:
+    """Make a short DNS-label fragment without trailing or repeated hyphens."""
+    return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")[:length].rstrip("-") or fallback
+
+
+def _create_named_resource[T](prefix: str, identity: str, create: Callable[[str], T]) -> T:
+    """Keep names within 19 characters; retry short-suffix collisions without reusing resources."""
+    from grpc import RpcError, StatusCode
+
+    for attempt in range(5):
+        digest = hashlib.sha256(f"{identity}:{attempt}".encode()).digest()
+        suffix = base64.b32encode(digest).decode().lower()[:6]
+        try:
+            return create(f"{prefix}-{suffix}")
+        except RpcError as exc:
+            if exc.code() != StatusCode.ALREADY_EXISTS or attempt == 4:
+                raise
+    raise AssertionError("Unreachable")
 
 
 def _resolve_image(image: str) -> str:
@@ -245,7 +269,7 @@ class OpenShellBackend:
       1. ``configure(cluster=..., control_url=...)`` — inject deployment config (once)
       2. ``start_run(run_id)`` — open the run's OpenShell workspace + client (once)
       3. ``provision(injections)`` — render workdir files (pure, no sandbox needed)
-      4. ``setup(pre_env)`` — create sandbox, seed workdir, start timer (per evaluation)
+      4. ``setup(pre_env, ...)`` — create sandbox with evaluation labels, seed workdir (per evaluation)
       5. agent executes (via ``exec_agent``)
       6. ``snapshot()`` — workdir diff + OCSF events → full ``OpenShellEnvironment``
       7. ``teardown()`` — delete the sandbox (per evaluation)
@@ -298,6 +322,7 @@ class OpenShellBackend:
         # seed-file contents) and ``/sandbox/workdir`` (a directory in the sandbox).
         self._workspace_client: Any = None
         self._workspace_name: str = ""
+        self._run_labels: dict[str, str] = {}
 
         # Per-evaluation sandbox state — set by setup(), cleared by teardown()
         self._ref: Any = None
@@ -306,6 +331,10 @@ class OpenShellBackend:
         self._seeded_workdir: dict[str, str] = {}  # rendered file contents (pre_env.workdir_files)
 
     # --- Public read-only accessors (avoid direct private attribute access) ---
+
+    @property
+    def workspace_name(self) -> str:
+        return self._workspace_name
 
     @property
     def image(self) -> str:
@@ -337,7 +366,7 @@ class OpenShellBackend:
     def environment_type(self) -> type[Environment]:
         return OpenShellEnvironment
 
-    def provision(self, injections: dict[str, str]) -> Environment:
+    def provision(self, injections: dict[str, str]) -> OpenShellEnvironment:
         """Render seeded workdir files with active injections substituted.
 
         Pure — no sandbox connection needed. Suites load without a gateway.
@@ -347,14 +376,14 @@ class OpenShellBackend:
 
     # --- Run-level lifecycle ---
 
-    def start_run(self, run_id: str) -> None:
+    def start_run(self, run_id: str, *, suite_name: str | None = None) -> None:
         """Open the run's OpenShell workspace and gRPC client.
 
         Called once per orchestrator run, before the first ``setup()``. Connects
         via ``SandboxClient.from_active_cluster(cluster=...)``, which reads the
         gateway's gRPC endpoint and mTLS bundle from ``~/.config/openshell/``
-        (written by the CLI). The workspace is named after ``run_id`` so it maps
-        back to the run in the orchestrator output and on the gateway.
+        (written by the CLI). Names contain a shortened suite name; labels retain
+        the full registered suite name and run ID.
         """
         from openshell import SandboxClient, WorkspaceClient  # pyright: ignore[reportMissingImports]
         from openshell._proto import openshell_pb2  # pyright: ignore[reportMissingImports]
@@ -362,8 +391,13 @@ class OpenShellBackend:
         self._pb2 = openshell_pb2
         self._client = SandboxClient.from_active_cluster(cluster=self._cluster, timeout=_CLIENT_TIMEOUT_SECONDS)
         self._workspace_client = WorkspaceClient.from_sandbox_client(self._client)
-        self._workspace_name = f"midojo-run-{run_id}"
-        self._workspace_client.create(self._workspace_name)
+        labels = {"midojo.suite": suite_name or self._suite_name, "midojo.run-id": run_id}
+        prefix = f"midojo-{_short_name(self._suite_name, 5, 'suite')}"
+        workspace = _create_named_resource(
+            prefix, run_id, lambda name: self._workspace_client.create(name, labels=labels)
+        )
+        self._workspace_name = workspace.name
+        self._run_labels = labels
 
         # Policy and control-plane URL are fixed for the whole run, so check the
         # control-plane allow rule once here rather than on every setup().
@@ -372,7 +406,15 @@ class OpenShellBackend:
 
     # --- Per-evaluation sandbox lifecycle ---
 
-    def setup(self, pre_env: OpenShellEnvironment) -> None:  # type: ignore[override]
+    def setup(  # type: ignore[override]
+        self,
+        pre_env: OpenShellEnvironment,
+        *,
+        session_token: str,
+        eval_id: str,
+        user_task_id: str,
+        injection_task_id: str | None,
+    ) -> None:
         """Create the sandbox in the run's workspace, seed the workdir, mark a baseline.
 
         Requires ``start_run()`` to have opened the client and workspace.
@@ -380,7 +422,7 @@ class OpenShellBackend:
         self._cached_ocsf = None
         self._seeded_workdir = dict(pre_env.workdir_files)
 
-        env = {**self._env_vars}
+        env = {**self._env_vars, "MIDOJO_SESSION_TOKEN": session_token}
         # The in-sandbox agent SDK POSTs its tool calls to the control plane, so
         # the sandbox must be able to reach it. `localhost` resolves to the sandbox
         # itself, so hand the SDK the host.openshell.internal form of the URL. The
@@ -395,7 +437,16 @@ class OpenShellBackend:
         )
         _resolve_policy(self._policy_spec, spec)
 
-        self._ref = self._client.create(workspace=self._workspace_name, spec=spec)
+        labels = {
+            **self._run_labels,
+            "midojo.eval-id": eval_id,
+            "midojo.user-task": user_task_id,
+        }
+        if injection_task_id is not None:
+            labels["midojo.injection-task"] = injection_task_id
+        self._ref = self._client.create(
+            workspace=self._workspace_name, spec=spec, name=f"eval-{eval_id}", labels=labels
+        )
         self._client.wait_ready(self._ref.name, workspace=self._workspace_name, timeout_seconds=120.0)
 
         # Seed workdir files.
@@ -552,6 +603,7 @@ class OpenShellBackend:
         self._pb2 = None
         self._workspace_client = None
         self._workspace_name = ""
+        self._run_labels = {}
 
     def _wait_workspace_empty(self) -> None:
         """Poll until the run's workspace has no sandboxes, or the budget elapses.

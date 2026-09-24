@@ -1,41 +1,38 @@
-"""State persistence seam for the control plane.
+"""In-memory persistence seam with immutable evaluation session bindings.
 
-All run/evaluation state is accessed through the :class:`Store` protocol so the
-routers never touch process globals directly. :class:`InMemoryStore` is the
-default, process-local implementation (state lost on restart); a Postgres-backed
-store can be dropped in behind the same interface without changing the routers.
-
-Per-evaluation mutations are ID-based (``run_id``, ``eval_id``) so they map
-directly to a future ``UPDATE … WHERE`` without relying on live Python objects.
-Each returns the mutated :class:`Evaluation`, or ``None`` if no such evaluation
-exists; the HTTP layer turns ``None`` into a 404 (a 400 on the ``/current`` routes).
-
-The store also owns identity (id generation) and tracks the single "current"
-evaluation that backs the ``/current`` endpoints — behavior preserved from the
-old module-global ``state.current_eval`` for now.
+Session lookup and callback mutation share an evaluation lock so completion
+cannot race a late callback. Persistent storage can implement the same Store
+contract later.
 """
 
 from __future__ import annotations
 
+import hashlib
+import secrets
+import time
 import uuid
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, contextmanager
 from datetime import UTC, datetime
-from typing import Any, Protocol
+from functools import wraps
+from threading import RLock
+from typing import Any, Concatenate, Protocol
 
-from midojo.types import Environment, FunctionCallRecord
+from midojo.types import Environment, FunctionCallRecord, SuiteName
 
 from .models import CreateFunctionCallRecord
 from .state import Evaluation, Run
 
 
 def _new_id() -> str:
-    return uuid.uuid4().hex[:8]
+    return uuid.uuid4().hex
 
 
 class Store(Protocol):
     """Interface for run/evaluation persistence."""
 
     # --- runs ---
-    def create_run(self) -> Run: ...
+    def create_run(self, suite_name: SuiteName) -> Run: ...
     def get_run(self, run_id: str) -> Run | None: ...
     def list_runs(self) -> list[Run]: ...
 
@@ -52,8 +49,9 @@ class Store(Protocol):
         agent_input: str | None = None,
     ) -> Evaluation: ...
     def get_evaluation(self, run_id: str, eval_id: str) -> Evaluation | None: ...
-    def get_current_evaluation(self) -> Evaluation | None: ...
-    def get_current_ids(self) -> tuple[str, str] | None: ...
+    def create_session(self, run_id: str, eval_id: str, ttl_seconds: int) -> tuple[str, str]: ...
+    def close_session(self, run_id: str, eval_id: str) -> None: ...
+    def session_evaluation(self, session_token: str) -> AbstractContextManager[Evaluation]: ...
 
     # --- per-evaluation mutations (ID-based) ---
     # Each returns the mutated evaluation, or None if (run_id, eval_id) is unknown.
@@ -66,32 +64,62 @@ class Store(Protocol):
     def complete_evaluation(self, run_id: str, eval_id: str, agent_output: str) -> Evaluation | None: ...
 
 
+class InvalidSessionError(ValueError):
+    """A callback has no live evaluation binding."""
+
+
+def _token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _locked[**P, R](
+    method: Callable[Concatenate[InMemoryStore, P], R],
+) -> Callable[Concatenate[InMemoryStore, P], R]:
+    @wraps(method)
+    def call(self: InMemoryStore, *args: P.args, **kwargs: P.kwargs) -> R:
+        with self._lock:
+            return method(self, *args, **kwargs)
+
+    return call
+
+
 class InMemoryStore:
     """Process-local, in-memory :class:`Store`. State is lost on restart."""
 
     def __init__(self) -> None:
         self._runs: dict[str, Run] = {}
-        # Only one eval is active at a time — the orchestrator runs tasks
-        # sequentially. Tracked as (run_id, eval_id) to back the /current
-        # endpoints; concurrent evals would clobber it (superseded by
-        # session-scoped resolution later).
-        self._current_ids: tuple[str, str] | None = None
+        self._evaluation_ids: set[str] = set()
+        self._sessions: dict[str, tuple[str, str, float]] = {}
+        self._session_tokens: dict[tuple[str, str], set[str]] = {}
+        self._evaluation_locks: dict[tuple[str, str], RLock] = {}
+        self._lock = RLock()
+
+    def _remove_sessions(self, run_id: str, eval_id: str) -> None:
+        for token_hash in self._session_tokens.pop((run_id, eval_id), set()):
+            self._sessions.pop(token_hash, None)
+
+    def _evaluation_lock(self, run_id: str, eval_id: str) -> RLock | None:
+        return self._evaluation_locks.get((run_id, eval_id))
 
     # --- runs ---
 
-    def create_run(self) -> Run:
-        run = Run(id=_new_id())
+    @_locked
+    def create_run(self, suite_name: SuiteName) -> Run:
+        run = Run(id=_new_id(), suite_name=suite_name)
         self._runs[run.id] = run
         return run
 
+    @_locked
     def get_run(self, run_id: str) -> Run | None:
         return self._runs.get(run_id)
 
+    @_locked
     def list_runs(self) -> list[Run]:
         return list(self._runs.values())
 
     # --- evaluations ---
 
+    @_locked
     def create_evaluation(
         self,
         run_id: str,
@@ -103,8 +131,14 @@ class InMemoryStore:
         active_injections: dict[str, str],
         agent_input: str | None = None,
     ) -> Evaluation:
+        run = self._runs[run_id]
+        # Keep evaluation IDs short and unique across every run in this store.
+        # The method's lock covers allocation and insertion together.
+        eval_id = secrets.token_hex(5)
+        while eval_id in self._evaluation_ids:
+            eval_id = secrets.token_hex(5)
         evaluation = Evaluation(
-            id=_new_id(),
+            id=eval_id,
             run_id=run_id,
             user_task_id=user_task_id,
             injection_task_id=injection_task_id,
@@ -113,76 +147,141 @@ class InMemoryStore:
             active_injections=active_injections,
             agent_input=agent_input,
         )
-        self._runs[run_id].evaluations[evaluation.id] = evaluation
-        self._current_ids = (run_id, evaluation.id)
+        run.evaluations[evaluation.id] = evaluation
+        self._evaluation_ids.add(evaluation.id)
+        self._evaluation_locks[(run_id, evaluation.id)] = RLock()
         return evaluation
 
+    @_locked
     def get_evaluation(self, run_id: str, eval_id: str) -> Evaluation | None:
         run = self._runs.get(run_id)
         if run is None:
             return None
         return run.evaluations.get(eval_id)
 
-    def get_current_evaluation(self) -> Evaluation | None:
-        ids = self.get_current_ids()
-        if ids is None:
-            return None
-        return self.get_evaluation(*ids)
+    def create_session(self, run_id: str, eval_id: str, ttl_seconds: int) -> tuple[str, str]:
+        with self._lock:
+            evaluation = self.get_evaluation(run_id, eval_id)
+            if evaluation is None or evaluation.completed:
+                raise InvalidSessionError("Cannot open a session for this evaluation")
+            if ttl_seconds <= 0:
+                raise ValueError("Session TTL must be positive")
+            self._remove_sessions(run_id, eval_id)
+            token = secrets.token_urlsafe(32)
+            expires = time.time() + ttl_seconds
+            token_hash = _token_hash(token)
+            self._sessions[token_hash] = (run_id, eval_id, expires)
+            self._session_tokens.setdefault((run_id, eval_id), set()).add(token_hash)
+            return token, datetime.fromtimestamp(expires, UTC).isoformat()
 
-    def get_current_ids(self) -> tuple[str, str] | None:
-        return self._current_ids
+    def close_session(self, run_id: str, eval_id: str) -> None:
+        with self._lock:
+            self._remove_sessions(run_id, eval_id)
+            evaluation_lock = self._evaluation_lock(run_id, eval_id)
+        if evaluation_lock is not None:
+            with evaluation_lock:
+                pass
+
+    @contextmanager
+    def session_evaluation(self, session_token: str) -> Iterator[Evaluation]:
+        """Hold the binding valid for a complete callback, including its mutation.
+
+        The evaluation lock prevents completion or revocation between validation
+        and mutation without serializing callbacks for other evaluations.
+        """
+        with self._lock:
+            token_hash = _token_hash(session_token)
+            binding = self._sessions.get(token_hash)
+            if binding is None or binding[2] <= time.time():
+                if binding is not None:
+                    self._sessions.pop(token_hash)
+                    self._session_tokens.get(binding[:2], set()).discard(token_hash)
+                raise InvalidSessionError("Invalid, expired, or closed evaluation session")
+            run = self._runs.get(binding[0])
+            evaluation = run.evaluations.get(binding[1]) if run is not None else None
+            if evaluation is None or evaluation.completed:
+                raise InvalidSessionError("Invalid, expired, or closed evaluation session")
+            evaluation_lock = self._evaluation_lock(binding[0], binding[1])
+            assert evaluation_lock is not None
+            evaluation_lock.acquire()
+        try:
+            yield evaluation
+        finally:
+            evaluation_lock.release()
 
     # --- per-evaluation mutations ---
 
     def append_function_call(self, run_id: str, eval_id: str, req: CreateFunctionCallRecord) -> Evaluation | None:
-        evaluation = self.get_evaluation(run_id, eval_id)
-        if evaluation is None:
+        evaluation_lock = self._evaluation_lock(run_id, eval_id)
+        if evaluation_lock is None:
             return None
-        # Each call's pre-env is the previous call's post-env, chaining from the
-        # eval's initial environment; post-env is a deep copy so later mutations
-        # don't retroactively change the recorded snapshot.
-        if evaluation.function_calls:
-            pre_env = evaluation.function_calls[-1].post_environment
-        else:
-            pre_env = evaluation.pre_environment
-        record = FunctionCallRecord(
-            **req.model_dump(),
-            timestamp=datetime.now(UTC).isoformat(),
-            pre_environment=pre_env,
-            post_environment=evaluation.environment.model_copy(deep=True),
-        )
-        evaluation.function_calls.append(record)
-        return evaluation
+        with evaluation_lock:
+            evaluation = self.get_evaluation(run_id, eval_id)
+            if evaluation is None:
+                return None
+            # Each call's pre-env is the previous call's post-env, chaining from the
+            # eval's initial environment; post-env is a deep copy so later mutations
+            # don't retroactively change the recorded snapshot.
+            if evaluation.function_calls:
+                pre_env = evaluation.function_calls[-1].post_environment
+            else:
+                pre_env = evaluation.pre_environment
+            record = FunctionCallRecord(
+                **req.model_dump(),
+                timestamp=datetime.now(UTC).isoformat(),
+                pre_environment=pre_env,
+                post_environment=evaluation.environment.model_copy(deep=True),
+            )
+            evaluation.function_calls.append(record)
+            return evaluation
 
     def set_environment(self, run_id: str, eval_id: str, environment: Environment) -> Evaluation | None:
-        evaluation = self.get_evaluation(run_id, eval_id)
-        if evaluation is None:
+        evaluation_lock = self._evaluation_lock(run_id, eval_id)
+        if evaluation_lock is None:
             return None
-        evaluation.environment = environment
-        return evaluation
+        with evaluation_lock:
+            evaluation = self.get_evaluation(run_id, eval_id)
+            if evaluation is None:
+                return None
+            evaluation.environment = environment
+            return evaluation
 
     def record_observations(self, run_id: str, eval_id: str, source: str, data: Any) -> Evaluation | None:
-        evaluation = self.get_evaluation(run_id, eval_id)
-        if evaluation is None:
+        evaluation_lock = self._evaluation_lock(run_id, eval_id)
+        if evaluation_lock is None:
             return None
-        evaluation.observations[source] = data
-        return evaluation
+        with evaluation_lock:
+            evaluation = self.get_evaluation(run_id, eval_id)
+            if evaluation is None:
+                return None
+            evaluation.observations[source] = data
+            return evaluation
 
     def set_grade(
         self, run_id: str, eval_id: str, *, utility: bool, security: bool, security_reason: str | None = None
     ) -> Evaluation | None:
-        evaluation = self.get_evaluation(run_id, eval_id)
-        if evaluation is None:
+        evaluation_lock = self._evaluation_lock(run_id, eval_id)
+        if evaluation_lock is None:
             return None
-        evaluation.utility = utility
-        evaluation.security = security
-        evaluation.security_reason = security_reason
-        return evaluation
+        with evaluation_lock:
+            evaluation = self.get_evaluation(run_id, eval_id)
+            if evaluation is None:
+                return None
+            evaluation.utility = utility
+            evaluation.security = security
+            evaluation.security_reason = security_reason
+            return evaluation
 
     def complete_evaluation(self, run_id: str, eval_id: str, agent_output: str) -> Evaluation | None:
-        evaluation = self.get_evaluation(run_id, eval_id)
-        if evaluation is None:
+        with self._lock:
+            evaluation_lock = self._evaluation_lock(run_id, eval_id)
+            self._remove_sessions(run_id, eval_id)
+        if evaluation_lock is None:
             return None
-        evaluation.agent_output = agent_output
-        evaluation.completed = True
-        return evaluation
+        with evaluation_lock:
+            evaluation = self.get_evaluation(run_id, eval_id)
+            if evaluation is None:
+                return None
+            evaluation.agent_output = agent_output
+            evaluation.completed = True
+            return evaluation

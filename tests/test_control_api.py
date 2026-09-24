@@ -1,19 +1,20 @@
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from midojo.app import state
 from midojo.app.state import Evaluation
 
 
-def _current_eval() -> Evaluation:
-    """The store's active eval, for asserting internal (non-API) server state."""
-    evaluation = state.store.get_current_evaluation()
+def _evaluation(client: TestClient, run_id: str, eval_id: str) -> Evaluation:
+    assert isinstance(client.app, FastAPI)
+    evaluation = client.app.state.store.get_evaluation(run_id, eval_id)
     assert evaluation is not None
     return evaluation
 
 
 def _create_run(client: TestClient) -> str:
-    resp = client.post("/runs")
+    resp = client.post("/runs", json={"suite_name": "weather"})
     assert resp.status_code == 201
+    assert resp.json()["suite_name"] == "weather"
     return resp.json()["id"]
 
 
@@ -21,7 +22,9 @@ def _create_evaluation(client: TestClient, run_id: str, **kwargs) -> dict:
     payload = {"user_task_id": "weather_new_york", **kwargs}
     resp = client.post(f"/runs/{run_id}/evaluations", json=payload)
     assert resp.status_code == 201
-    return resp.json()
+    data = resp.json()
+    client.headers["Authorization"] = f"Bearer {data['session_token']}"
+    return data
 
 
 def test_create_run(client):
@@ -35,6 +38,7 @@ def test_get_run(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["id"] == run_id
+    assert data["suite_name"] == "weather"
     assert data["evaluations"] == []
 
 
@@ -151,7 +155,7 @@ def test_record_function_call_via_post(client):
     assert len(resp.json()) == 1
 
     # ...but they are still captured server-side for grading.
-    recorded = _current_eval().function_calls[0]
+    recorded = _evaluation(client, run_id, eval_id).function_calls[0]
     assert recorded.pre_environment is not None
     assert recorded.post_environment is not None
 
@@ -187,7 +191,7 @@ def test_record_function_call_pre_env_chain(client):
         },
     )
 
-    calls = _current_eval().function_calls
+    calls = _evaluation(client, run_id, eval_id).function_calls
     assert calls[0].pre_environment.model_dump() == initial_env
     assert calls[1].pre_environment == calls[0].post_environment
     assert calls[1].post_environment.model_dump()["weather_alerts"] == [
@@ -195,32 +199,17 @@ def test_record_function_call_pre_env_chain(client):
     ]
 
 
-# --- /current/* endpoints ---
+# --- /agent/* endpoints ---
 
 
-def test_current_environment_400_before_eval(client):
-    resp = client.get("/current/environment")
-    assert resp.status_code == 400
-
-
-def test_current_environment_resolves_active_eval(client):
+def test_agent_environment_put(client):
     run_id = _create_run(client)
     eval_data = _create_evaluation(client, run_id)
     eval_id = eval_data["id"]
 
-    resp = client.get("/current/environment")
-    assert resp.status_code == 200
-    assert resp.json() == client.get(f"/runs/{run_id}/evaluations/{eval_id}/environment").json()
-
-
-def test_current_environment_put(client):
-    run_id = _create_run(client)
-    eval_data = _create_evaluation(client, run_id)
-    eval_id = eval_data["id"]
-
-    env = client.get("/current/environment").json()
+    env = client.get("/agent/environment").json()
     env["weather_alerts"] = [{"city": "Boston", "message": "blizzard"}]
-    resp = client.put("/current/environment", json=env)
+    resp = client.put("/agent/environment", json=env)
     assert resp.status_code == 200
     # The PUT's own body is built from the mutated Evaluation, not re-fetched.
     assert resp.json()["weather_alerts"] == [{"city": "Boston", "message": "blizzard"}]
@@ -229,50 +218,24 @@ def test_current_environment_put(client):
     assert fresh["weather_alerts"] == [{"city": "Boston", "message": "blizzard"}]
 
 
-def test_current_function_calls_post_and_list(client):
+def test_agent_function_calls_post_and_list(client):
     run_id = _create_run(client)
     eval_data = _create_evaluation(client, run_id)
     eval_id = eval_data["id"]
 
     resp = client.post(
-        "/current/function-calls",
+        "/agent/function-calls",
         json={"function": "get_weather", "args": {"city": "New York"}, "result": "72°F"},
     )
     assert resp.status_code == 201
 
-    listed = client.get("/current/function-calls").json()
+    listed = client.get("/agent/function-calls").json()
     assert len(listed) == 1
     assert listed[0]["function"] == "get_weather"
 
     # Same record should be visible via the nested URL.
     nested = client.get(f"/runs/{run_id}/evaluations/{eval_id}/function-calls").json()
     assert len(nested) == 1
-
-
-def test_current_follows_eval_switch(client):
-    """Creating a new eval should make /current resolve to it, not the previous one."""
-    run_id = _create_run(client)
-    eval1 = _create_evaluation(client, run_id)["id"]
-
-    client.post(
-        "/current/function-calls",
-        json={"function": "get_weather", "args": {"city": "NYC"}, "result": "first eval"},
-    )
-
-    eval2 = _create_evaluation(client, run_id)["id"]
-    assert eval2 != eval1
-
-    client.post(
-        "/current/function-calls",
-        json={"function": "get_weather", "args": {"city": "NYC"}, "result": "second eval"},
-    )
-
-    eval1_calls = client.get(f"/runs/{run_id}/evaluations/{eval1}/function-calls").json()
-    eval2_calls = client.get(f"/runs/{run_id}/evaluations/{eval2}/function-calls").json()
-    assert len(eval1_calls) == 1
-    assert eval1_calls[0]["result"] == "first eval"
-    assert len(eval2_calls) == 1
-    assert eval2_calls[0]["result"] == "second eval"
 
 
 def test_create_evaluation_substitutes_prompt_probe_placeholder(client):
@@ -321,17 +284,17 @@ def test_record_and_get_observations(client):
     assert resp.json() == {"openshell": events}
 
     assert client.get(f"/runs/{run_id}/evaluations/{eval_id}/observations").json() == {"openshell": events}
-    assert _current_eval().observations == {"openshell": events}
+    assert _evaluation(client, run_id, eval_id).observations == {"openshell": events}
 
 
-def test_current_observations_keyed_by_source(client):
+def test_agent_observations_keyed_by_source(client):
     run_id = _create_run(client)
     _create_evaluation(client, run_id)
 
-    client.post("/current/observations", json={"source": "openshell", "data": ["PROC:LAUNCH curl"]})
-    client.post("/current/observations", json={"source": "acs", "data": {"processes": ["curl"]}})
+    client.post("/agent/observations", json={"source": "openshell", "data": ["PROC:LAUNCH curl"]})
+    client.post("/agent/observations", json={"source": "acs", "data": {"processes": ["curl"]}})
 
-    assert client.get("/current/observations").json() == {
+    assert client.get("/agent/observations").json() == {
         "openshell": ["PROC:LAUNCH curl"],
         "acs": {"processes": ["curl"]},
     }
@@ -364,7 +327,7 @@ def test_nested_mutation_routes_unknown_eval_404(client):
     """Known run + unknown eval -> 404 'Unknown evaluation' from _require_eval on every mutation route."""
     run_id = _create_run(client)
     _create_evaluation(client, run_id)  # a real eval, so a valid env body is available for the PUT
-    env = client.get("/current/environment").json()
+    env = client.get("/agent/environment").json()
 
     for name, send in _mutation_requests(client, run_id, "BOGUS", env).items():
         resp = send()
@@ -376,7 +339,7 @@ def test_nested_mutation_routes_unknown_run_404(client):
     """Unknown run -> 404 'Unknown run' from get_run, before the eval check runs."""
     run_id = _create_run(client)
     _create_evaluation(client, run_id)
-    env = client.get("/current/environment").json()
+    env = client.get("/agent/environment").json()
 
     for name, send in _mutation_requests(client, "BOGUS", "E", env).items():
         resp = send()
