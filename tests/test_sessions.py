@@ -1,14 +1,18 @@
 """Exercise callback isolation across suites, app instances, and overlapping tasks."""
 
+import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from midojo.app.config import AppConfig
 from midojo.app.main import create_app
+from midojo.control_plane_client import ControlPlaneClient
+from midojo.session import MidojoSessionMiddleware, MissingSessionError, session_context, session_token
 from midojo.yaml_task_suite import YAMLTaskSuite
 
 
@@ -155,3 +159,112 @@ def test_suite_name_constraint_applies_to_app_requests_and_paths(client, suite):
     response = client.get(f"/suites/{quote(name, safe='')}/tasks/user")
     assert response.status_code == 422
     assert response.json()["detail"][0]["loc"] == ["path", "suite_name"]
+
+
+@pytest.mark.asyncio
+async def test_remote_mcp_server_reads_session_from_each_request(app, client):
+    from midojo.mcp_sdk import MidojoMCP, ToolContext
+
+    run_a, a = new_evaluation(client)
+    run_b, b = new_evaluation(client)
+    mcp = MidojoMCP("report", control_plane_url="http://control")
+    await mcp._client.aclose()
+
+    control_http = httpx.AsyncClient(transport=httpx.ASGITransport(app))
+    mcp._client = ControlPlaneClient("http://control", http=control_http)
+
+    @mcp.tool()
+    async def report(ctx: ToolContext, message: str) -> str:
+        assert "New York" in await ctx.env("cities")
+        await ctx.env_update("weather_alerts", [{"city": "New York", "message": message}])
+        return message
+
+    mcp_app = mcp._fastmcp.http_app(path="/mcp", stateless_http=True)
+    async with mcp_app.router.lifespan_context(mcp_app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(mcp_app), base_url="http://mcp") as http:
+            responses = await asyncio.gather(
+                *[
+                    http.post(
+                        "/mcp",
+                        headers={
+                            "X-Midojo-Session": ev["session_token"],
+                            "Accept": "application/json, text/event-stream",
+                        },
+                        json={
+                            "jsonrpc": "2.0",
+                            "id": 1,
+                            "method": "tools/call",
+                            "params": {"name": "report", "arguments": {"message": ev["id"]}},
+                        },
+                    )
+                    for ev in [a, b]
+                ]
+            )
+            assert all(response.status_code == 200 for response in responses)
+    for run, ev in [(run_a, a), (run_b, b)]:
+        calls = client.get(f"/runs/{run['id']}/evaluations/{ev['id']}/function-calls").json()
+        assert [call["result"] for call in calls] == [ev["id"]]
+        environment = client.get(f"/runs/{run['id']}/evaluations/{ev['id']}/environment").json()
+        assert environment["weather_alerts"] == [{"city": "New York", "message": ev["id"]}]
+    await control_http.aclose()
+
+
+@pytest.mark.asyncio
+async def test_a2a_transport_keeps_executor_callbacks_scoped(app, client, monkeypatch):
+    from a2a.server.agent_execution import AgentExecutor
+    from a2a.server.request_handlers import DefaultRequestHandler
+    from a2a.server.routes.agent_card_routes import create_agent_card_routes
+    from a2a.server.routes.jsonrpc_routes import create_jsonrpc_routes
+    from a2a.server.tasks import InMemoryTaskStore
+    from a2a.types import AgentCapabilities, AgentCard, AgentInterface, Message, Part, Role
+    from starlette.applications import Starlette
+
+    from midojo.agent_client import A2AAgentClient
+
+    monkeypatch.delenv("MIDOJO_SESSION_TOKEN", raising=False)
+    run_a, a = new_evaluation(client)
+    run_b, b = new_evaluation(client)
+    control_http = httpx.AsyncClient(transport=httpx.ASGITransport(app))
+    sdk = ControlPlaneClient("http://control", http=control_http)
+
+    class Executor(AgentExecutor):
+        async def execute(self, context, event_queue):
+            assert context.message is not None
+            prompt = context.message.parts[0].text
+            await asyncio.sleep(0)
+            await sdk.agent(session_token()).record_function_call(function="a2a_task", args={}, result=prompt)
+            await event_queue.enqueue_event(Message(role=Role.ROLE_AGENT, parts=[Part(text=prompt)]))
+
+        async def cancel(self, context, event_queue):
+            raise NotImplementedError
+
+    card = AgentCard(
+        name="test",
+        description="test",
+        version="1",
+        capabilities=AgentCapabilities(streaming=True),
+        supported_interfaces=[AgentInterface(url="http://agent/", protocol_binding="JSONRPC")],
+        default_input_modes=["text/plain"],
+        default_output_modes=["text/plain"],
+    )
+    handler = DefaultRequestHandler(agent_executor=Executor(), task_store=InMemoryTaskStore(), agent_card=card)
+    agent = Starlette(routes=[*create_agent_card_routes(card), *create_jsonrpc_routes(handler, "/")])
+    agent.add_middleware(MidojoSessionMiddleware)
+    client_class = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: client_class(**kw, transport=httpx.ASGITransport(agent)))
+    try:
+        results = await asyncio.gather(
+            *[A2AAgentClient("http://agent/").send_task(ev["id"], session_token=ev["session_token"]) for ev in [a, b]]
+        )
+        assert results == [a["id"], b["id"]]
+        for run, ev in [(run_a, a), (run_b, b)]:
+            calls = client.get(f"/runs/{run['id']}/evaluations/{ev['id']}/function-calls").json()
+            assert [call["result"] for call in calls] == [ev["id"]]
+        with pytest.raises(MissingSessionError):
+            await sdk.agent(session_token()).get_environment()
+        client.delete(f"/runs/{run_a['id']}/evaluations/{a['id']}/session")
+        with session_context(a["session_token"]), pytest.raises(httpx.HTTPStatusError) as failure:
+            await sdk.agent(session_token()).record_function_call(function="late", args={}, result="late")
+        assert failure.value.response.status_code == 401
+    finally:
+        await control_http.aclose()

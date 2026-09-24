@@ -38,34 +38,50 @@ export interface MidojoExtensionConfig {
 	reportTools?: string[];
 }
 
-class ControlPlaneClient {
+/** Read the evaluation process's session token from the environment on every request. */
+export class ControlPlaneClient {
 	private baseUrl: string;
 
-	constructor(baseUrl: string) {
-		const base = baseUrl.replace(/\/+$/, "");
-		this.baseUrl = `${base}/current`;
+	constructor(baseUrl: string | undefined = process.env.MIDOJO_URL) {
+		if (!baseUrl) throw new Error("MiDojo control plane URL is required. Set MIDOJO_URL or configure controlPlaneUrl.");
+		let end = baseUrl.length;
+		while (end > 0 && baseUrl[end - 1] === "/") end--;
+		this.baseUrl = `${baseUrl.slice(0, end)}/agent`;
+	}
+
+	private getSessionToken(): string {
+		const token = process.env.MIDOJO_SESSION_TOKEN;
+		if (!token) throw new Error("No MiDojo evaluation session. Set MIDOJO_SESSION_TOKEN.");
+		return token;
+	}
+
+	private async request(path: string, method: string = "GET", body?: unknown): Promise<Response> {
+		const resp = await fetch(`${this.baseUrl}${path}`, {
+			method,
+			headers: {
+				"Content-Type": "application/json",
+				"Authorization": `Bearer ${this.getSessionToken()}`,
+			},
+			body: body === undefined ? undefined : JSON.stringify(body),
+		});
+		if (!resp.ok) throw new Error(`MiDojo ${method} ${path} failed (${resp.status})`);
+		return resp;
 	}
 
 	async getEnvironment(): Promise<Record<string, unknown>> {
-		const resp = await fetch(`${this.baseUrl}/environment`);
-		if (!resp.ok) return {};
-		return (await resp.json()) as Record<string, unknown>;
+		return (await this.request("/environment")).json() as Promise<Record<string, unknown>>;
 	}
 
 	async putEnvironment(env: Record<string, unknown>): Promise<void> {
-		await fetch(`${this.baseUrl}/environment`, {
-			method: "PUT",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify(env),
-		});
+		await this.request("/environment", "PUT", env);
 	}
 
 	async recordFunctionCall(entry: { function: string; args: Record<string, unknown>; result: string; error?: string | null }): Promise<void> {
-		await fetch(`${this.baseUrl}/function-calls`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify(entry),
-		}).catch(() => {});
+		await this.request("/function-calls", "POST", entry);
+	}
+
+	async recordObservations(source: string, data: unknown): Promise<void> {
+		await this.request("/observations", "POST", { source, data });
 	}
 
 	createToolContext(): ToolContext {
