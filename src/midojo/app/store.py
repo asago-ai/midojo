@@ -89,7 +89,16 @@ class InMemoryStore:
         self._runs: dict[str, Run] = {}
         self._evaluation_ids: set[str] = set()
         self._sessions: dict[str, tuple[str, str, float]] = {}
+        self._session_tokens: dict[tuple[str, str], set[str]] = {}
+        self._evaluation_locks: dict[tuple[str, str], RLock] = {}
         self._lock = RLock()
+
+    def _remove_sessions(self, run_id: str, eval_id: str) -> None:
+        for token_hash in self._session_tokens.pop((run_id, eval_id), set()):
+            self._sessions.pop(token_hash, None)
+
+    def _evaluation_lock(self, run_id: str, eval_id: str) -> RLock | None:
+        return self._evaluation_locks.get((run_id, eval_id))
 
     # --- runs ---
 
@@ -139,6 +148,7 @@ class InMemoryStore:
         )
         run.evaluations[evaluation.id] = evaluation
         self._evaluation_ids.add(evaluation.id)
+        self._evaluation_locks[(run_id, evaluation.id)] = RLock()
         return evaluation
 
     @_locked
@@ -155,89 +165,122 @@ class InMemoryStore:
                 raise InvalidSessionError("Cannot open a session for this evaluation")
             if ttl_seconds <= 0:
                 raise ValueError("Session TTL must be positive")
-            self.close_session(run_id, eval_id)
-            self._sessions = {key: value for key, value in self._sessions.items() if value[2] > time.time()}
+            self._remove_sessions(run_id, eval_id)
             token = secrets.token_urlsafe(32)
             expires = time.time() + ttl_seconds
-            self._sessions[_token_hash(token)] = (run_id, eval_id, expires)
+            token_hash = _token_hash(token)
+            self._sessions[token_hash] = (run_id, eval_id, expires)
+            self._session_tokens.setdefault((run_id, eval_id), set()).add(token_hash)
             return token, datetime.fromtimestamp(expires, UTC).isoformat()
 
     def close_session(self, run_id: str, eval_id: str) -> None:
         with self._lock:
-            self._sessions = {key: value for key, value in self._sessions.items() if value[:2] != (run_id, eval_id)}
+            self._remove_sessions(run_id, eval_id)
+            evaluation_lock = self._evaluation_lock(run_id, eval_id)
+        if evaluation_lock is not None:
+            with evaluation_lock:
+                pass
 
     @contextmanager
     def session_evaluation(self, session_token: str) -> Iterator[Evaluation]:
         """Hold the binding valid for a complete callback, including its mutation.
 
-        The lock prevents completion or revocation between validation and mutation.
+        The evaluation lock prevents completion or revocation between validation
+        and mutation without serializing callbacks for other evaluations.
         """
         with self._lock:
-            binding = self._sessions.get(_token_hash(session_token))
+            token_hash = _token_hash(session_token)
+            binding = self._sessions.get(token_hash)
             if binding is None or binding[2] <= time.time():
+                if binding is not None:
+                    self._sessions.pop(token_hash)
+                    self._session_tokens.get(binding[:2], set()).discard(token_hash)
                 raise InvalidSessionError("Invalid, expired, or closed evaluation session")
-            evaluation = self.get_evaluation(binding[0], binding[1])
+            run = self._runs.get(binding[0])
+            evaluation = run.evaluations.get(binding[1]) if run is not None else None
             if evaluation is None or evaluation.completed:
                 raise InvalidSessionError("Invalid, expired, or closed evaluation session")
+            evaluation_lock = self._evaluation_lock(binding[0], binding[1])
+            assert evaluation_lock is not None
+            evaluation_lock.acquire()
+        try:
             yield evaluation
+        finally:
+            evaluation_lock.release()
 
     # --- per-evaluation mutations ---
 
-    @_locked
     def append_function_call(self, run_id: str, eval_id: str, req: CreateFunctionCallRecord) -> Evaluation | None:
-        evaluation = self.get_evaluation(run_id, eval_id)
-        if evaluation is None:
+        evaluation_lock = self._evaluation_lock(run_id, eval_id)
+        if evaluation_lock is None:
             return None
-        # Each call's pre-env is the previous call's post-env, chaining from the
-        # eval's initial environment; post-env is a deep copy so later mutations
-        # don't retroactively change the recorded snapshot.
-        if evaluation.function_calls:
-            pre_env = evaluation.function_calls[-1].post_environment
-        else:
-            pre_env = evaluation.pre_environment
-        record = FunctionCallRecord(
-            **req.model_dump(),
-            timestamp=datetime.now(UTC).isoformat(),
-            pre_environment=pre_env,
-            post_environment=evaluation.environment.model_copy(deep=True),
-        )
-        evaluation.function_calls.append(record)
-        return evaluation
+        with evaluation_lock:
+            evaluation = self.get_evaluation(run_id, eval_id)
+            if evaluation is None:
+                return None
+            # Each call's pre-env is the previous call's post-env, chaining from the
+            # eval's initial environment; post-env is a deep copy so later mutations
+            # don't retroactively change the recorded snapshot.
+            if evaluation.function_calls:
+                pre_env = evaluation.function_calls[-1].post_environment
+            else:
+                pre_env = evaluation.pre_environment
+            record = FunctionCallRecord(
+                **req.model_dump(),
+                timestamp=datetime.now(UTC).isoformat(),
+                pre_environment=pre_env,
+                post_environment=evaluation.environment.model_copy(deep=True),
+            )
+            evaluation.function_calls.append(record)
+            return evaluation
 
-    @_locked
     def set_environment(self, run_id: str, eval_id: str, environment: Environment) -> Evaluation | None:
-        evaluation = self.get_evaluation(run_id, eval_id)
-        if evaluation is None:
+        evaluation_lock = self._evaluation_lock(run_id, eval_id)
+        if evaluation_lock is None:
             return None
-        evaluation.environment = environment
-        return evaluation
+        with evaluation_lock:
+            evaluation = self.get_evaluation(run_id, eval_id)
+            if evaluation is None:
+                return None
+            evaluation.environment = environment
+            return evaluation
 
-    @_locked
     def record_observations(self, run_id: str, eval_id: str, source: str, data: Any) -> Evaluation | None:
-        evaluation = self.get_evaluation(run_id, eval_id)
-        if evaluation is None:
+        evaluation_lock = self._evaluation_lock(run_id, eval_id)
+        if evaluation_lock is None:
             return None
-        evaluation.observations[source] = data
-        return evaluation
+        with evaluation_lock:
+            evaluation = self.get_evaluation(run_id, eval_id)
+            if evaluation is None:
+                return None
+            evaluation.observations[source] = data
+            return evaluation
 
-    @_locked
     def set_grade(
         self, run_id: str, eval_id: str, *, utility: bool, security: bool, security_reason: str | None = None
     ) -> Evaluation | None:
-        evaluation = self.get_evaluation(run_id, eval_id)
-        if evaluation is None:
+        evaluation_lock = self._evaluation_lock(run_id, eval_id)
+        if evaluation_lock is None:
             return None
-        evaluation.utility = utility
-        evaluation.security = security
-        evaluation.security_reason = security_reason
-        return evaluation
+        with evaluation_lock:
+            evaluation = self.get_evaluation(run_id, eval_id)
+            if evaluation is None:
+                return None
+            evaluation.utility = utility
+            evaluation.security = security
+            evaluation.security_reason = security_reason
+            return evaluation
 
-    @_locked
     def complete_evaluation(self, run_id: str, eval_id: str, agent_output: str) -> Evaluation | None:
-        evaluation = self.get_evaluation(run_id, eval_id)
-        if evaluation is None:
+        with self._lock:
+            evaluation_lock = self._evaluation_lock(run_id, eval_id)
+            self._remove_sessions(run_id, eval_id)
+        if evaluation_lock is None:
             return None
-        evaluation.agent_output = agent_output
-        evaluation.completed = True
-        self.close_session(run_id, eval_id)
-        return evaluation
+        with evaluation_lock:
+            evaluation = self.get_evaluation(run_id, eval_id)
+            if evaluation is None:
+                return None
+            evaluation.agent_output = agent_output
+            evaluation.completed = True
+            return evaluation
