@@ -133,3 +133,46 @@ class TestPolicy:
             pytest.fail("Inline dict should not raise ValueError")
         except Exception:
             pass  # ParseDict fails on MagicMock — dispatch was correct
+
+
+class TestLogSync:
+    """snapshot's OCSF read waits for a marker so late-pushed agent events are included."""
+
+    def _backend(self, reads):
+        from unittest.mock import MagicMock
+
+        backend = build_backend("shell_suite", ENV_CONFIG)
+        backend._exec = MagicMock()
+        backend._read_ocsf_messages = MagicMock(side_effect=reads)
+        return backend
+
+    def test_waits_for_marker_and_drops_its_events(self, monkeypatch):
+        import midojo.backends.openshell as mod
+
+        monkeypatch.setattr(mod.time, "sleep", lambda _s: None)
+        agent_event = "NET:OPEN [MED] DENIED /usr/bin/curl(0) -> evil.test:443 [reason:transparent_tcp_policy_denied]"
+
+        def marker_from_exec():
+            script = backend._exec.call_args.args[0][2]
+            host = script.split()[2]
+            return f"NET:REFUSE [MED] DENIED {host} [reason:policy_dns_ineligible]"
+
+        reads = iter([[], [agent_event], None])
+
+        def read():
+            batch = next(reads)
+            return batch if batch is not None else [agent_event, marker_from_exec()]
+
+        backend = self._backend(read)
+        messages = backend._sync_ocsf_messages()
+        assert messages == [agent_event]
+        assert backend._read_ocsf_messages.call_count == 3
+
+    def test_returns_last_read_when_marker_never_arrives(self, monkeypatch):
+        import midojo.backends.openshell as mod
+
+        clock = iter(range(0, 100, 5))
+        monkeypatch.setattr(mod.time, "time", lambda: next(clock))
+        monkeypatch.setattr(mod.time, "sleep", lambda _s: None)
+        backend = self._backend(lambda: ["NET:OPEN [INFO] ALLOWED /usr/bin/curl(0) -> ok.test:443"])
+        assert backend._sync_ocsf_messages() == ["NET:OPEN [INFO] ALLOWED /usr/bin/curl(0) -> ok.test:443"]

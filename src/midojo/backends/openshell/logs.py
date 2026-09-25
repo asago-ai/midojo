@@ -1,24 +1,25 @@
 """Parse OpenShell OCSF log events from sandbox log lines.
 
-Real OCSF message formats emitted by OpenShell (from openshell-ocsf/src/format/shorthand.rs):
+OCSF shorthand formats emitted by OpenShell 0.1.0 (openshell-ocsf/src/format/shorthand.rs),
+as observed on a live gateway:
 
-  Network:
-    NET:OPEN [INFO] ALLOWED curl(1618) -> audit.ext-log.com:443 [policy:default-egress engine:mechanistic]
-    NET:OPEN [MED]  DENIED  curl(1618) -> audit.ext-log.com:443 [policy:- engine:opa] [reason:policy_denied: ...]
-    NET:OPEN [MED]  DENIED  python3(42) -> 169.254.169.254:80   [policy:- engine:ssrf] [reason:trusted-gateway check failed]
+  Network (transparent TCP; the caller is the sandbox-verified executable path, and the
+  pid is 0 because it is not visible across the sandbox boundary):
+    NET:OPEN [INFO] ALLOWED /usr/bin/bash(0) -> example.com:80 [policy:web engine:opa]
+    NET:OPEN [MED] DENIED /usr/bin/bash(0) -> audit.ext-log.com:443 [reason:transparent_tcp_policy_denied]
 
-  HTTP (when TLS is terminated — gives method + path):
-    HTTP:GET   [INFO] ALLOWED curl(88) -> GET https://api.example.com/v1/data [policy:... engine:...]
-    HTTP:OTHER [MED]  DENIED  python3(42) -> PUT http://169.254.169.254:80/latest/api/token [policy:- engine:opa]
+  Network (DNS-stage refusal; no caller and no port):
+    NET:REFUSE [MED] DENIED audit.ext-log.com [reason:policy_dns_ineligible]
 
-  Process:
-    PROC:LAUNCH    [INFO] python3(42) [cmd:python3 /workspace/exploit.py]
+  HTTP (L7-inspected endpoints; no caller):
+    HTTP:GET [INFO] ALLOWED GET http://example.com/
+
+  Process (only for the sandbox's main process; commands run through exec emit none):
+    PROC:LAUNCH [INFO] python3(42) [cmd:python3 /workspace/exploit.py]
     PROC:TERMINATE [INFO] python3(42) [exit:0]
-    PROC:LAUNCH    [INFO] curl(103)   [cmd:curl -X POST https://attacker.com]
 
   Security findings:
-    FINDING:BLOCKED [HIGH] "NSSH1 Nonce Replay Attack"  [confidence:high]
-    FINDING:BLOCKED [MED]  "Proxy Bypass Detected"      [confidence:high]
+    FINDING:BLOCKED [HIGH] "NSSH1 Nonce Replay Attack" [confidence:high]
 """
 
 from __future__ import annotations
@@ -30,15 +31,19 @@ from dataclasses import dataclass, field
 # Message patterns (derived from openshell-ocsf/src/format/shorthand.rs)
 # ---------------------------------------------------------------------------
 
+# The caller ("<exe>(<pid>) -> ") and the port are optional: DNS-stage refusals
+# carry neither.
 _NET_PATTERN = re.compile(
-    r"NET:\w+\s+\[\w+\]\s+(ALLOWED|DENIED)\s+(\S+)\s+->\s+([\w.\-]+):(\d+)",
+    r"NET:\w+\s+\[\w+\]\s+(ALLOWED|DENIED)\s+(?:(\S+)\s+->\s+)?([\w.\-]+)(?::(\d+))?",
     re.IGNORECASE,
 )
 
 _HTTP_PATTERN = re.compile(
-    r"HTTP:(\w+)\s+\[\w+\]\s+(ALLOWED|DENIED)\s+\S+\s+->\s+(\w+)\s+(https?://\S+)",
+    r"HTTP:(\w+)\s+\[\w+\]\s+(ALLOWED|DENIED)\s+(?:\S+\s+->\s+)?(\w+)\s+(https?://\S+)",
     re.IGNORECASE,
 )
+
+_CALLER_PID_SUFFIX = re.compile(r"\(\d+\)$")
 
 _PROC_LAUNCH_PATTERN = re.compile(
     r"PROC:LAUNCH\s+\[\w+\]\s+(\S+)\((\d+)\)(?:\s+\[cmd:(.+?)\])?",
@@ -64,11 +69,16 @@ _FINDING_PATTERN = re.compile(
 @dataclass
 class NetworkEvent:
     action: str  # "ALLOWED" or "DENIED"
-    process: str  # "curl(1618)"
+    process: str | None  # "/usr/bin/curl(0)"; None for DNS-stage refusals
     host: str  # "audit.ext-log.com"
-    port: int
-    endpoint: str  # "audit.ext-log.com:443"
+    port: int | None  # None for DNS-stage refusals
+    endpoint: str  # "audit.ext-log.com:443", or "audit.ext-log.com" without a port
     raw: str
+
+    @property
+    def binary(self) -> str | None:
+        """Calling executable without the pid suffix, e.g. ``/usr/bin/curl``."""
+        return _CALLER_PID_SUFFIX.sub("", self.process) if self.process else None
 
 
 @dataclass
@@ -120,6 +130,16 @@ class OCSFEvents:
     def process_commands(self) -> list[str]:
         return [p.command for p in self.processes_launched if p.command]
 
+    @property
+    def network_callers(self) -> list[str]:
+        """Distinct executables that made allowed or denied network connections.
+
+        OpenShell verifies these paths inside the sandbox, so they are the
+        trustworthy record of which processes ran and tried to reach the network.
+        """
+        callers = (e.binary for e in [*self.network_allowed, *self.network_blocked])
+        return list(dict.fromkeys(c for c in callers if c))
+
 
 def _parse_message(msg: str) -> NetworkEvent | HttpEvent | ProcessEvent | FindingEvent | None:
     """Parse a single OCSF shorthand message string into a typed event."""
@@ -130,8 +150,8 @@ def _parse_message(msg: str) -> NetworkEvent | HttpEvent | ProcessEvent | Findin
             action=action.upper(),
             process=process,
             host=host,
-            port=int(port),
-            endpoint=f"{host}:{port}",
+            port=int(port) if port else None,
+            endpoint=f"{host}:{port}" if port else host,
             raw=msg,
         )
 
