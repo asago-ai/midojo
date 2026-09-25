@@ -69,6 +69,19 @@ _CLIENT_TIMEOUT_SECONDS = 120.0
 # workspace to drain to empty). Polled in ~1s steps.
 _TEARDOWN_BUDGET_SECONDS = 120.0
 
+# Log sync barrier (see OpenShellBackend._sync_ocsf_messages). The marker lives
+# under the reserved .test TLD so it can never be policy-eligible or resolve.
+# Images differ in their resolver tooling, so try the common lookup commands;
+# any one of them makes the supervisor log a DNS refusal for the marker.
+_SYNC_MARKER_SUFFIX = ".midojo.test"
+_SYNC_MARKER_SCRIPT = (
+    "getent hosts {host} >/dev/null 2>&1"
+    " || nslookup {host} >/dev/null 2>&1"
+    " || python3 -c 'import socket; socket.getaddrinfo(\"{host}\", 80)' >/dev/null 2>&1"
+    " || true"
+)
+_LOG_SYNC_BUDGET_SECONDS = 15.0
+
 
 def _resolve_image(image: str) -> str:
     """Expand a community sandbox name to its full registry reference.
@@ -220,6 +233,10 @@ class OpenShellEnvironment(Environment):
     network_calls_allowed: list[str] = Field(default_factory=list)  # "host:port"
     network_calls_blocked: list[str] = Field(default_factory=list)
     processes_launched: list[str] = Field(default_factory=list)  # binary names
+    # Executables that made allowed or denied network connections, as verified by
+    # the sandbox (e.g. "/usr/bin/curl"). OpenShell 0.1.0 emits no process events
+    # for commands run through exec, so this is the process evidence for agents.
+    network_callers: list[str] = Field(default_factory=list)
     security_findings: list[str] = Field(default_factory=list)  # finding titles
 
 
@@ -402,18 +419,25 @@ class OpenShellBackend:
         # Paths starting with "/" are seeded at the absolute path (e.g. config
         # files outside the workdir). All other paths are relative to
         # /sandbox/workdir/ (the agent's working directory).
-        self._client.exec(self._ref.id, ["mkdir", "-p", _WORKDIR])
+        self._exec(["mkdir", "-p", _WORKDIR])
         for path, content in pre_env.workdir_files.items():
             if path.startswith("/"):
                 dest = path
             else:
                 dest = f"{_WORKDIR}/{path}"
             parent = dest.rsplit("/", 1)[0]
-            self._client.exec(self._ref.id, ["mkdir", "-p", parent])
-            self._client.exec(self._ref.id, ["tee", dest], stdin=content.encode())
+            self._exec(["mkdir", "-p", parent])
+            self._exec(["tee", dest], stdin=content.encode())
 
-        self._client.exec(self._ref.id, ["touch", "/tmp/.midojo_baseline"])
+        self._exec(["touch", "/tmp/.midojo_baseline"])
         self._start_ms = int(time.time() * 1000)
+
+    def _exec(self, command: list[str], **kwargs: Any) -> Any:
+        """Run a command in the evaluation's sandbox.
+
+        The SDK addresses sandboxes by name within a workspace, not by ID.
+        """
+        return self._client.exec(self._ref.name, command, workspace=self._workspace_name, **kwargs)
 
     def exec_agent(self, prompt: str, *, timeout_seconds: float) -> Any:
         """Execute the agent inside the sandbox. Returns an ``ExecResult``.
@@ -429,29 +453,67 @@ class OpenShellBackend:
         leading slash to drop, so it resolves correctly regardless of the model.
         """
         cmd = [*self._agent_command, prompt] if self._agent_command else [prompt]
-        return self._client.exec(self._ref.id, cmd, workdir=_WORKDIR, timeout_seconds=timeout_seconds)
+        return self._exec(cmd, workdir=_WORKDIR, timeout_seconds=int(timeout_seconds))
 
-    def _fetch_ocsf(self) -> OCSFEvents:
-        """Fetch OCSF events from the sandbox log stream, with caching.
+    def _read_ocsf_messages(self) -> list[str]:
+        """Return OCSF messages the supervisor has pushed since the evaluation began.
 
         Uses ``client._stub.GetSandboxLogs`` directly — the high-level SDK has no
         public wrapper for log retrieval.
         """
+        from google.protobuf.timestamp_pb2 import Timestamp
+        from openshell._proto import datamodel_pb2  # pyright: ignore[reportMissingImports]
+
+        since = Timestamp()
+        since.FromMilliseconds(self._start_ms)
+        logs_resp = self._client._stub.GetSandboxLogs(
+            self._pb2.GetSandboxLogsRequest(
+                sandbox=self._ref.name,
+                workspace_scope=datamodel_pb2.WorkspaceSelector(workspace=self._workspace_name),
+                since_time=since,
+                sources=["sandbox"],
+            ),
+            timeout=10.0,
+        )
+        return [log_line.message for log_line in logs_resp.logs if log_line.level.upper() == "OCSF"]
+
+    def _sync_ocsf_messages(self) -> list[str]:
+        """Read OCSF messages after every event from the agent's session has arrived.
+
+        The supervisor batches log lines and pushes them to the gateway in order
+        every 500 ms, so a read right after the agent exits can miss its last
+        network decisions. Resolve a unique hostname inside the sandbox, which the
+        supervisor refuses and logs, then poll until that refusal is visible:
+        everything the agent caused was pushed before it. The marker's own events
+        are removed from the result.
+        """
+        import logging
+        import uuid
+
+        marker = f"sync-{uuid.uuid4().hex[:12]}{_SYNC_MARKER_SUFFIX}"
+        self._exec(["sh", "-c", _SYNC_MARKER_SCRIPT.format(host=marker)], timeout_seconds=30)
+
+        deadline = time.time() + _LOG_SYNC_BUDGET_SECONDS
+        messages: list[str] = []
+        while time.time() < deadline:
+            messages = self._read_ocsf_messages()
+            if any(marker in message for message in messages):
+                return [message for message in messages if marker not in message]
+            time.sleep(0.5)
+        logging.getLogger(__name__).warning(
+            "OpenShell log sync marker did not arrive within %.0fs; network evidence may be incomplete",
+            _LOG_SYNC_BUDGET_SECONDS,
+        )
+        return messages
+
+    def _fetch_ocsf(self) -> OCSFEvents:
+        """Fetch and parse the evaluation's OCSF events, with caching."""
         if self._cached_ocsf is not None:
             return self._cached_ocsf
 
         messages: list[str] = []
         try:
-            logs_resp = self._client._stub.GetSandboxLogs(
-                self._pb2.GetSandboxLogsRequest(
-                    sandbox_id=self._ref.id,
-                    workspace=self._workspace_name,
-                    since_ms=self._start_ms,
-                    sources=["sandbox"],
-                ),
-                timeout=10.0,
-            )
-            messages = [log_line.message for log_line in logs_resp.logs if log_line.level.upper() == "OCSF"]
+            messages = self._sync_ocsf_messages()
         except Exception as exc:
             import logging
 
@@ -466,11 +528,8 @@ class OpenShellBackend:
         """Compute workdir diff and OCSF events, returning a fully-populated env."""
         seeded = {f"{_WORKDIR}/{p}" for p in self._seeded_workdir}
 
-        diff_result = self._client.exec(
-            self._ref.id,
-            ["find", _WORKDIR, "-type", "f", "-newer", "/tmp/.midojo_baseline"],
-        )
-        all_result = self._client.exec(self._ref.id, ["find", _WORKDIR, "-type", "f"])
+        diff_result = self._exec(["find", _WORKDIR, "-type", "f", "-newer", "/tmp/.midojo_baseline"])
+        all_result = self._exec(["find", _WORKDIR, "-type", "f"])
 
         current = {ln.strip() for ln in all_result.stdout.splitlines() if ln.strip()}
 
@@ -486,7 +545,7 @@ class OpenShellBackend:
                 files_modified.append(fpath)
             else:
                 files_created.append(fpath)
-                cat = self._client.exec(self._ref.id, ["cat", fpath])
+                cat = self._exec(["cat", fpath])
                 if cat.exit_code == 0:
                     new_file_contents[fpath] = cat.stdout
 
@@ -503,6 +562,7 @@ class OpenShellBackend:
             network_calls_allowed=ocsf.network_allowed_endpoints,
             network_calls_blocked=ocsf.network_blocked_endpoints,
             processes_launched=[p.binary for p in ocsf.processes_launched],
+            network_callers=ocsf.network_callers,
             security_findings=[f.title for f in ocsf.findings],
         )
 

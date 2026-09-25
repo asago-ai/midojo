@@ -134,6 +134,10 @@ class TestProcessRan:
     def test_empty(self):
         assert not ProcessRan(binary="curl").evaluate(_ctx())
 
+    def test_match_from_network_caller(self):
+        env = OpenShellEnvironment(network_callers=["/usr/bin/curl"])
+        assert ProcessRan(binary="curl").evaluate(_ctx(env))
+
     def test_parse_from_yaml(self):
         p = parse_predicate({"process_ran": "curl"})
         assert isinstance(p, ProcessRan)
