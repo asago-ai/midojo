@@ -8,13 +8,10 @@ The API half asserts the plan the control plane derives from that partition.
 from __future__ import annotations
 
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from midojo.app import state
-from midojo.app.routers import runs
-from midojo.app.store import InMemoryStore
+from midojo.app.main import create_app
 from midojo.channels import Channel, InjectionMode
 from midojo.yaml_task_suite import YAMLTaskSuite
 
@@ -163,51 +160,58 @@ def channel_suite(tmp_path) -> YAMLTaskSuite:
 
 @pytest.fixture()
 def channel_client(channel_suite) -> TestClient:
-    state.suite = channel_suite
-    state.store = InMemoryStore()
-    application = FastAPI()
-    runs.register_environment_update_route(channel_suite.environment_type)
-    application.include_router(runs.router)
-    application.include_router(runs.current_router)
-    return TestClient(application)
+    return TestClient(create_app({"channel_suite": channel_suite}))
 
 
-def _eval(client: TestClient, **kwargs) -> tuple[str, str]:
-    run_id = client.post("/runs").json()["id"]
+def _eval(client: TestClient, **kwargs) -> tuple[str, str, str]:
+    """Create a run + evaluation; return (run_id, eval_id, session_token)."""
+    run_id = client.post("/runs", json={"suite_name": "channel_suite"}).json()["id"]
     body = {"user_task_id": "read_notes", **kwargs}
-    return run_id, client.post(f"/runs/{run_id}/evaluations", json=body).json()["id"]
+    data = client.post(f"/runs/{run_id}/evaluations", json=body).json()
+    return run_id, data["id"], data["session_token"]
+
+
+def _auth(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
 
 
 class TestPlanAPI:
+    """The id-based routes address a specific eval; /agent resolves by token."""
+
     def test_no_injection_task_means_no_plan(self, channel_client):
-        run_id, eval_id = _eval(channel_client)
+        run_id, eval_id, _ = _eval(channel_client)
         assert channel_client.get(f"/runs/{run_id}/evaluations/{eval_id}/injection-plan").json() == []
 
     def test_plan_is_derived_from_the_suite_at_creation(self, channel_client):
-        run_id, eval_id = _eval(channel_client, injection_task_id="exfil")
+        run_id, eval_id, _ = _eval(channel_client, injection_task_id="exfil")
         plan = channel_client.get(f"/runs/{run_id}/evaluations/{eval_id}/injection-plan").json()
         assert [i["probe_key"] for i in plan] == ["exfil:via_tool", "exfil:via_desc"]
         assert plan[0]["target"] == {"tool": "get_weather", "field": None}
         assert plan[0]["mode"] == "append"
 
-    def test_current_mirrors_the_id_based_route(self, channel_client):
-        run_id, eval_id = _eval(channel_client, injection_task_id="exfil")
+    def test_agent_route_matches_the_id_based_route(self, channel_client):
+        run_id, eval_id, token = _eval(channel_client, injection_task_id="exfil")
         assert (
-            channel_client.get("/current/injection-plan").json()
+            channel_client.get("/agent/injection-plan", headers=_auth(token)).json()
             == channel_client.get(f"/runs/{run_id}/evaluations/{eval_id}/injection-plan").json()
         )
 
-    def test_channel_filter(self, channel_client):
-        _eval(channel_client, injection_task_id="exfil")
-        plan = channel_client.get("/current/injection-plan", params={"channel": "tool_output"}).json()
-        assert [i["probe_key"] for i in plan] == ["exfil:via_tool"]
+    def test_agent_channel_filter(self, channel_client):
+        _, _, token = _eval(channel_client, injection_task_id="exfil")
+        plan = channel_client.get("/agent/injection-plan", params={"channel": "tool_output"}, headers=_auth(token))
+        assert [i["probe_key"] for i in plan.json()] == ["exfil:via_tool"]
 
     def test_unknown_channel_filter_rejected(self, channel_client):
+        _, _, token = _eval(channel_client, injection_task_id="exfil")
+        resp = channel_client.get("/agent/injection-plan", params={"channel": "nope"}, headers=_auth(token))
+        assert resp.status_code == 422
+
+    def test_agent_route_requires_a_session_token(self, channel_client):
         _eval(channel_client, injection_task_id="exfil")
-        assert channel_client.get("/current/injection-plan", params={"channel": "nope"}).status_code == 422
+        assert channel_client.get("/agent/injection-plan").status_code == 401
 
     def test_put_replaces_the_derived_plan(self, channel_client):
-        run_id, eval_id = _eval(channel_client, injection_task_id="exfil")
+        run_id, eval_id, token = _eval(channel_client, injection_task_id="exfil")
         body = {
             "instructions": [
                 {"channel": "tool_output", "probe_key": "attacker:v2", "payload": "REFINED", "mode": "replace"}
@@ -216,34 +220,24 @@ class TestPlanAPI:
         resp = channel_client.put(f"/runs/{run_id}/evaluations/{eval_id}/injection-plan", json=body)
         assert resp.status_code == 200
         assert [i["probe_key"] for i in resp.json()] == ["attacker:v2"]
-        assert channel_client.get("/current/injection-plan").json() == resp.json()
-
-    def test_put_via_current(self, channel_client):
-        _eval(channel_client, injection_task_id="exfil")
-        body = {"instructions": [{"channel": "tool_output", "probe_key": "a:b", "payload": "X"}]}
-        assert channel_client.put("/current/injection-plan", json=body).status_code == 200
-        assert channel_client.get("/current/injection-plan").json()[0]["payload"] == "X"
+        # The adapter, reading via its token, sees the replacement.
+        assert channel_client.get("/agent/injection-plan", headers=_auth(token)).json() == resp.json()
 
     def test_put_unknown_eval_404(self, channel_client):
-        run_id, _ = _eval(channel_client, injection_task_id="exfil")
-        body = {"instructions": []}
-        resp = channel_client.put(f"/runs/{run_id}/evaluations/BOGUS/injection-plan", json=body)
+        run_id, _, _ = _eval(channel_client, injection_task_id="exfil")
+        resp = channel_client.put(f"/runs/{run_id}/evaluations/BOGUS/injection-plan", json={"instructions": []})
         assert resp.status_code == 404
         assert resp.json()["detail"] == "Unknown evaluation: BOGUS"
 
-    def test_current_400_before_any_eval(self, channel_client):
-        assert channel_client.get("/current/injection-plan").status_code == 400
-
     def test_plans_are_per_evaluation(self, channel_client):
-        run_id, first = _eval(channel_client, injection_task_id="exfil")
+        run_id, first, first_token = _eval(channel_client, injection_task_id="exfil")
         channel_client.put(
-            "/current/injection-plan",
+            f"/runs/{run_id}/evaluations/{first}/injection-plan",
             json={"instructions": [{"channel": "tool_output", "probe_key": "a:b", "payload": "FIRST"}]},
         )
-        second = channel_client.post(f"/runs/{run_id}/evaluations", json={"user_task_id": "read_notes"}).json()["id"]
-
-        first_plan = channel_client.get(f"/runs/{run_id}/evaluations/{first}/injection-plan").json()
-        second_plan = channel_client.get(f"/runs/{run_id}/evaluations/{second}/injection-plan").json()
+        second_data = channel_client.post(f"/runs/{run_id}/evaluations", json={"user_task_id": "read_notes"}).json()
+        first_plan = channel_client.get("/agent/injection-plan", headers=_auth(first_token)).json()
+        second_plan = channel_client.get("/agent/injection-plan", headers=_auth(second_data["session_token"])).json()
         assert [i["payload"] for i in first_plan] == ["FIRST"]
         assert second_plan == []
 
@@ -258,7 +252,7 @@ class TestLegacySuiteUnchanged:
             assert injections == suite.get_probes_for_task(task_id)
 
     def test_weather_eval_has_an_empty_plan(self, client):
-        run_id = client.post("/runs").json()["id"]
+        run_id = client.post("/runs", json={"suite_name": "weather"}).json()["id"]
         eval_id = client.post(
             f"/runs/{run_id}/evaluations",
             json={"user_task_id": "weather_new_york", "injection_task_id": "tornado_alert_via_notes"},

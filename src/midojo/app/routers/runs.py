@@ -293,7 +293,7 @@ def _filter_plan(plan: list[InjectionInstruction], channel: Channel | None) -> l
     response_model=list[InjectionInstruction],
     status_code=status.HTTP_200_OK,
 )
-def get_injection_plan(
+async def get_injection_plan(
     evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)],
     channel: Channel | None = None,
 ) -> list[InjectionInstruction]:
@@ -305,7 +305,7 @@ def get_injection_plan(
     response_model=list[InjectionInstruction],
     status_code=status.HTTP_200_OK,
 )
-def set_injection_plan(
+async def set_injection_plan(
     eval_id: str,
     req: SetInjectionPlanRequest,
     run: Annotated[Run, Depends(get_run)],
@@ -313,4 +313,3 @@ def set_injection_plan(
 ) -> list[InjectionInstruction]:
     evaluation = _require_eval(store.set_injection_plan(run.id, eval_id, req.instructions), eval_id)
     return evaluation.injection_plan
-
