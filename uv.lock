@@ -1374,7 +1374,9 @@ dependencies = [
     { name = "click" },
     { name = "fastapi" },
     { name = "fastmcp" },
+    { name = "grpcio" },
     { name = "httpx" },
+    { name = "openshell" },
     { name = "protobuf" },
     { name = "pydantic" },
     { name = "pyyaml" },
@@ -1389,11 +1391,6 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "python-dotenv", extra = ["cli"] },
     { name = "ruff" },
-]
-shell = [
-    { name = "grpcio" },
-    { name = "openshell" },
-    { name = "protobuf" },
 ]
 suites = [
     { name = "chardet" },
@@ -1412,14 +1409,13 @@ requires-dist = [
     { name = "faiss-cpu", marker = "extra == 'suites'" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "fastmcp" },
-    { name = "grpcio", marker = "extra == 'shell'", specifier = ">=1.60" },
+    { name = "grpcio", specifier = ">=1.60" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "ogx", marker = "extra == 'suites'", specifier = ">=0.8.0,<0.9.0" },
     { name = "ogx-client", marker = "extra == 'suites'", specifier = ">=0.8.0,<0.9.0" },
     { name = "openai", marker = "extra == 'suites'", specifier = ">=1.0" },
-    { name = "openshell", marker = "extra == 'shell'", specifier = ">=0.0.105" },
-    { name = "protobuf", specifier = ">=5.29" },
-    { name = "protobuf", marker = "extra == 'shell'", specifier = ">=6.31.1" },
+    { name = "openshell", specifier = ">=0.0.113,<0.1" },
+    { name = "protobuf", specifier = ">=6.31.1" },
     { name = "pydantic", specifier = ">=2.7.1" },
     { name = "pypdf", marker = "extra == 'suites'" },
     { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1.362" },
@@ -1431,7 +1427,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.3.0" },
     { name = "uvicorn", specifier = ">=0.34" },
 ]
-provides-extras = ["suites", "shell", "dev"]
+provides-extras = ["suites", "dev"]
 
 [[package]]
 name = "more-itertools"
@@ -1751,7 +1747,7 @@ wheels = [
 
 [[package]]
 name = "openshell"
-version = "0.0.105"
+version = "0.0.116"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cloudpickle" },
@@ -1760,9 +1756,7 @@ dependencies = [
     { name = "protobuf" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/be/64/e04f97c58ab45d6bf5b96df4a392e7f058987e13ec3788ae33affd97e594/openshell-0.0.105-py3-none-macosx_13_0_arm64.whl", hash = "sha256:8a3f1aaafc105473a6c25d8d22bcccb5efc3e5e1da6a5166791ed0369cb4b4a8", size = 8525680, upload-time = "2026-08-13T15:02:57.543Z" },
-    { url = "https://files.pythonhosted.org/packages/70/20/53dbff4312bd3ff55bad7826aea18ed4acc7ec171547a6e76773694493d0/openshell-0.0.105-py3-none-manylinux_2_39_aarch64.whl", hash = "sha256:8150bb9ffba40b940e2988b6535bb68d1a971ef16a44bec14aaf3ac1c1b47e75", size = 8603686, upload-time = "2026-08-13T15:03:33.761Z" },
-    { url = "https://files.pythonhosted.org/packages/45/aa/9728e1343f6c13bcb546113ef527dc72037350c4bb8ce38a3a3fb0740901/openshell-0.0.105-py3-none-manylinux_2_39_x86_64.whl", hash = "sha256:217f385bfc04b339d89e93f7d54b01aa31ece05b32e32ccd605f3349613cb208", size = 9083735, upload-time = "2026-08-13T15:03:59.348Z" },
+    { url = "https://files.pythonhosted.org/packages/4d/53/f20551c4ae45e072215832362b73951abd17473ca20d56d8b7c0c7d58fdd/openshell-0.0.116-py3-none-any.whl", hash = "sha256:5a31eb4e38d7b5d746956404145b7335557f9060ac7a987c65ea5af4d708b3fc", size = 110131, upload-time = "2026-08-28T09:10:50.719Z" },
 ]
 
 [[package]]
