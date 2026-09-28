@@ -66,9 +66,10 @@ class ControlPlaneClient:
         response.raise_for_status()
         return EvaluationResponse.model_validate(response.json())
 
-    async def put_evaluation_environment(self, run_id: str, eval_id: str, environment: dict[str, Any]) -> None:
-        response = await self._http.put(
-            f"{self._base_url}/runs/{run_id}/evaluations/{eval_id}/environment", json=environment
+    async def record_observations(self, run_id: str, eval_id: str, source: str, data: Any) -> None:
+        response = await self._http.post(
+            f"{self._base_url}/runs/{run_id}/evaluations/{eval_id}/observations",
+            json={"source": source, "data": data},
         )
         response.raise_for_status()
 

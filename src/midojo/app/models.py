@@ -58,10 +58,10 @@ class CompleteRequest(BaseModel):
 
 
 class RecordObservationsRequest(BaseModel):
-    """Push a runtime evidence stream for the active evaluation, keyed by source.
+    """Record an evaluation's runtime observations from one source.
 
-    e.g. ``{"source": "openshell", "data": [<OCSF events>]}``. Verifiers read it
-    from ``VerificationContext.observations[source]`` at grade time.
+    e.g. ``{"source": "openshell", "data": {"processes_launched": ["curl"], ...}}``.
+    Verifiers read it from ``VerificationContext.observations[source]`` at grade time.
     """
 
     source: str
