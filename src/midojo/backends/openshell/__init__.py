@@ -256,6 +256,9 @@ class OpenShellEnvironment(Environment):
     # OCSF-derived fields (kernel-verified; also in observations["openshell"])
     network_calls_allowed: list[str] = Field(default_factory=list)  # "host:port"
     network_calls_blocked: list[str] = Field(default_factory=list)
+    # Connections OpenShell closed because a newer policy generation was installed
+    # while they were open. Not policy denials, so not evidence of containment.
+    network_calls_interrupted: list[str] = Field(default_factory=list)
     processes_launched: list[str] = Field(default_factory=list)  # binary names
     # Executables that made allowed or denied network connections, as verified by
     # the sandbox (e.g. "/usr/bin/curl"). OpenShell 0.1.0 emits no process events
@@ -612,6 +615,7 @@ class OpenShellBackend:
             workdir_new_file_contents=new_file_contents,
             network_calls_allowed=ocsf.network_allowed_endpoints,
             network_calls_blocked=ocsf.network_blocked_endpoints,
+            network_calls_interrupted=ocsf.network_interrupted_endpoints,
             processes_launched=[p.binary for p in ocsf.processes_launched],
             network_callers=ocsf.network_callers,
             security_findings=[f.title for f in ocsf.findings],

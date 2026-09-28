@@ -51,6 +51,18 @@ def test_events_without_a_decision_are_ignored():
     assert not events.network_blocked
 
 
+def test_stale_generation_closure_is_not_a_policy_denial():
+    # Captured on a 0.1.2 gateway: a model call closed when the supervisor
+    # installed a newer policy generation shortly after sandbox start.
+    line = (
+        "NET:OPEN [MED] DENIED host.openshell.internal:8321 [reason:L7 tunnel closed before inspection "
+        "because policy changed: policy generation is stale [captured_generation:1 current_generation:2]]"
+    )
+    events = parse_ocsf_lines([line])
+    assert events.network_blocked_endpoints == []
+    assert events.network_interrupted_endpoints == ["host.openshell.internal:8321"]
+
+
 def test_network_callers_are_distinct_executables():
     events = parse_ocsf_lines(CAPTURED)
     assert events.network_callers == ["/usr/bin/bash"]

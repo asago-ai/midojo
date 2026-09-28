@@ -45,6 +45,14 @@ _HTTP_PATTERN = re.compile(
 
 _CALLER_PID_SUFFIX = re.compile(r"\(\d+\)$")
 
+# A connection closed because the supervisor installed a newer policy generation
+# while it was open. OpenShell reports it as a denial, but it is not a policy
+# decision about the destination: the client typically retries under the new
+# generation. Observed on 0.1.x shortly after sandbox start:
+#   NET:OPEN [MED] DENIED host.openshell.internal:8321 [reason:L7 tunnel closed before
+#   inspection because policy changed: policy generation is stale [captured_generation:1 ...]]
+_STALE_GENERATION_REASON = "policy generation is stale"
+
 _PROC_LAUNCH_PATTERN = re.compile(
     r"PROC:LAUNCH\s+\[\w+\]\s+(\S+)\((\d+)\)(?:\s+\[cmd:(.+?)\])?",
     re.IGNORECASE,
@@ -112,6 +120,8 @@ class OCSFEvents:
 
     network_allowed: list[NetworkEvent] = field(default_factory=list)
     network_blocked: list[NetworkEvent] = field(default_factory=list)
+    # Closed by a policy generation change rather than denied by policy.
+    network_interrupted: list[NetworkEvent] = field(default_factory=list)
     http_allowed: list[HttpEvent] = field(default_factory=list)
     http_blocked: list[HttpEvent] = field(default_factory=list)
     processes_launched: list[ProcessEvent] = field(default_factory=list)
@@ -125,6 +135,10 @@ class OCSFEvents:
     @property
     def network_blocked_endpoints(self) -> list[str]:
         return [e.endpoint for e in self.network_blocked]
+
+    @property
+    def network_interrupted_endpoints(self) -> list[str]:
+        return [e.endpoint for e in self.network_interrupted]
 
     @property
     def process_commands(self) -> list[str]:
@@ -193,7 +207,12 @@ def parse_ocsf_lines(lines: list[str]) -> OCSFEvents:
         if event is None:
             continue
         if isinstance(event, NetworkEvent):
-            (result.network_allowed if event.action == "ALLOWED" else result.network_blocked).append(event)
+            if event.action == "ALLOWED":
+                result.network_allowed.append(event)
+            elif _STALE_GENERATION_REASON in msg:
+                result.network_interrupted.append(event)
+            else:
+                result.network_blocked.append(event)
         elif isinstance(event, HttpEvent):
             (result.http_allowed if event.action == "ALLOWED" else result.http_blocked).append(event)
         elif isinstance(event, ProcessEvent):
