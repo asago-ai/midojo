@@ -144,9 +144,9 @@ name = "aiologic"
 version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "sniffio", marker = "python_full_version < '3.13'" },
-    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
-    { name = "wrapt", marker = "python_full_version < '3.13'" },
+    { name = "sniffio" },
+    { name = "typing-extensions" },
+    { name = "wrapt" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/a8/13/50b91a3ea6b030d280d2654be97c48b6ed81753a50286ee43c646ba36d3c/aiologic-0.16.0.tar.gz", hash = "sha256:c267ccbd3ff417ec93e78d28d4d577ccca115d5797cdbd16785a551d9658858f", size = 225952, upload-time = "2025-11-27T23:48:41.195Z" }
 wheels = [
@@ -574,8 +574,8 @@ name = "culsans"
 version = "0.11.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "aiologic", marker = "python_full_version < '3.13'" },
-    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+    { name = "aiologic" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/d9/e3/49afa1bc180e0d28008ec6bcdf82a4072d1c7a41032b5b759b60814ca4b0/culsans-0.11.0.tar.gz", hash = "sha256:0b43d0d05dce6106293d114c86e3fb4bfc63088cfe8ff08ed3fe36891447fe33", size = 107546, upload-time = "2025-12-31T23:15:38.196Z" }
 wheels = [
@@ -1417,7 +1417,7 @@ requires-dist = [
     { name = "ogx", marker = "extra == 'suites'", specifier = ">=0.8.0,<0.9.0" },
     { name = "ogx-client", marker = "extra == 'suites'", specifier = ">=0.8.0,<0.9.0" },
     { name = "openai", marker = "extra == 'suites'", specifier = ">=1.0" },
-    { name = "openshell", marker = "extra == 'shell'", specifier = ">=0.0.105" },
+    { name = "openshell", marker = "extra == 'shell'", specifier = ">=0.1.2" },
     { name = "protobuf", specifier = ">=5.29" },
     { name = "protobuf", marker = "extra == 'shell'", specifier = ">=6.31.1" },
     { name = "pydantic", specifier = ">=2.7.1" },
@@ -1751,18 +1751,17 @@ wheels = [
 
 [[package]]
 name = "openshell"
-version = "0.0.105"
+version = "0.1.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cloudpickle" },
+    { name = "googleapis-common-protos" },
     { name = "grpcio" },
     { name = "httpx" },
     { name = "protobuf" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/be/64/e04f97c58ab45d6bf5b96df4a392e7f058987e13ec3788ae33affd97e594/openshell-0.0.105-py3-none-macosx_13_0_arm64.whl", hash = "sha256:8a3f1aaafc105473a6c25d8d22bcccb5efc3e5e1da6a5166791ed0369cb4b4a8", size = 8525680, upload-time = "2026-08-13T15:02:57.543Z" },
-    { url = "https://files.pythonhosted.org/packages/70/20/53dbff4312bd3ff55bad7826aea18ed4acc7ec171547a6e76773694493d0/openshell-0.0.105-py3-none-manylinux_2_39_aarch64.whl", hash = "sha256:8150bb9ffba40b940e2988b6535bb68d1a971ef16a44bec14aaf3ac1c1b47e75", size = 8603686, upload-time = "2026-08-13T15:03:33.761Z" },
-    { url = "https://files.pythonhosted.org/packages/45/aa/9728e1343f6c13bcb546113ef527dc72037350c4bb8ce38a3a3fb0740901/openshell-0.0.105-py3-none-manylinux_2_39_x86_64.whl", hash = "sha256:217f385bfc04b339d89e93f7d54b01aa31ece05b32e32ccd605f3349613cb208", size = 9083735, upload-time = "2026-08-13T15:03:59.348Z" },
+    { url = "https://files.pythonhosted.org/packages/9e/0d/9f0c2e133bd4bfc96b9e261b870d58230d7d98fc6c51ae8f7f71f8520157/openshell-0.1.2-py3-none-any.whl", hash = "sha256:8c409da4f176d42418d92366fe201f47cceef2c0fa432bfbce2bf938649d59cf", size = 150901, upload-time = "2026-09-28T03:58:28.39Z" },
 ]
 
 [[package]]
@@ -2806,8 +2805,8 @@ name = "secretstorage"
 version = "3.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cryptography", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
-    { name = "jeepney", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "cryptography" },
+    { name = "jeepney" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/1c/03/e834bcd866f2f8a49a85eaff47340affa3bfa391ee9912a952a1faa68c7b/secretstorage-3.5.0.tar.gz", hash = "sha256:f04b8e4689cbce351744d5537bf6b1329c6fc68f91fa666f60a380edddcd11be", size = 19884, upload-time = "2025-11-23T19:02:53.191Z" }
 wheels = [

@@ -29,7 +29,7 @@ suites = [
 shell = [
     # OpenShell SDK for the `openshell` backend/protocol. Prebuilt wheels are
     # published to the index, so no Rust toolchain or local checkout is needed.
-    "openshell>=0.0.105",
+    "openshell>=0.1.2",
     "grpcio>=1.60",
     # OpenShell's generated protobuf code targets the 6.31.x runtime; the base
     # `protobuf>=5.29` pin is too old for it, so tighten it when installing shell.
