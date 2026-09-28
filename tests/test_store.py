@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from threading import Event, Thread
 
 import pytest
 
@@ -61,34 +60,6 @@ def test_get_run_unknown_returns_none(store):
     assert store.get_run("nope") is None
 
 
-def test_distinct_evaluation_callbacks_do_not_share_a_lock(store):
-    run = store.create_run("test")
-    first = _make_eval(store, run.id)
-    second = _make_eval(store, run.id)
-    first_token, _ = store.create_session(run.id, first.id, ttl_seconds=60)
-    second_token, _ = store.create_session(run.id, second.id, ttl_seconds=60)
-    first_entered = Event()
-    second_entered = Event()
-    release = Event()
-
-    def hold_callback(token: str, entered: Event) -> None:
-        with store.session_evaluation(token):
-            entered.set()
-            assert release.wait(timeout=1)
-
-    first_thread = Thread(target=hold_callback, args=(first_token, first_entered))
-    second_thread = Thread(target=hold_callback, args=(second_token, second_entered))
-    first_thread.start()
-    assert first_entered.wait(timeout=1)
-    second_thread.start()
-    try:
-        assert second_entered.wait(timeout=1)
-    finally:
-        release.set()
-        first_thread.join()
-        second_thread.join()
-
-
 def test_list_runs(store):
     assert store.list_runs() == []
     r1 = store.create_run("test")
@@ -122,8 +93,7 @@ def test_evaluation_id_collision_preserves_existing_records_and_sessions(store, 
     assert second.id == new_id
     assert store.get_evaluation(run.id, first.id) is first
     assert store.get_evaluation(next_run.id, second.id) is second
-    with store.session_evaluation(token) as bound:
-        assert bound is first
+    assert store.session_evaluation(token) is first
 
 
 def test_get_evaluation_unknown_returns_none(store):

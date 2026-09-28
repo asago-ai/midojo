@@ -15,7 +15,7 @@ router = APIRouter(prefix="/suites")
 
 
 @router.get("/{suite_name}", response_model=SuiteInfoResponse, status_code=status.HTTP_200_OK)
-def suite_info(suite_name: SuiteName, suite: Annotated[YAMLTaskSuite, Depends(get_suite)]):
+async def suite_info(suite_name: SuiteName, suite: Annotated[YAMLTaskSuite, Depends(get_suite)]):
     return SuiteInfoResponse(
         name=suite_name,
         user_tasks=list(suite.user_tasks.keys()),
@@ -25,5 +25,5 @@ def suite_info(suite_name: SuiteName, suite: Annotated[YAMLTaskSuite, Depends(ge
 
 
 @router.get("")
-def list_suites(suites: Annotated[Mapping[SuiteName, YAMLTaskSuite], Depends(get_suites)]) -> list[SuiteName]:
+async def list_suites(suites: Annotated[Mapping[SuiteName, YAMLTaskSuite], Depends(get_suites)]) -> list[SuiteName]:
     return sorted(suites)

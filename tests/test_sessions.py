@@ -1,9 +1,12 @@
 """Exercise callback isolation across suites, app instances, and overlapping tasks."""
 
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote
 
 import pytest
+from fastapi.dependencies.models import Dependant
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
@@ -61,29 +64,31 @@ def test_interleaved_suites_validate_and_grade_their_own_environment(tmp_path):
         assert client.get("/agent/environment", headers=auth(ev)).status_code == 401
 
 
-def test_parallel_callbacks_stay_with_their_session(client):
-    run_a, a = new_evaluation(client)
-    run_b, b = new_evaluation(client)
+def test_parallel_callbacks_stay_with_their_session(app):
+    # The context-managed client sends every request to one event loop, like uvicorn.
+    with TestClient(app) as client:
+        run_a, a = new_evaluation(client)
+        run_b, b = new_evaluation(client)
 
-    def report(i):
-        ev = a if i % 2 else b
-        response = client.post(
-            "/agent/function-calls",
-            headers=auth(ev),
-            json={
-                "function": "report",
-                "args": {},
-                "result": ev["id"],
-            },
-        )
-        assert response.status_code == 201
+        def report(i):
+            ev = a if i % 2 else b
+            response = client.post(
+                "/agent/function-calls",
+                headers=auth(ev),
+                json={
+                    "function": "report",
+                    "args": {},
+                    "result": ev["id"],
+                },
+            )
+            assert response.status_code == 201
 
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        list(pool.map(report, range(32)))
-    for run, ev in [(run_a, a), (run_b, b)]:
-        calls = client.get(f"/runs/{run['id']}/evaluations/{ev['id']}/function-calls").json()
-        assert len(calls) == 16
-        assert {call["result"] for call in calls} == {ev["id"]}
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(report, range(32)))
+        for run, ev in [(run_a, a), (run_b, b)]:
+            calls = client.get(f"/runs/{run['id']}/evaluations/{ev['id']}/function-calls").json()
+            assert len(calls) == 16
+            assert {call["result"] for call in calls} == {ev["id"]}
 
 
 def test_sessions_are_private_expire_and_cannot_fall_back(suite, monkeypatch):
@@ -155,3 +160,21 @@ def test_suite_name_constraint_applies_to_app_requests_and_paths(client, suite):
     response = client.get(f"/suites/{quote(name, safe='')}/tasks/user")
     assert response.status_code == 422
     assert response.json()["detail"][0]["loc"] == ["path", "suite_name"]
+
+
+def test_handlers_and_dependencies_run_on_the_event_loop(app):
+    # FastAPI runs sync callables on a thread pool, where store check-then-write
+    # sequences can interleave. See the midojo.app.store module docstring.
+    def dependants(dependant: Dependant) -> Iterator[Dependant]:
+        yield dependant
+        for sub in dependant.dependencies:
+            yield from dependants(sub)
+
+    sync = sorted(
+        f"{route.path}: {getattr(dep.call, '__name__', type(dep.call).__name__)}"
+        for route in app.routes
+        if isinstance(route, APIRoute)
+        for dep in dependants(route.dependant)
+        if not (dep.is_coroutine_callable or dep.is_async_gen_callable)
+    )
+    assert sync == [], "declare these async def (see midojo.app.store)"

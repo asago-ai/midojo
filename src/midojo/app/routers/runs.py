@@ -47,7 +47,7 @@ def _require_eval(evaluation: Evaluation | None, eval_id: str) -> Evaluation:
 
 
 @router.post("", response_model=CreateRunResponse, status_code=status.HTTP_201_CREATED)
-def create_run(
+async def create_run(
     req: CreateRunRequest,
     suites: Annotated[Mapping[SuiteName, YAMLTaskSuite], Depends(get_suites)],
     store: Annotated[Store, Depends(get_store)],
@@ -58,7 +58,7 @@ def create_run(
 
 
 @router.get("/{run_id}", response_model=RunResponse, status_code=status.HTTP_200_OK)
-def retrieve_run(run: Annotated[Run, Depends(get_run)]):
+async def retrieve_run(run: Annotated[Run, Depends(get_run)]):
     return RunResponse(
         id=run.id,
         suite_name=run.suite_name,
@@ -78,7 +78,7 @@ def retrieve_run(run: Annotated[Run, Depends(get_run)]):
 
 
 @router.post("/{run_id}/evaluations", response_model=CreateEvaluationResponse, status_code=status.HTTP_201_CREATED)
-def create_evaluation(
+async def create_evaluation(
     req: CreateEvaluationRequest,
     config: Annotated[AppConfig, Depends(get_config)],
     run: Annotated[Run, Depends(get_run)],
@@ -114,7 +114,7 @@ def create_evaluation(
     response_model=EvaluationResponse,
     status_code=status.HTTP_200_OK,
 )
-def retrieve_evaluation(evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)]):
+async def retrieve_evaluation(evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)]):
     return EvaluationResponse(
         id=evaluation.id,
         user_task_id=evaluation.user_task_id,
@@ -130,7 +130,7 @@ def retrieve_evaluation(evaluation: Annotated[Evaluation, Depends(get_evaluation
 
 
 @router.post("/{run_id}/evaluations/{eval_id}/complete", status_code=status.HTTP_200_OK)
-def complete_evaluation(
+async def complete_evaluation(
     eval_id: str,
     req: CompleteRequest,
     run: Annotated[Run, Depends(get_run)],
@@ -141,7 +141,7 @@ def complete_evaluation(
 
 
 @router.post("/{run_id}/evaluations/{eval_id}/grade", response_model=GradeResponse, status_code=status.HTTP_200_OK)
-def grade_evaluation(
+async def grade_evaluation(
     evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)],
     suite: Annotated[YAMLTaskSuite, Depends(get_run_suite)],
     store: Annotated[Store, Depends(get_store)],
@@ -175,12 +175,12 @@ def grade_evaluation(
 
 
 @router.get("/{run_id}/evaluations/{eval_id}/environment", status_code=status.HTTP_200_OK)
-def get_environment(evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)]) -> dict:
+async def get_environment(evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)]) -> dict:
     return evaluation.environment.model_dump()
 
 
 @router.put("/{run_id}/evaluations/{eval_id}/environment")
-def update_environment(
+async def update_environment(
     body: dict,
     evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)],
     suite: Annotated[YAMLTaskSuite, Depends(get_run_suite)],
@@ -192,7 +192,7 @@ def update_environment(
 
 
 @router.delete("/{run_id}/evaluations/{eval_id}/session", status_code=204)
-def close_session(
+async def close_session(
     evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)],
     store: Annotated[Store, Depends(get_store)],
 ) -> None:
@@ -207,7 +207,9 @@ def close_session(
     response_model=list[FunctionCallResponse],
     status_code=status.HTTP_200_OK,
 )
-def list_function_calls(evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)]) -> list[FunctionCallRecord]:
+async def list_function_calls(
+    evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)],
+) -> list[FunctionCallRecord]:
     return evaluation.function_calls
 
 
@@ -216,7 +218,9 @@ def list_function_calls(evaluation: Annotated[Evaluation, Depends(get_evaluation
     response_model=FunctionCallResponse,
     status_code=status.HTTP_200_OK,
 )
-def get_function_call(idx: int, evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)]) -> FunctionCallRecord:
+async def get_function_call(
+    idx: int, evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)]
+) -> FunctionCallRecord:
     if idx < 0 or idx >= len(evaluation.function_calls):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Function call index out of range: {idx}")
     return evaluation.function_calls[idx]
@@ -227,7 +231,7 @@ def get_function_call(idx: int, evaluation: Annotated[Evaluation, Depends(get_ev
     response_model=FunctionCallResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def record_function_call(
+async def record_function_call(
     eval_id: str,
     req: CreateFunctionCallRecord,
     run: Annotated[Run, Depends(get_run)],
@@ -245,12 +249,12 @@ def record_function_call(
 
 
 @router.get("/{run_id}/evaluations/{eval_id}/observations", status_code=status.HTTP_200_OK)
-def get_observations(evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)]) -> dict:
+async def get_observations(evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)]) -> dict:
     return evaluation.observations
 
 
 @router.post("/{run_id}/evaluations/{eval_id}/observations", status_code=status.HTTP_200_OK)
-def record_observations(
+async def record_observations(
     eval_id: str,
     req: RecordObservationsRequest,
     run: Annotated[Run, Depends(get_run)],

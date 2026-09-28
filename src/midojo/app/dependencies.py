@@ -16,15 +16,15 @@ from .state import Evaluation, Run
 from .store import Store
 
 
-def get_store(request: Request) -> Store:
+async def get_store(request: Request) -> Store:
     return request.app.state.store
 
 
-def get_config(request: Request) -> AppConfig:
+async def get_config(request: Request) -> AppConfig:
     return request.app.state.config
 
 
-def get_suites(request: Request) -> Mapping[SuiteName, YAMLTaskSuite]:
+async def get_suites(request: Request) -> Mapping[SuiteName, YAMLTaskSuite]:
     return request.app.state.suites
 
 
@@ -35,26 +35,26 @@ def resolve_suite(suites: Mapping[SuiteName, YAMLTaskSuite], suite_name: SuiteNa
     return suite
 
 
-def get_suite(
+async def get_suite(
     suite_name: SuiteName, suites: Annotated[Mapping[SuiteName, YAMLTaskSuite], Depends(get_suites)]
 ) -> YAMLTaskSuite:
     return resolve_suite(suites, suite_name)
 
 
-def get_run(run_id: str, store: Annotated[Store, Depends(get_store)]) -> Run:
+async def get_run(run_id: str, store: Annotated[Store, Depends(get_store)]) -> Run:
     run = store.get_run(run_id)
     if run is None:
         raise HTTPException(404, f"Unknown run: {run_id}")
     return run
 
 
-def get_run_suite(
+async def get_run_suite(
     run: Annotated[Run, Depends(get_run)], suites: Annotated[Mapping[SuiteName, YAMLTaskSuite], Depends(get_suites)]
 ) -> YAMLTaskSuite:
     return resolve_suite(suites, run.suite_name)
 
 
-def get_evaluation_by_id(
+async def get_evaluation_by_id(
     eval_id: str,
     run: Annotated[Run, Depends(get_run)],
     store: Annotated[Store, Depends(get_store)],
@@ -65,7 +65,7 @@ def get_evaluation_by_id(
     return evaluation
 
 
-def get_session_token(
+async def get_session_token(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(HTTPBearer(auto_error=False))],
 ) -> str:
     if credentials is None:

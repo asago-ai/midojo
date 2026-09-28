@@ -36,7 +36,7 @@ def create_app(
         return JSONResponse(status_code=401, content={"detail": str(exc)}, headers={"WWW-Authenticate": "Bearer"})
 
     @app.get("/health")
-    def health() -> dict:
+    async def health() -> dict:
         return {"status": "ok"}
 
     return app
