@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny
 
-from midojo.types import Environment
+from midojo.types import Environment, SuiteName
 
 # --- Run / Evaluation request/response models ---
 
@@ -37,13 +37,20 @@ class CreateEvaluationRequest(BaseModel):
     injections: dict[str, str] = {}
 
 
+class CreateRunRequest(BaseModel):
+    suite_name: SuiteName
+
+
 class CreateRunResponse(BaseModel):
     id: str
+    suite_name: SuiteName
 
 
 class CreateEvaluationResponse(BaseModel):
     id: str
     prompt: str
+    session_token: str
+    session_expires_at: str
 
 
 class CompleteRequest(BaseModel):
@@ -84,6 +91,7 @@ class EvaluationSummary(BaseModel):
 
 class RunResponse(BaseModel):
     id: str
+    suite_name: SuiteName
     created_at: str
     evaluations: list[EvaluationSummary]
 
@@ -105,9 +113,10 @@ class EvaluationResponse(BaseModel):
 
 
 class SuiteInfoResponse(BaseModel):
+    name: SuiteName
     user_tasks: list[str]
     injection_tasks: list[str]
-    environment: Environment
+    environment: SerializeAsAny[Environment]
 
 
 class TaskDetailResponse(BaseModel):

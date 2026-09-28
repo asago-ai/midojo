@@ -7,7 +7,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from midojo.agent_client import OGXResponsesClient, OpenAIResponsesAgentClient
+from midojo.agent_client import OGXResponsesClient, OpenAIResponsesAgentClient, OpenShellAgentClient
+
+
+@pytest.mark.asyncio
+async def test_openshell_agent_failure_is_not_graded_as_empty_output():
+    backend = MagicMock()
+    backend.exec_agent.return_value = MagicMock(exit_code=1, stdout="", stderr="Inference connection failed")
+    client = OpenShellAgentClient(backend=backend)
+    with pytest.raises(RuntimeError, match="Inference connection failed"):
+        await client.send_task("task", session_token="session-a")
 
 
 class TestOGXResponsesClient:
@@ -121,7 +130,7 @@ class TestOpenAIResponsesAgentClient:
         mock_openai_module.AsyncOpenAI = MagicMock(return_value=mock_openai_instance)
 
         with patch.dict(sys.modules, {"openai": mock_openai_module}):
-            result = await client.send_task("What is the weather in New York?")
+            result = await client.send_task("What is the weather in New York?", session_token="session-a")
 
         assert result == "It is 72°F and sunny in New York."
         mock_responses.create.assert_called_once()
@@ -134,6 +143,7 @@ class TestOpenAIResponsesAgentClient:
         assert tools[0]["type"] == "mcp"
         assert tools[0]["server_label"] == "weather"
         assert tools[0]["server_url"] == "http://localhost:8082/mcp"
+        assert tools[0]["headers"] == {"X-Midojo-Session": "session-a"}
         assert tools[0]["require_approval"] == "never"
 
     @pytest.mark.asyncio
@@ -157,7 +167,7 @@ class TestOpenAIResponsesAgentClient:
         mock_openai_module.AsyncOpenAI = MagicMock(return_value=mock_openai_instance)
 
         with patch.dict(sys.modules, {"openai": mock_openai_module}):
-            await client.send_task("weather?")
+            await client.send_task("weather?", session_token="session-a")
 
         call_kwargs = mock_openai_instance.responses.create.call_args.kwargs
         assert call_kwargs["instructions"] == "You are a weather assistant."
