@@ -102,8 +102,8 @@ class OpenAIResponsesAgentClient(AgentClient):
     involvement.
 
     Unlike ``OGXResponsesClient``, this client is fully async and has no
-    OGX-specific extensions (no ``guardrails``). Set ``OPENAI_API_KEY`` for
-    cloud endpoints; local servers accept any non-empty string as the key.
+    OGX-specific extensions (no ``guardrails``). The caller supplies the API key
+    expected by the endpoint; the CLI reads it from ``OPENAI_API_KEY``.
     """
 
     def __init__(
@@ -114,7 +114,7 @@ class OpenAIResponsesAgentClient(AgentClient):
         *,
         mcp_server_label: str = "midojo",
         instructions: str = "",
-        api_key: str = "x",
+        api_key: str,
         timeout: float = 120.0,
     ) -> None:
         self.base_url = base_url
