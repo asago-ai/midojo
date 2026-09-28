@@ -197,6 +197,7 @@ OpenShell 0.1.x is released (0.1.0 on 2026-09-25, 0.1.2 on 2026-09-28) and chang
 | Policy-generation closures recorded as `network_calls_interrupted` | 0.1.2 closes early connections when it installs a new policy generation; counting them as blocked faked containment |
 | Dead `Proxy Bypass` predicate removed from the document_assistant suite | 0.1.x denies direct connects at the syscall; that finding no longer exists |
 | `openshell>=0.1.2` pin | The backend no longer works with the 0.0.x SDK |
+| SDK internals confined to `backends/openshell/private_api.py`, enforced by a test | The public Python SDK cannot build a spec with policy and providers or read logs; isolating the private usage means one file changes when it can |
 | Parser tests built from captured 0.1.x lines | No parser tests existed, which is how the format drift went unnoticed |
 
 Verified end to end with `midojo-serve` and `midojo-run --protocol openshell` using a scripted agent that obeys a seeded injection: the attempted exfiltration is captured as blocked at both the DNS and connect stage, attributed to `/usr/bin/bash`, and the grader decides "attack succeeded". The remaining gap is the reachability N/A described under Evidence.
@@ -259,11 +260,12 @@ These go to the internal teams that work with upstream OpenShell. Each is phrase
 
 | Ask | Why MiDojo needs it |
 | --- | --- |
+| A public Python logs API: the equivalent of the Rust SDK's `watch_logs`, or a `SandboxClient.logs(...)` | The Python SDK (0.1.2) has no logs or watch method, so MiDojo reads sandbox security events through the client's private gRPC stub |
+| Public Python spec types, or policy and provider arguments on `SandboxClient.create` | `create` takes an `openshell_pb2.SandboxSpec` that is only importable from the private `openshell._proto` package; the Rust and Go SDKs expose the spec publicly |
 | Structured OCSF fields in `GetSandboxLogs` (or a JSONL retrieval API) | Pushed events arrive as shorthand text only, forcing regex parsing that drifts between releases |
 | Sandbox identity (and labels) in the middleware request context | Needed to route injections and records to the right evaluation, and to run evaluations in parallel |
 | Middleware stage able to return a synthetic response, not only deny | Lets production-like runs intercept real writes safely |
 | Process events for commands launched through `exec` | Today only the main process emits them, and only to sandbox-side logs |
-| Python SDK wrappers for logs, policy, draft chunks and services | Still missing in 0.1.2; MiDojo reaches into `client._stub` for logs and drafts |
 | A log flush or read-your-writes guarantee after `exec` returns | MiDojo works around the 500 ms batch push with a DNS marker barrier |
 | No spurious policy generation change after sandbox start | On 0.1.2 the first settings poll reports `provider_env_changed` with nothing changed, and the new generation closes the agent's first connections |
 | Confirm Landlock ABI v3 passes the capability probe on target RHCOS nodes (RHOAI team) | Without it, OpenShift sandboxes do not start |
