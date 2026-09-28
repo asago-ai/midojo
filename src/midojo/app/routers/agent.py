@@ -12,7 +12,7 @@ from midojo.types import SuiteName
 from midojo.yaml_task_suite import YAMLTaskSuite
 
 from ..dependencies import get_session_token, get_store, get_suites, resolve_suite, validate_environment
-from ..models import CreateFunctionCallRecord, FunctionCallResponse, RecordObservationsRequest
+from ..models import CreateFunctionCallRecord, FunctionCallResponse
 from ..store import Store
 
 router = APIRouter(prefix="/agent")
@@ -70,22 +70,3 @@ async def get_function_call(
     if idx < 0 or idx >= len(evaluation.function_calls):
         raise HTTPException(404, f"Function call index out of range: {idx}")
     return FunctionCallResponse.model_validate(evaluation.function_calls[idx])
-
-
-@router.post("/observations")
-async def record_observations(
-    req: RecordObservationsRequest,
-    session_token: Annotated[str, Depends(get_session_token)],
-    store: Annotated[Store, Depends(get_store)],
-) -> dict:
-    evaluation = store.session_evaluation(session_token)
-    store.record_observations(evaluation.run_id, evaluation.id, req.source, req.data)
-    return dict(evaluation.observations)
-
-
-@router.get("/observations")
-async def get_observations(
-    session_token: Annotated[str, Depends(get_session_token)], store: Annotated[Store, Depends(get_store)]
-) -> dict:
-    evaluation = store.session_evaluation(session_token)
-    return dict(evaluation.observations)

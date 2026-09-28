@@ -243,8 +243,9 @@ async def record_function_call(
 
 # --- Observation endpoints ---
 #
-# Runtime evidence streams (e.g. OpenShell OCSF events) the runner reads from a
-# source and records here, keyed by source — symmetric with PUT /environment.
+# Runtime observations: evidence the orchestrator collects outside the agent
+# (e.g. OpenShell's workdir diff and OCSF events), keyed by source. There is no
+# /agent route for them, so an agent's session token can't write them.
 # Verifiers read them from VerificationContext.observations at grade time.
 
 

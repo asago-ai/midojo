@@ -287,17 +287,13 @@ def test_record_and_get_observations(client):
     assert _evaluation(client, run_id, eval_id).observations == {"openshell": events}
 
 
-def test_agent_observations_keyed_by_source(client):
+def test_agent_session_cannot_record_observations(client):
     run_id = _create_run(client)
-    _create_evaluation(client, run_id)
+    eval_id = _create_evaluation(client, run_id)["id"]
 
-    client.post("/agent/observations", json={"source": "openshell", "data": ["PROC:LAUNCH curl"]})
-    client.post("/agent/observations", json={"source": "acs", "data": {"processes": ["curl"]}})
-
-    assert client.get("/agent/observations").json() == {
-        "openshell": ["PROC:LAUNCH curl"],
-        "acs": {"processes": ["curl"]},
-    }
+    resp = client.post("/agent/observations", json={"source": "openshell", "data": {"processes_launched": []}})
+    assert resp.status_code == 404
+    assert _evaluation(client, run_id, eval_id).observations == {}
 
 
 # --- 404s on the nested mutation routes ---
