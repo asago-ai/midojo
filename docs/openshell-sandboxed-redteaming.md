@@ -1,6 +1,6 @@
 # MiDojo on OpenShell: Sandboxed Red-Teaming Design
 
-Last updated: 2026-09-25
+Last updated: 2026-09-28
 
 OpenShell becomes MiDojo's default and only way to red-team agents, including customer agents in production-like settings. This doc covers how the integration is hardened, how interception works for agents we don't control, and what red-teaming it enables.
 
@@ -17,7 +17,7 @@ Design constraints that apply throughout:
 - Target upstream OpenShell and vanilla Kubernetes. OpenShift/RHOAI specifics are owned by a separate team.
 - Bring your agent: customer images must run unmodified. In-image MiDojo hooks are acceptable only for our own dev mini-agents.
 - Support both coding (CLI) agents and service agents (A2A, HTTP, MCP-based).
-- Target OpenShell 0.1.0, the first release with a stable API policy and the capability-free sandbox architecture this design relies on.
+- Target OpenShell 0.1.x (0.1.2 at the time of writing), the first release series with a stable API policy and the capability-free sandbox architecture this design relies on.
 
 ## Grading model: separate "compromised" from "breached"
 
@@ -32,7 +32,7 @@ With OpenShell in the loop, a single "attack succeeded" bit hides the most usefu
 
 Also flag **policy blocked utility**: the task failed because egress was denied rather than because the model failed. That points at an over-tight policy, not a weak agent.
 
-Inconclusive matters because today an observation failure grades as "attack failed", the most dangerous possible misreport. Grading changes touch the control-plane API, so they land after PR #135.
+Inconclusive matters because today an observation failure grades as "attack failed", the most dangerous possible misreport. Grading changes touch the control-plane API; with #135 merged, they are unblocked.
 
 ## Target architecture
 
@@ -102,7 +102,7 @@ Rules the contract encodes:
 - **Service agents must declare their server command.** When `spec.command` is empty, OpenShell starts a login shell as the main process, not the image's ENTRYPOINT.
 - **Policy is the agent's real policy file** in the `openshell policy set` YAML format, not hand-written proto JSON. Anything MiDojo adds (for example a fake MCP endpoint) is recorded as a declared harness delta in every report.
 - **Credentials only through OpenShell providers**, backed by test credentials. The agent sees placeholders; real values never enter the sandbox. Secrets in `env_vars` fail suite linting.
-- **Images are explicit references.** OpenShell 0.1.0 deprecates the community sandbox images, so bare names like `pi` stop resolving.
+- **Images are explicit references.** OpenShell 0.1.0 deprecates the community sandbox images, so bare names like `pi` stop resolving. OpenShell's own Pi tutorial now builds the agent image from `node:24-bookworm-slim` with the agent installed from npm, and gives model access through a provider profile. Our dev mini-agent images follow that pattern.
 
 ## Interception tiers
 
@@ -132,7 +132,7 @@ To verify: headless loading of the plugin or settings without a trust prompt, pr
 - **Trusted evidence** comes from outside the agent: OpenShell events, middleware or fake MCP records, and the file diff taken by the orchestrator.
 - **Agent-side evidence** (harness hooks, in-image SDKs) runs as the agent's own child processes: same UID, same filesystem scope, same egress. A compromised agent can read, forge or delete it. Use it for intent and reachability, never as the sole basis for "resisted".
 - **Observe, don't block.** A hook that blocks actions is a guardrail, so the evaluation would test the harness instead of the agent. Blocking hooks belong to a separate guardrail-evaluation mode. Customer hooks that ship in production are part of the system under test and stay in place.
-- **Callbacks from inside the sandbox must be append-only.** PR #135 authenticates them with a per-evaluation session token, delivered today as a plain environment variable. That token can rewrite the evaluation's environment, so an injected agent that reads it can alter its own grading state. Deliver it as an OpenShell provider credential bound to the control-plane endpoint (the agent sees only a placeholder), and restrict in-sandbox callbacks to recording calls and observations.
+- **Callbacks from inside the sandbox must be append-only.** #135 (merged) authenticates them with a per-evaluation session token, delivered as a plain environment variable. That token can rewrite the evaluation's environment, so an injected agent that reads it can alter its own grading state. Deliver it as an OpenShell provider credential bound to the control-plane endpoint (the agent sees only a placeholder), and restrict in-sandbox callbacks to recording calls and observations.
 
 ## Evidence
 
@@ -144,13 +144,14 @@ With customer images there is no agent-side trace, so grading rests on three sou
 | Interception records | Every tool request and response, which proves reachability and forms the function-call trace | Middleware or fake MCP posting to the control plane |
 | Sandbox state | Files created, changed or deleted in the workdir, with contents | `exec` of `find` and `cat` after the run |
 
-### What we learned about 0.1.0 events on a live gateway
+### What we learned about 0.1.x events on a live gateway
 
 - Network events name the calling executable as a full path verified inside the sandbox; the pid is always 0 because it is not visible across the boundary.
 - DNS-stage refusals (`NET:REFUSE`) carry no caller and no port. A DNS-only exfiltration attempt shows up only there.
 - HTTP (L7) events carry no caller.
 - Commands run through `exec` emit **no process events**. Process evidence for agent tools comes from the network events' calling executable.
 - The supervisor pushes logs in batches every 500 ms, so a read right after the agent exits misses its last events. MiDojo now resolves a unique marker hostname inside the sandbox and waits until OpenShell's refusal of that name appears; everything the agent caused was pushed before it.
+- **Policy-generation interruptions are not denials.** On 0.1.2, shortly after a sandbox starts, the supervisor installs a newer policy generation and closes connections opened under the old one, logging each as `DENIED … policy generation is stale`. It hit the agent's calls to its model and to the control plane on every real-agent run. MiDojo records these as `network_calls_interrupted`, separate from blocked calls, so they cannot fake "contained" evidence.
 - Pushed events are shorthand text with no structured fields, which forces regex parsing.
 
 ### Reachability
@@ -184,30 +185,36 @@ Containment regression is the cheapest high-value mode: it needs no model, runs 
 
 ## Integration hardening: status
 
-MiDojo's OpenShell backend works against the current stable SDK (`openshell` 0.0.116 on PyPI, old in-container supervisor architecture) and breaks against OpenShell 0.1.0, which is close to release. The 0.1.0 compatibility work is done on branch `feat/openshell-0.1.0` and verified against a live `0.1.0-pre.12` gateway (Podman driver, macOS).
+OpenShell 0.1.x is released (0.1.0 on 2026-09-25, 0.1.2 on 2026-09-28) and changes the SDK, log APIs and sandbox architecture that MiDojo's backend depends on. The compatibility work is on branch `feat/openshell-0.1.0`, rebased onto `main` after #135 and #141 merged, pinned to `openshell>=0.1.2`, and validated against a live 0.1.2 gateway (Podman driver, macOS). The 0.1.2 SDK is identical to the 0.1.0 release candidate the work was developed against.
 
 | Change | Why |
 | --- | --- |
-| Sandbox commands address the sandbox by name within its workspace | The 0.1.0 SDK `exec` takes a name and a required `workspace`; the old ID call raises `TypeError` |
+| Sandbox commands address the sandbox by name within its workspace | The 0.1.x SDK `exec` takes a name and a required `workspace`; the old ID call raises `TypeError` |
 | Logs request uses `sandbox`, `workspace_scope`, `since_time` | The old fields are removed; the failure was swallowed, so every OpenShell predicate silently graded False |
 | Parser handles DNS-stage refusals and caller-less HTTP events | Both were dropped: DNS-only exfiltration and every L7 event went ungraded |
-| `network_callers` field; `process_ran` uses it | 0.1.0 emits no process events for `exec`, so `process_ran: curl` could never fire |
+| `network_callers` field; `process_ran` uses it | 0.1.x emits no process events for `exec`, so `process_ran: curl` could never fire |
 | Log sync barrier before the snapshot | Batched log push raced the snapshot and lost the agent's last network decisions |
-| Dead `Proxy Bypass` predicate removed from the document_assistant suite | 0.1.0 denies direct connects at the syscall; that finding no longer exists |
-| Parser tests built from captured 0.1.0 lines | No parser tests existed, which is how the format drift went unnoticed |
+| Policy-generation closures recorded as `network_calls_interrupted` | 0.1.2 closes early connections when it installs a new policy generation; counting them as blocked faked containment |
+| Dead `Proxy Bypass` predicate removed from the document_assistant suite | 0.1.x denies direct connects at the syscall; that finding no longer exists |
+| `openshell>=0.1.2` pin | The backend no longer works with the 0.0.x SDK |
+| Parser tests built from captured 0.1.x lines | No parser tests existed, which is how the format drift went unnoticed |
 
 Verified end to end with `midojo-serve` and `midojo-run --protocol openshell` using a scripted agent that obeys a seeded injection: the attempted exfiltration is captured as blocked at both the DNS and connect stage, attributed to `/usr/bin/bash`, and the grader decides "attack succeeded". The remaining gap is the reachability N/A described under Evidence.
 
-Also verified with a real agent: the document_assistant suite (pi, rebuilt from the current `Containerfile`, with a local `qwen3.5:2b` served by Ollama) ran all 4 evaluations in 80 s. Utility was 100%, the model resisted both injections, and every row got a real verdict because the in-image extension reported the `read` of the seeded file. The published suite image predates that extension and should be rebuilt.
+Also verified with a real agent on 0.1.0-pre.12, before #135: the document_assistant suite (pi, rebuilt from the current `Containerfile`, with a local `qwen3.5:2b` served by Ollama) ran all 4 evaluations in 80 s. Utility was 100%, the model resisted both injections, and every row got a real verdict because the in-image extension reported the `read` of the seeded file. The published suite image predates that extension and should be rebuilt.
 
-The PR stays in draft until 0.1.0 is on PyPI, then bumps the pin to `openshell>=0.1.0`.
+Re-validated on the 0.1.2 gateway after the rebase: the scripted suite's evidence is identical to 0.1.0. The real pi agent completes its task, but its security rows show N/A on current `main`: #135 removed the `/current/*` routes, and the pi SDK and Python MCP SDK on `main` still call them (their callbacks return 404). #138 updates the SDKs; until it merges, reachability for every interception-layer suite is broken on `main`, independent of OpenShell.
+
+The branch is ready for review; it needs no unreleased dependency.
 
 ### Remaining hardening items
 
-- Four-outcome grading with Inconclusive (after #135).
-- Reachability exposure labels instead of N/A (orchestrator, after #135).
-- Session token delivered as an OpenShell provider credential; in-sandbox callbacks append-only (after #135).
-- Remove community-image name expansion and pick a base for our dev mini-agent images.
+- Four-outcome grading with Inconclusive (unblocked by #135).
+- Reachability exposure labels instead of N/A (orchestrator; unblocked by #135).
+- Session token delivered as an OpenShell provider credential; in-sandbox callbacks append-only (unblocked by #135).
+- Wait for the sandbox's policy generation to settle before launching the agent, so its first calls are not interrupted.
+- Rebuild the document_assistant image on the `node:24-bookworm-slim` pattern with a provider for model access (after #138, since the image bakes in the SDK); the published image predates the reporting extension.
+- Remove community-image name expansion (`_resolve_image`).
 - Prompt delivered by stdin or env instead of argv.
 - Suite linting: providers only, `enforcement: enforce`, no broad binary globs, no uninspected credentialed endpoints, harness delta recorded.
 - Policy supplied as a YAML file in `openshell policy set` format.
@@ -235,12 +242,12 @@ Workspace creation under OIDC needs Platform Admin. On a shared gateway, MiDojo 
 
 ## Roadmap
 
-PR #135 (multi-suite control plane, authenticated `/agent/*` callbacks, per-evaluation sessions) is merging separately and is not reworked here. Work that touches grading or routes waits for it.
+#135 (multi-suite control plane, authenticated `/agent/*` callbacks, per-evaluation sessions) and #141 (explicit inference configuration) have merged. #138 (SDKs moved to evaluation sessions) and #139 (bundled suites) are still open; until #138 merges, in-image and fake MCP callbacks fail on `main`.
 
 | Phase | Scope | Depends on |
 | --- | --- | --- |
-| 0. Works and fails loudly | 0.1.0 SDK and API compatibility, event parser, log sync barrier (done, draft PR); pin `openshell>=0.1.0` | 0.1.0 on PyPI |
-| 1. Bring-your-agent on OpenShell | Agent contract and loader; CLI and service runners (service exposure); tier B interception for service agents; four-outcome grading; reachability exposure labels; canaries; token via provider; suite linting | #135 merged |
+| 0. Works and fails loudly | 0.1.x SDK and API compatibility, event parser, log sync barrier, interruption classification, `openshell>=0.1.2` pin (done, branch ready for review) | Nothing outstanding |
+| 1. Bring-your-agent on OpenShell | Agent contract and loader; CLI and service runners (service exposure); tier B interception for service agents; four-outcome grading; reachability exposure labels; canaries; token via provider; policy-generation settle wait; suite linting | #135 (merged); #138 for SDK callbacks |
 | 2. Zero-touch and scale | Dedicated gateway Helm profile; middleware interception; parallel evaluations; sandbox workload templates | Middleware spike; sandbox identity in middleware context |
 | 3. OpenShell-only scenarios | Containment regression mode as a CI gate; policy self-escalation; credential-placeholder theft; prover preflight in reports; policy discovery for onboarding (benign runs plus the policy advisor draft a missing policy) | Phase 1 |
 
@@ -256,8 +263,9 @@ These go to the internal teams that work with upstream OpenShell. Each is phrase
 | Sandbox identity (and labels) in the middleware request context | Needed to route injections and records to the right evaluation, and to run evaluations in parallel |
 | Middleware stage able to return a synthetic response, not only deny | Lets production-like runs intercept real writes safely |
 | Process events for commands launched through `exec` | Today only the main process emits them, and only to sandbox-side logs |
-| Python SDK wrappers for logs, policy, draft chunks and services | MiDojo reaches into `client._stub` for logs and drafts |
+| Python SDK wrappers for logs, policy, draft chunks and services | Still missing in 0.1.2; MiDojo reaches into `client._stub` for logs and drafts |
 | A log flush or read-your-writes guarantee after `exec` returns | MiDojo works around the 500 ms batch push with a DNS marker barrier |
+| No spurious policy generation change after sandbox start | On 0.1.2 the first settings poll reports `provider_env_changed` with nothing changed, and the new generation closes the agent's first connections |
 | Confirm Landlock ABI v3 passes the capability probe on target RHCOS nodes (RHOAI team) | Without it, OpenShift sandboxes do not start |
 
 ## Open questions and spikes
@@ -270,7 +278,8 @@ Spikes to run before committing to phases 1 and 2:
 
 Open questions:
 
-- [ ] Which base image replaces the deprecated community `pi` image for our dev mini-agents?
+- [x] Resolved: dev mini-agent images follow OpenShell's Pi tutorial pattern (`node:24-bookworm-slim`, agent from npm, model access through a provider) instead of the deprecated community `pi` image.
 - [x] Resolved: `host.openshell.internal` works on Podman Machine for both the model endpoint and the control plane, despite the supervisor's non-link-local warning.
 - [ ] For the Claude Code plugin: headless loading, settings precedence, and which hook outputs can replace built-in tool results.
 - [ ] Should production-like runs block real writes in middleware, or require test backends for every tool?
+- [ ] Should MiDojo wait for policy-generation settle before launching the agent, or treat early interruptions as expected noise?
