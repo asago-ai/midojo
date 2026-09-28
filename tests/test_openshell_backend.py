@@ -4,8 +4,8 @@ from midojo.backends import build_backend
 from midojo.backends.openshell import (
     OpenShellBackend,
     OpenShellEnvironment,
-    _resolve_policy,
 )
+from midojo.backends.openshell.private_api import apply_policy, build_sandbox_spec
 
 ENV_CONFIG = {
     "backend": {"type": "openshell", "image": "pi"},
@@ -112,7 +112,7 @@ class TestConfigure:
 
 
 class TestPolicy:
-    """_resolve_policy accepts None (no-op) or an inline dict."""
+    """apply_policy accepts None (no-op) or an inline dict."""
 
     def _make_spec(self):
         from unittest.mock import MagicMock
@@ -121,14 +121,14 @@ class TestPolicy:
 
     def test_none_is_noop(self):
         spec = self._make_spec()
-        _resolve_policy(None, spec)
+        apply_policy(None, spec)
         spec.policy.assert_not_called()
 
     def test_inline_dict_reaches_parse_dict(self):
         spec = self._make_spec()
         inline = {"networkPolicies": {"allow_all": {"endpoints": [{"host": "api.example.com", "port": 443}]}}}
         try:
-            _resolve_policy(inline, spec)
+            apply_policy(inline, spec)
         except ValueError:
             pytest.fail("Inline dict should not raise ValueError")
         except Exception:
@@ -176,3 +176,47 @@ class TestLogSync:
         monkeypatch.setattr(mod.time, "sleep", lambda _s: None)
         backend = self._backend(lambda: ["NET:OPEN [INFO] ALLOWED /usr/bin/curl(0) -> ok.test:443"])
         assert backend._sync_ocsf_messages() == ["NET:OPEN [INFO] ALLOWED /usr/bin/curl(0) -> ok.test:443"]
+
+
+class TestBuildSandboxSpec:
+    """build_sandbox_spec assembles the spec from the SDK's (private) proto types."""
+
+    def test_spec_carries_image_environment_providers_and_policy(self, monkeypatch):
+        import sys
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        class Spec(SimpleNamespace):
+            policy = "policy-field"
+
+        monkeypatch.setitem(
+            sys.modules,
+            "openshell._proto",
+            SimpleNamespace(openshell_pb2=SimpleNamespace(SandboxSpec=Spec, SandboxTemplate=SimpleNamespace)),
+        )
+        parse = MagicMock()
+        monkeypatch.setattr("google.protobuf.json_format.ParseDict", parse)
+        policy = {"networkPolicies": {}}
+
+        spec = build_sandbox_spec(image="img:1", environment={"A": "1"}, providers=["p"], policy=policy)
+
+        assert spec.template.image == "img:1"
+        assert spec.environment == {"A": "1"}
+        assert spec.providers == ["p"]
+        parse.assert_called_once()
+        assert parse.call_args.args == (policy, "policy-field")
+
+
+def test_sdk_internals_are_confined_to_private_api():
+    """Only private_api may use OpenShell SDK internals, so replacing them later touches one file."""
+    from pathlib import Path
+
+    import midojo
+
+    src = Path(midojo.__file__).parent
+    offenders = [
+        str(path.relative_to(src))
+        for path in src.rglob("*.py")
+        if path.name != "private_api.py" and ("openshell._proto" in path.read_text() or "._stub" in path.read_text())
+    ]
+    assert offenders == []

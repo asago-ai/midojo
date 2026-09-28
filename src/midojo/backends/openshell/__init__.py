@@ -21,10 +21,13 @@ sandbox per evaluation inside it; ``workdir`` is a plain directory inside each
 sandbox where the suite's files are seeded.
 
 Policy:
-  Suite YAML can name a built-in policy (``policy: pi``) or supply an inline dict
-  matching the proto JSON field names. ``_BUILTIN_POLICIES`` maps names to camelCase
-  proto-JSON dicts. ``_resolve_policy`` fills ``SandboxSpec.policy`` in-place via
-  ``ParseDict`` — no direct import of ``SandboxPolicy`` needed.
+  Suite YAML can supply an inline policy dict matching the proto JSON field names,
+  or omit it so the image's built-in policy applies.
+
+OpenShell SDK internals:
+  The public Python SDK cannot yet build a spec with policy and providers or read
+  sandbox logs, so those two operations live in :mod:`.private_api`. This module
+  uses only public SDK names.
 
 OCSF caching:
   ``_fetch_ocsf()`` fetches and caches the ``GetSandboxLogs`` response; subsequent
@@ -43,6 +46,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from midojo.backends.openshell import private_api
 from midojo.backends.openshell.logs import OCSFEvents, parse_ocsf_lines
 from midojo.probes import substitute_probes
 from midojo.types import Environment
@@ -122,23 +126,6 @@ def _resolve_image(image: str) -> str:
         return image
     registry = os.environ.get("OPENSHELL_COMMUNITY_REGISTRY", _COMMUNITY_REGISTRY)
     return f"{registry}/{image}:latest"
-
-
-def _resolve_policy(spec: dict | None, sandbox_spec: Any) -> None:
-    """Populate ``sandbox_spec.policy`` in-place. ``spec=None`` is a no-op.
-
-    Args:
-        spec: ``None`` (no-op — image built-in policy applies) or a camelCase
-              proto-JSON dict matching ``SandboxPolicy`` field names.
-        sandbox_spec: A ``SandboxSpec`` proto message whose ``.policy`` field will
-                      be populated in-place. ``SandboxPolicy`` is accessed via the
-                      field directly — no direct import of its type needed.
-    """
-    if spec is None:
-        return
-    from google.protobuf.json_format import ParseDict  # protobuf is a required dep
-
-    ParseDict(spec, sandbox_spec.policy)
 
 
 def _rewrite_host_for_sandbox(url: str) -> str:
@@ -335,7 +322,6 @@ class OpenShellBackend:
 
         # Run-level state — set by start_run(), cleared by end_run()
         self._client: Any = None
-        self._pb2: Any = None  # openshell_pb2, stored at start_run() to avoid repeated lazy imports
         # OpenShell workspace resource: a gateway-side named scope that holds the
         # run's sandboxes and their policies. One per orchestrator run; every
         # sandbox is created inside it. Distinct from ``_workdir_files`` (the
@@ -406,9 +392,7 @@ class OpenShellBackend:
         the full registered suite name and run ID.
         """
         from openshell import SandboxClient, WorkspaceClient  # pyright: ignore[reportMissingImports]
-        from openshell._proto import openshell_pb2  # pyright: ignore[reportMissingImports]
 
-        self._pb2 = openshell_pb2
         self._client = SandboxClient.from_active_cluster(cluster=self._cluster, timeout=_CLIENT_TIMEOUT_SECONDS)
         self._workspace_client = WorkspaceClient.from_sandbox_client(self._client)
         labels = {"midojo.suite": suite_name or self._suite_name, "midojo.run-id": run_id}
@@ -450,12 +434,12 @@ class OpenShellBackend:
         # start_run); midojo never edits the declared policy.
         if self._control_url:
             env["MIDOJO_URL"] = _rewrite_host_for_sandbox(self._control_url)
-        spec = self._pb2.SandboxSpec(
-            template=self._pb2.SandboxTemplate(image=_resolve_image(self._image)),
+        spec = private_api.build_sandbox_spec(
+            image=_resolve_image(self._image),
             environment=env,
             providers=self._providers,
+            policy=self._policy_spec,
         )
-        _resolve_policy(self._policy_spec, spec)
 
         labels = {
             **self._run_labels,
@@ -510,26 +494,10 @@ class OpenShellBackend:
         return self._exec(cmd, workdir=_WORKDIR, timeout_seconds=int(timeout_seconds))
 
     def _read_ocsf_messages(self) -> list[str]:
-        """Return OCSF messages the supervisor has pushed since the evaluation began.
-
-        Uses ``client._stub.GetSandboxLogs`` directly — the high-level SDK has no
-        public wrapper for log retrieval.
-        """
-        from google.protobuf.timestamp_pb2 import Timestamp
-        from openshell._proto import datamodel_pb2  # pyright: ignore[reportMissingImports]
-
-        since = Timestamp()
-        since.FromMilliseconds(self._start_ms)
-        logs_resp = self._client._stub.GetSandboxLogs(
-            self._pb2.GetSandboxLogsRequest(
-                sandbox=self._ref.name,
-                workspace_scope=datamodel_pb2.WorkspaceSelector(workspace=self._workspace_name),
-                since_time=since,
-                sources=["sandbox"],
-            ),
-            timeout=10.0,
+        """Return OCSF messages the supervisor has pushed since the evaluation began."""
+        return private_api.read_ocsf_messages(
+            self._client, sandbox=self._ref.name, workspace=self._workspace_name, since_ms=self._start_ms
         )
-        return [log_line.message for log_line in logs_resp.logs if log_line.level.upper() == "OCSF"]
 
     def _sync_ocsf_messages(self) -> list[str]:
         """Read OCSF messages after every event from the agent's session has arrived.
@@ -664,7 +632,6 @@ class OpenShellBackend:
             except Exception:
                 pass
         self._client = None
-        self._pb2 = None
         self._workspace_client = None
         self._workspace_name = ""
         self._run_labels = {}
