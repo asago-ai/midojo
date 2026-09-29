@@ -1,0 +1,6 @@
+{
+  "name": "midojo-interceptor",
+  "version": "0.1.0",
+  "description": "MiDojo man-in-the-middle interception for red-teaming a Claude Code agent: delivers tool_output injections from the active evaluation's plan and records the tool-call trace.",
+  "author": { "name": "MiDojo" }
+}
