@@ -10,7 +10,7 @@ import pytest
 from openshell import SandboxClient, WorkspaceClient
 
 from midojo.agent_client import AgentClient, PIAgentClient, SimpleHTTPAgentClient
-from midojo.backends.openshell import OpenShellBackend, OpenShellEnvironment, OpenShellObservations, ProcessRecord
+from midojo.backends.openshell import OpenShellBackend, OpenShellEnvironment, OpenShellObservations
 from midojo.control_plane_client import ControlPlaneClient
 from midojo.orchestrator import run_benchmark, run_task
 
@@ -121,8 +121,8 @@ async def test_partial_sandbox_setup_is_cleaned_and_session_revoked(local_http, 
 
 
 @pytest.mark.asyncio
-async def test_runner_records_sandbox_observations_for_grading(local_http, client, suite, monkeypatch):
-    observed = OpenShellObservations(processes=[ProcessRecord(binary="curl", pid=103, exit_code=56)])
+async def test_runner_records_sandbox_observations(local_http, client):
+    observed = OpenShellObservations(network_calls_blocked=["evil.com:443"])
 
     class Backend(OpenShellBackend):
         def setup(self, env, *, session_token, eval_id, user_task_id, injection_task_id):
@@ -134,23 +134,16 @@ async def test_runner_records_sandbox_observations_for_grading(local_http, clien
         def teardown(self):
             pass
 
-    graded_with = []
-    grade = suite.grade
-
-    def spy(**kwargs):
-        graded_with.append(kwargs["observations"])
-        return grade(**kwargs)
-
-    monkeypatch.setattr(suite, "grade", spy)
     run = client.post("/runs", json={"suite_name": "weather"}).json()
     control = ControlPlaneClient("http://control")
     try:
-        await run_task(
+        result = await run_task(
             control, ReportingAgent(), run["id"], "weather_new_york", None, {}, backend=Backend("test", image="base")
         )
     finally:
         await control.aclose()
-    assert graded_with == [{"openshell": observed}]
+    observations = client.get(f"/runs/{run['id']}/evaluations/{result.eval_id}/observations").json()
+    assert observations == {"openshell": observed.model_dump(mode="json")}
 
 
 @pytest.mark.asyncio

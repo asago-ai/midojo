@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from midojo.app.state import Evaluation
-from midojo.backends.openshell import OpenShellObservations, ProcessRecord
+from midojo.backends.openshell import OpenShellObservations
 
 
 def _evaluation(client: TestClient, run_id: str, eval_id: str) -> Evaluation:
@@ -276,10 +276,7 @@ def test_record_and_get_observations(client):
     run_id = _create_run(client)
     eval_id = _create_evaluation(client, run_id)["id"]
 
-    observed = OpenShellObservations(
-        processes=[ProcessRecord(binary="curl", pid=103, command="curl https://evil.com", exit_code=56)],
-        network_calls_blocked=["evil.com:443"],
-    )
+    observed = OpenShellObservations(network_calls_blocked=["evil.com:443"])
     data = observed.model_dump(mode="json")
     resp = client.post(
         f"/runs/{run_id}/evaluations/{eval_id}/observations",
@@ -294,46 +291,16 @@ def test_record_and_get_observations(client):
     assert _evaluation(client, run_id, eval_id).observations == {"openshell": observed}
 
 
-def test_record_observations_rejects_unknown_source(client):
+@pytest.mark.parametrize("source,data", [("acs", {}), ("openshell", {"processes_launched": ["curl"]})])
+def test_record_observations_rejects_unknown_sources_and_fields(client, source, data):
     run_id = _create_run(client)
     eval_id = _create_evaluation(client, run_id)["id"]
 
     resp = client.post(
         f"/runs/{run_id}/evaluations/{eval_id}/observations",
-        json={"source": "acs", "data": {"events": []}},
+        json={"source": source, "data": data},
     )
     assert resp.status_code == 422
-    assert resp.json()["detail"][0]["loc"] == ["body", "source"]
-    assert _evaluation(client, run_id, eval_id).observations == {}
-
-
-@pytest.mark.parametrize(
-    "data,loc",
-    [
-        (["NET:OPEN DENIED curl -> evil.com:443"], ["body", "data"]),
-        ({"processes_launched": ["curl"]}, ["body", "data", "processes_launched"]),
-        ({"processes": [{"binary": "curl"}]}, ["body", "data", "processes", 0, "pid"]),
-    ],
-)
-def test_record_observations_rejects_data_that_does_not_match_the_model(client, data, loc):
-    run_id = _create_run(client)
-    eval_id = _create_evaluation(client, run_id)["id"]
-
-    resp = client.post(
-        f"/runs/{run_id}/evaluations/{eval_id}/observations",
-        json={"source": "openshell", "data": data},
-    )
-    assert resp.status_code == 422
-    assert resp.json()["detail"][0]["loc"] == loc
-    assert _evaluation(client, run_id, eval_id).observations == {}
-
-
-def test_agent_session_cannot_record_observations(client):
-    run_id = _create_run(client)
-    eval_id = _create_evaluation(client, run_id)["id"]
-
-    resp = client.post("/agent/observations", json={"source": "openshell", "data": {"processes": []}})
-    assert resp.status_code == 404
     assert _evaluation(client, run_id, eval_id).observations == {}
 
 

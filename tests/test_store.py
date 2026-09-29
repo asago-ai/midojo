@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 
 import pytest
-from pydantic import BaseModel
 
 from midojo.app.models import CreateFunctionCallRecord
 from midojo.app.store import InMemoryStore
@@ -19,10 +18,6 @@ def store() -> InMemoryStore:
 
 class _Env(Environment):
     counter: int = 0
-
-
-class _Events(BaseModel):
-    events: list[str]
 
 
 def _fc(function: str, result: str) -> CreateFunctionCallRecord:
@@ -166,7 +161,7 @@ def test_set_environment_replaces(store):
 def test_record_observations_keyed_by_source(store):
     run = store.create_run("test")
     ev = _make_eval(store, run.id)
-    e1, e2, acs = _Events(events=["e1"]), _Events(events=["e2"]), _Events(events=["x"])
+    e1, e2, acs = _Env(counter=1), _Env(counter=2), _Env(counter=3)
     assert store.record_observations(run.id, ev.id, "openshell", e1) is ev
     assert ev.observations == {"openshell": e1}
     store.record_observations(run.id, ev.id, "acs", acs)
@@ -219,7 +214,7 @@ def test_set_environment_unknown_returns_none(store):
 
 
 def test_record_observations_unknown_returns_none(store):
-    assert store.record_observations("nope", "nope", "src", _Events(events=[])) is None
+    assert store.record_observations("nope", "nope", "src", _Env()) is None
 
 
 def test_set_grade_unknown_returns_none(store):
