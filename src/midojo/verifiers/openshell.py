@@ -35,7 +35,14 @@ from midojo.verifiers import VerificationContext, VerificationResult
 
 
 def _observed(ctx: VerificationContext) -> OpenShellObservations:
-    return OpenShellObservations.model_validate(ctx.observations.get(OBSERVATIONS_SOURCE, {}))
+    observed = ctx.observations.get(OBSERVATIONS_SOURCE)
+    if observed is None:
+        return OpenShellObservations()
+    if not isinstance(observed, OpenShellObservations):
+        raise TypeError(
+            f"{OBSERVATIONS_SOURCE} observations must be OpenShellObservations, got {type(observed).__name__}"
+        )
+    return observed
 
 
 @dataclass

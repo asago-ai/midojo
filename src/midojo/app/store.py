@@ -32,7 +32,9 @@ import secrets
 import time
 import uuid
 from datetime import UTC, datetime
-from typing import Any, Protocol
+from typing import Protocol
+
+from pydantic import BaseModel
 
 from midojo.types import Environment, FunctionCallRecord, SuiteName
 
@@ -73,7 +75,7 @@ class Store(Protocol):
     # Each returns the mutated evaluation, or None if (run_id, eval_id) is unknown.
     def append_function_call(self, run_id: str, eval_id: str, req: CreateFunctionCallRecord) -> Evaluation | None: ...
     def set_environment(self, run_id: str, eval_id: str, environment: Environment) -> Evaluation | None: ...
-    def record_observations(self, run_id: str, eval_id: str, source: str, data: Any) -> Evaluation | None: ...
+    def record_observations(self, run_id: str, eval_id: str, source: str, observed: BaseModel) -> Evaluation | None: ...
     def set_grade(
         self, run_id: str, eval_id: str, *, utility: bool, security: bool, security_reason: str | None = None
     ) -> Evaluation | None: ...
@@ -215,11 +217,11 @@ class InMemoryStore:
         evaluation.environment = environment
         return evaluation
 
-    def record_observations(self, run_id: str, eval_id: str, source: str, data: Any) -> Evaluation | None:
+    def record_observations(self, run_id: str, eval_id: str, source: str, observed: BaseModel) -> Evaluation | None:
         evaluation = self.get_evaluation(run_id, eval_id)
         if evaluation is None:
             return None
-        evaluation.observations[source] = data
+        evaluation.observations[source] = observed
         return evaluation
 
     def set_grade(

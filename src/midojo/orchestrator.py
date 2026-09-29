@@ -204,7 +204,7 @@ async def run_task(
                     agent_output = await agent_client.send_task(prompt, session_token=session_token)
                 with console.status(f"[dim]{pair} · collecting sandbox observations…[/dim]", spinner="dots"):
                     observations = await asyncio.to_thread(backend.observe)
-                await control.record_observations(run_id, eval_id, OBSERVATIONS_SOURCE, observations.model_dump())
+                await control.record_observations(run_id, eval_id, OBSERVATIONS_SOURCE, observations)
             finally:
                 with console.status(f"[dim]{pair} · tearing down sandbox…[/dim]", spinner="dots"):
                     await asyncio.to_thread(backend.teardown)

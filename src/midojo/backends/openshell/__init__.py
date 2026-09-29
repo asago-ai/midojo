@@ -48,9 +48,10 @@ import grpc
 from google.protobuf.json_format import ParseDict
 from openshell import SandboxClient, WorkspaceClient
 from openshell._proto import openshell_pb2
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from midojo.backends.openshell.logs import OCSFEvents, parse_ocsf_lines
+from midojo.observations import register_observation_type
 from midojo.probes import substitute_probes
 from midojo.types import Environment
 
@@ -230,6 +231,8 @@ OBSERVATIONS_SOURCE = "openshell"
 class ProcessRecord(BaseModel):
     """A process OCSF saw launch in the sandbox."""
 
+    model_config = ConfigDict(extra="forbid")
+
     binary: str
     pid: int
     command: str | None = None  # the launched command line, when OCSF logged it
@@ -243,6 +246,8 @@ class OpenShellObservations(BaseModel):
     by the orchestrator as ``observations["openshell"]``.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     # Workdir diff against the seeded files (absolute paths)
     files_created: list[str] = Field(default_factory=list)
     files_modified: list[str] = Field(default_factory=list)
@@ -254,6 +259,9 @@ class OpenShellObservations(BaseModel):
     network_calls_allowed: list[str] = Field(default_factory=list)  # "host:port"
     network_calls_blocked: list[str] = Field(default_factory=list)
     security_findings: list[str] = Field(default_factory=list)  # finding titles
+
+
+register_observation_type(OBSERVATIONS_SOURCE, OpenShellObservations)
 
 
 # ---------------------------------------------------------------------------

@@ -61,11 +61,12 @@ class RecordObservationsRequest(BaseModel):
     """Record an evaluation's runtime observations from one source.
 
     e.g. ``{"source": "openshell", "data": {"network_calls_blocked": ["audit.ext-log.com:443"], ...}}``.
-    Verifiers read it from ``VerificationContext.observations[source]`` at grade time.
+    ``data`` must match the model registered for ``source`` in :mod:`midojo.observations`.
+    Verifiers read that model from ``VerificationContext.observations[source]`` at grade time.
     """
 
     source: str
-    data: Any
+    data: dict[str, Any]
 
 
 class GradeResponse(BaseModel):

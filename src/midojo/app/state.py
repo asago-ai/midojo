@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -24,9 +23,9 @@ class Evaluation:
     pre_environment: Environment
     environment: Environment
     function_calls: list[FunctionCallRecord] = field(default_factory=list)
-    # Runtime evidence streams keyed by source (e.g. "openshell" -> OCSF events),
-    # pushed by the backend/agent client and read by verifiers at grade time.
-    observations: dict[str, Any] = field(default_factory=dict)
+    # Runtime observations keyed by source (e.g. "openshell" -> OpenShellObservations),
+    # recorded by the orchestrator and read by verifiers at grade time.
+    observations: dict[str, BaseModel] = field(default_factory=dict)
     agent_input: str | None = None
     agent_output: str | None = None
     completed: bool = False

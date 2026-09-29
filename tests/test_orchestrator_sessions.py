@@ -150,7 +150,7 @@ async def test_runner_records_sandbox_observations_for_grading(local_http, clien
         )
     finally:
         await control.aclose()
-    assert graded_with == [{"openshell": observed.model_dump()}]
+    assert graded_with == [{"openshell": observed}]
 
 
 @pytest.mark.asyncio

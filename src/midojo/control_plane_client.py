@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import httpx
+from pydantic import BaseModel
 
 from midojo.app.models import CreateEvaluationResponse, CreateRunResponse, EvaluationResponse, GradeResponse
 
@@ -66,10 +67,10 @@ class ControlPlaneClient:
         response.raise_for_status()
         return EvaluationResponse.model_validate(response.json())
 
-    async def record_observations(self, run_id: str, eval_id: str, source: str, data: Any) -> None:
+    async def record_observations(self, run_id: str, eval_id: str, source: str, observed: BaseModel) -> None:
         response = await self._http.post(
             f"{self._base_url}/runs/{run_id}/evaluations/{eval_id}/observations",
-            json={"source": source, "data": data},
+            json={"source": source, "data": observed.model_dump(mode="json")},
         )
         response.raise_for_status()
 

@@ -1,7 +1,9 @@
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from midojo.app.state import Evaluation
+from midojo.backends.openshell import OpenShellObservations, ProcessRecord
 
 
 def _evaluation(client: TestClient, run_id: str, eval_id: str) -> Evaluation:
@@ -274,17 +276,56 @@ def test_record_and_get_observations(client):
     run_id = _create_run(client)
     eval_id = _create_evaluation(client, run_id)["id"]
 
-    events = ["NET:OPEN DENIED curl -> evil.com:443"]
+    observed = OpenShellObservations(
+        processes=[ProcessRecord(binary="curl", pid=103, command="curl https://evil.com", exit_code=56)],
+        network_calls_blocked=["evil.com:443"],
+    )
+    data = observed.model_dump(mode="json")
     resp = client.post(
         f"/runs/{run_id}/evaluations/{eval_id}/observations",
-        json={"source": "openshell", "data": events},
+        json={"source": "openshell", "data": data},
     )
     assert resp.status_code == 200
     # The POST's own body is built from the mutated Evaluation, not re-fetched.
-    assert resp.json() == {"openshell": events}
+    assert resp.json() == {"openshell": data}
 
-    assert client.get(f"/runs/{run_id}/evaluations/{eval_id}/observations").json() == {"openshell": events}
-    assert _evaluation(client, run_id, eval_id).observations == {"openshell": events}
+    assert client.get(f"/runs/{run_id}/evaluations/{eval_id}/observations").json() == {"openshell": data}
+    # The store keeps the validated model, which is what verifiers receive.
+    assert _evaluation(client, run_id, eval_id).observations == {"openshell": observed}
+
+
+def test_record_observations_rejects_unknown_source(client):
+    run_id = _create_run(client)
+    eval_id = _create_evaluation(client, run_id)["id"]
+
+    resp = client.post(
+        f"/runs/{run_id}/evaluations/{eval_id}/observations",
+        json={"source": "acs", "data": {"events": []}},
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"][0]["loc"] == ["body", "source"]
+    assert _evaluation(client, run_id, eval_id).observations == {}
+
+
+@pytest.mark.parametrize(
+    "data,loc",
+    [
+        (["NET:OPEN DENIED curl -> evil.com:443"], ["body", "data"]),
+        ({"processes_launched": ["curl"]}, ["body", "data", "processes_launched"]),
+        ({"processes": [{"binary": "curl"}]}, ["body", "data", "processes", 0, "pid"]),
+    ],
+)
+def test_record_observations_rejects_data_that_does_not_match_the_model(client, data, loc):
+    run_id = _create_run(client)
+    eval_id = _create_evaluation(client, run_id)["id"]
+
+    resp = client.post(
+        f"/runs/{run_id}/evaluations/{eval_id}/observations",
+        json={"source": "openshell", "data": data},
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"][0]["loc"] == loc
+    assert _evaluation(client, run_id, eval_id).observations == {}
 
 
 def test_agent_session_cannot_record_observations(client):
@@ -313,7 +354,7 @@ def _mutation_requests(client: TestClient, run_id: str, eval_id: str, env: dict)
         ),
         "observations": lambda: client.post(
             f"/runs/{run_id}/evaluations/{eval_id}/observations",
-            json={"source": "s", "data": []},
+            json={"source": "openshell", "data": {}},
         ),
         "environment": lambda: client.put(f"/runs/{run_id}/evaluations/{eval_id}/environment", json=env),
     }

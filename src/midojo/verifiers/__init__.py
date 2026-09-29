@@ -36,6 +36,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Protocol, cast, runtime_checkable
 
+from pydantic import BaseModel
+
 from midojo.types import Environment, FunctionCallRecord
 
 # ---------------------------------------------------------------------------
@@ -48,15 +50,16 @@ class VerificationContext:
     """Everything a verifier may inspect to decide pass/fail.
 
     ``observations`` holds runtime observations keyed by source, recorded by the
-    orchestrator rather than the agent (e.g. ``observations["openshell"]``, read
-    by the predicates in :mod:`midojo.verifiers.openshell`).
+    orchestrator rather than the agent. Each is an instance of the model registered
+    for its source in :mod:`midojo.observations` (e.g. ``observations["openshell"]``
+    is an ``OpenShellObservations``, read by :mod:`midojo.verifiers.openshell`).
     """
 
     agent_output: str
     pre_environment: Environment
     post_environment: Environment
     function_calls: list[FunctionCallRecord] = field(default_factory=list)
-    observations: dict[str, Any] = field(default_factory=dict)
+    observations: dict[str, BaseModel] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

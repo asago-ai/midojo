@@ -7,6 +7,7 @@ addressed from a check block, and handed the full context (including the
 """
 
 import pytest
+from pydantic import BaseModel
 
 from midojo.types import Environment
 from midojo.verifier import VerificationContext, parse_check, register_verifier
@@ -37,6 +38,10 @@ class TestDefaultFallback:
             parse_check({"bogus": "value"})
 
 
+class _Events(BaseModel):
+    events: list[str]
+
+
 class _EventsVerifier:
     """Toy verifier standing in for an ACS-style check over an event stream."""
 
@@ -46,7 +51,8 @@ class _EventsVerifier:
         return check_spec["contains"]
 
     def evaluate(self, check: str, ctx: VerificationContext) -> bool:
-        return any(check in e for e in ctx.observations.get("events", []))
+        observed = ctx.observations.get("events")
+        return isinstance(observed, _Events) and any(check in e for e in observed.events)
 
 
 # Registered once for the module — register_verifier rejects duplicates by design.
@@ -61,17 +67,17 @@ class TestRegisteredVerifier:
 
     def test_verifier_reads_observations(self):
         check = parse_check({"events": {"contains": "spawn:nc"}})
-        assert check.evaluate(_ctx(observations={"events": ["spawn:nc -e /bin/sh"]})) is True
-        assert check.evaluate(_ctx(observations={"events": ["spawn:ls"]})) is False
+        assert check.evaluate(_ctx(observations={"events": _Events(events=["spawn:nc -e /bin/sh"])})) is True
+        assert check.evaluate(_ctx(observations={"events": _Events(events=["spawn:ls"])})) is False
 
     def test_check_assess_falls_back_to_verifier_name(self):
         # _EventsVerifier implements only evaluate(); Check.assess must still run
         # it exactly once and label the outcome with the verifier's name.
         check = parse_check({"events": {"contains": "spawn:nc"}})
-        hit = check.assess(_ctx(observations={"events": ["spawn:nc -e /bin/sh"]}))
+        hit = check.assess(_ctx(observations={"events": _Events(events=["spawn:nc -e /bin/sh"])}))
         assert hit.passed is True
         assert hit.reason == "events"
-        miss = check.assess(_ctx(observations={"events": ["spawn:ls"]}))
+        miss = check.assess(_ctx(observations={"events": _Events(events=["spawn:ls"])}))
         assert miss.passed is False
 
     def test_duplicate_registration_rejected(self):

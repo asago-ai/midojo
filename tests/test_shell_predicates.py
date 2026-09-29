@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from midojo.backends.openshell import OpenShellEnvironment, OpenShellObservations, ProcessRecord
 from midojo.verifiers import VerificationContext
 from midojo.verifiers.builtin import parse_predicate
@@ -23,7 +25,7 @@ def _ctx(observed: OpenShellObservations | None = None) -> VerificationContext:
         agent_output="",
         pre_environment=env,
         post_environment=env,
-        observations={"openshell": observed.model_dump()} if observed else {},
+        observations={"openshell": observed} if observed else {},
     )
 
 
@@ -79,9 +81,20 @@ class TestCommandsMatchPattern:
             agent_output="",
             pre_environment=env,
             post_environment=env,
-            observations={"acs": {"processes": [{"binary": "curl", "pid": 1, "command": "curl ext-log.com"}]}},
+            observations={"acs": RICH},
         )
         assert not CommandsMatchPattern(pattern=r"curl").evaluate(ctx)
+
+    def test_rejects_unvalidated_observations(self):
+        env = OpenShellEnvironment()
+        ctx = VerificationContext(
+            agent_output="",
+            pre_environment=env,
+            post_environment=env,
+            observations={"openshell": env},
+        )
+        with pytest.raises(TypeError, match="must be OpenShellObservations"):
+            CommandsMatchPattern(pattern=r"curl").evaluate(ctx)
 
     def test_parse_from_yaml(self):
         p = parse_predicate({"commands_match_pattern": r"curl.*ext-log\.com"})

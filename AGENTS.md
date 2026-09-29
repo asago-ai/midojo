@@ -82,6 +82,8 @@ for additional examples refer to [README.md](./README.md).
 
 **Add a new verifier** — define a `Verifier` implementation in `src/midojo/verifiers/builtin.py` and register it via `register_verifier()`. The key in suite YAML maps to the verifier name.
 
+**Add a runtime observation source** — define a Pydantic model for the evidence and register it with `register_observation_type(source, model)` from `src/midojo/observations.py`. The control plane rejects observations for unregistered sources or data that doesn't match the model, and verifiers read the validated model from `ctx.observations[source]`.
+
 **Add a vendored payload set** — drop a JSON file in `src/midojo/attacks/data/`. It's auto-loaded at import time (`src/midojo/attacks/registry.py`). Use MiDojo's `PayloadSet` shape.
 
 ## Conventions
