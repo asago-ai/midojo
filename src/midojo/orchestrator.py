@@ -345,10 +345,14 @@ async def run_benchmark(
 @click.command()
 @click.option("--control-url", default="http://localhost:8080", help="URL of the benchmark MCP server control plane.")
 @click.option(
+    "--gateway",
+    default=None,
+    help="OpenShell gateway to run the agent's sandboxes on. Required for suites with the openshell agent_runtime.",
+)
+@click.option(
     "--agent-uri",
-    required=True,
-    help="Where to reach the agent. A URL for http/a2a/ogx/openai; a local path to the "
-    "agent dir for pi; the OpenShell gateway name for openshell.",
+    default=None,
+    help="Where to reach an unmanaged agent. A URL for http/a2a/ogx/openai; a local path to the agent dir for pi.",
 )
 @click.option(
     "--suite", "suite_name", required=True, help=f"Benchmark suite name. Built-in: {', '.join(list_suites())}."
@@ -363,11 +367,10 @@ async def run_benchmark(
 )
 @click.option(
     "--protocol",
-    type=click.Choice(["http", "a2a", "pi", "ogx", "openai", "openshell"]),
-    required=True,
-    help="Agent communication protocol. "
-    "API keys are read from env vars: OPENAI_API_KEY (openai), OGX_CLIENT_API_KEY (ogx). "
-    "For openshell: pass the gateway name via --agent-uri.",
+    type=click.Choice(["http", "a2a", "pi", "ogx", "openai"]),
+    default=None,
+    help="How to talk to an unmanaged agent. "
+    "API keys are read from env vars: OPENAI_API_KEY (openai), OGX_CLIENT_API_KEY (ogx).",
 )
 @click.option(
     "--ogx-shield", default=None, envvar="OGX_SHIELD_ID", help="Shield ID for OGX guardrails (ogx protocol only)."
@@ -392,13 +395,14 @@ async def run_benchmark(
 )
 def main(
     control_url: str,
-    agent_uri: str,
+    gateway: str | None,
+    agent_uri: str | None,
     suite_name: str,
     user_tasks: tuple[str, ...],
     injection_tasks: tuple[str, ...],
     logdir: Path,
     modules_to_load: tuple[str, ...],
-    protocol: str,
+    protocol: str | None,
     ogx_shield: str | None,
     mcp_server_url: str | None,
     mcp_server_label: str | None,
@@ -410,11 +414,22 @@ def main(
     suite = get_suite(suite_name)
     agent_client: AgentClient
 
-    if protocol == "openshell":
-        if not isinstance(suite.runtime, OpenShellRuntime):
-            raise click.UsageError("--protocol openshell requires a suite with the openshell agent_runtime")
-        suite.runtime.configure(cluster=agent_uri, control_url=control_url)
+    if isinstance(suite.runtime, OpenShellRuntime):
+        if agent_uri or protocol:
+            raise click.UsageError(
+                f"Suite {suite_name!r} runs its agent in OpenShell; pass --gateway instead of --agent-uri/--protocol."
+            )
+        if not gateway:
+            raise click.UsageError(f"Suite {suite_name!r} runs its agent in OpenShell and requires --gateway.")
+        suite.runtime.configure(cluster=gateway, control_url=control_url)
         agent_client = OpenShellAgentClient(suite.runtime)
+        agent_uri, protocol = gateway, "openshell"
+    elif gateway:
+        raise click.UsageError(
+            f"--gateway applies only to suites with the openshell agent_runtime; {suite_name!r} is {suite.runtime.name}."
+        )
+    elif not agent_uri or not protocol:
+        raise click.UsageError(f"Suite {suite_name!r} has an unmanaged agent and requires --agent-uri and --protocol.")
     elif protocol == "a2a":
         agent_client = A2AAgentClient(agent_uri)
     elif protocol == "pi":

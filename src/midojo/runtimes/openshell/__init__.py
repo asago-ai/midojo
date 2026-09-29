@@ -354,9 +354,9 @@ class OpenShellRuntime:
     def configure(self, *, cluster: str, control_url: str = "") -> None:
         """Inject deployment config. Must be called before ``start_run()``.
 
-        ``cluster`` names an OpenShell gateway registered with the CLI. The
-        gateway's gRPC endpoint and mTLS bundle are read from
-        ``~/.config/openshell`` at ``start_run()``.
+        ``cluster`` names an OpenShell gateway registered with the CLI, as
+        passed to ``midojo-run --gateway``. The gateway's gRPC endpoint and
+        mTLS bundle are read from ``~/.config/openshell`` at ``start_run()``.
         """
         self._cluster = cluster
         self._control_url = control_url
