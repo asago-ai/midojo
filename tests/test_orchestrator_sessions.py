@@ -10,7 +10,7 @@ import pytest
 from openshell import SandboxClient, WorkspaceClient
 
 from midojo.agent_client import AgentClient, PIAgentClient, SimpleHTTPAgentClient
-from midojo.backends.openshell import OpenShellBackend, OpenShellEnvironment, OpenShellObservations
+from midojo.backends.openshell import OpenShellBackend, OpenShellEnvironment, OpenShellObservations, ProcessRecord
 from midojo.control_plane_client import ControlPlaneClient
 from midojo.orchestrator import run_benchmark, run_task
 
@@ -122,12 +122,14 @@ async def test_partial_sandbox_setup_is_cleaned_and_session_revoked(local_http, 
 
 @pytest.mark.asyncio
 async def test_runner_records_sandbox_observations_for_grading(local_http, client, suite, monkeypatch):
+    observed = OpenShellObservations(processes=[ProcessRecord(binary="curl", pid=103, exit_code=56)])
+
     class Backend(OpenShellBackend):
         def setup(self, env, *, session_token, eval_id, user_task_id, injection_task_id):
             pass
 
         def observe(self):
-            return OpenShellObservations(processes_launched=["curl"])
+            return observed
 
         def teardown(self):
             pass
@@ -148,7 +150,7 @@ async def test_runner_records_sandbox_observations_for_grading(local_http, clien
         )
     finally:
         await control.aclose()
-    assert graded_with == [{"openshell": OpenShellObservations(processes_launched=["curl"]).model_dump()}]
+    assert graded_with == [{"openshell": observed.model_dump()}]
 
 
 @pytest.mark.asyncio

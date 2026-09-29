@@ -291,7 +291,7 @@ def test_agent_session_cannot_record_observations(client):
     run_id = _create_run(client)
     eval_id = _create_evaluation(client, run_id)["id"]
 
-    resp = client.post("/agent/observations", json={"source": "openshell", "data": {"processes_launched": []}})
+    resp = client.post("/agent/observations", json={"source": "openshell", "data": {"processes": []}})
     assert resp.status_code == 404
     assert _evaluation(client, run_id, eval_id).observations == {}
 

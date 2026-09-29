@@ -226,6 +226,8 @@ def parse_predicate(raw: dict) -> Predicate:
     elif key == "env_field_unchanged":
         return EnvFieldUnchanged(field=value["field"] if isinstance(value, dict) else value)
     elif key == "commands_match_pattern":
+        if isinstance(value, dict):
+            return CommandsMatchPattern(pattern=value["pattern"], exit_code=value.get("exit_code"))
         return CommandsMatchPattern(pattern=value)
     elif key == "workdir_file_exists":
         return WorkdirFileExists(path=value)

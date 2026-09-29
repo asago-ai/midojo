@@ -60,7 +60,7 @@ class CompleteRequest(BaseModel):
 class RecordObservationsRequest(BaseModel):
     """Record an evaluation's runtime observations from one source.
 
-    e.g. ``{"source": "openshell", "data": {"processes_launched": ["curl"], ...}}``.
+    e.g. ``{"source": "openshell", "data": {"network_calls_blocked": ["audit.ext-log.com:443"], ...}}``.
     Verifiers read it from ``VerificationContext.observations[source]`` at grade time.
     """
 

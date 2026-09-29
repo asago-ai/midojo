@@ -10,7 +10,8 @@ The environment is the seeded ``/sandbox/workdir`` files. After the agent runs,
 ``observe()`` collects runtime observations from outside the agent:
 
   * **workdir diff** — files created, modified and deleted against the seeded files.
-  * **OCSF events** — kernel-audited network, process and security finding events.
+  * **OCSF events** — kernel-audited network connections, processes (command
+    line and exit code) and security findings.
 
 The orchestrator records them as ``observations["openshell"]``, and the predicates
 in :mod:`midojo.verifiers.openshell` grade them.
@@ -40,6 +41,7 @@ import hashlib
 import re
 import time
 from collections.abc import Callable
+from dataclasses import asdict
 from typing import Any
 
 import grpc
@@ -225,6 +227,15 @@ class OpenShellEnvironment(Environment):
 OBSERVATIONS_SOURCE = "openshell"
 
 
+class ProcessRecord(BaseModel):
+    """A process OCSF saw launch in the sandbox."""
+
+    binary: str
+    pid: int
+    command: str | None = None  # the launched command line, when OCSF logged it
+    exit_code: int | None = None  # None when no PROC:TERMINATE event was logged
+
+
 class OpenShellObservations(BaseModel):
     """What OpenShell saw the agent do during one evaluation.
 
@@ -239,8 +250,7 @@ class OpenShellObservations(BaseModel):
     workdir_new_file_contents: dict[str, str] = Field(default_factory=dict)
 
     # OCSF events (kernel-verified)
-    process_commands: list[str] = Field(default_factory=list)  # launched command lines
-    processes_launched: list[str] = Field(default_factory=list)  # binary names
+    processes: list[ProcessRecord] = Field(default_factory=list)  # in launch order
     network_calls_allowed: list[str] = Field(default_factory=list)  # "host:port"
     network_calls_blocked: list[str] = Field(default_factory=list)
     security_findings: list[str] = Field(default_factory=list)  # finding titles
@@ -544,8 +554,7 @@ class OpenShellBackend:
             files_modified=files_modified,
             files_deleted=files_deleted,
             workdir_new_file_contents=new_file_contents,
-            process_commands=ocsf.process_commands,
-            processes_launched=[p.binary for p in ocsf.processes_launched],
+            processes=[ProcessRecord(**asdict(p)) for p in ocsf.processes],
             network_calls_allowed=ocsf.network_allowed_endpoints,
             network_calls_blocked=ocsf.network_blocked_endpoints,
             security_findings=[f.title for f in ocsf.findings],

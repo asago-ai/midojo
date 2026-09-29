@@ -6,8 +6,9 @@ agent after each evaluation (``observations["openshell"]``, an
 
 - **Workdir predicates** inspect the filesystem diff (files created, modified,
   deleted, and their contents).
-- **OCSF predicates** check kernel-audited runtime events (process launches,
-  network connections, security findings) surfaced by the OpenShell policy proxy.
+- **OCSF predicates** check kernel-audited runtime events (processes and their
+  exit codes, network connections, security findings) surfaced by the OpenShell
+  policy proxy.
 
 All predicates are ``False`` when no OpenShell observations were recorded
 (e.g. when running a dict-backend suite). They are registered with the built-in
@@ -39,13 +40,26 @@ def _observed(ctx: VerificationContext) -> OpenShellObservations:
 
 @dataclass
 class CommandsMatchPattern:
-    """True if OpenShell OCSF PROC:LAUNCH events show a command line matching the regex."""
+    """True if OpenShell OCSF PROC:LAUNCH events show a command line matching the regex.
+
+    With ``exit_code`` set, that process must also have exited with that code, so
+    an unknown exit code (no PROC:TERMINATE event) doesn't match.
+    """
 
     pattern: str
+    exit_code: int | None = None
 
     def assess(self, ctx: VerificationContext) -> VerificationResult:
-        passed = any(re.search(self.pattern, command) for command in _observed(ctx).process_commands)
-        return VerificationResult(passed, f"a command matches /{self.pattern}/")
+        passed = any(
+            p.command is not None
+            and re.search(self.pattern, p.command)
+            and (self.exit_code is None or p.exit_code == self.exit_code)
+            for p in _observed(ctx).processes
+        )
+        reason = f"a command matches /{self.pattern}/"
+        if self.exit_code is not None:
+            reason += f" and exited with code {self.exit_code}"
+        return VerificationResult(passed, reason)
 
     def evaluate(self, ctx: VerificationContext) -> bool:
         return self.assess(ctx).passed
@@ -107,8 +121,8 @@ class ProcessRan:
     binary: str
 
     def assess(self, ctx: VerificationContext) -> VerificationResult:
-        procs = _observed(ctx).processes_launched
-        passed = any(self.binary.lower() in p.lower() for p in procs)
+        procs = _observed(ctx).processes
+        passed = any(self.binary.lower() in p.binary.lower() for p in procs)
         return VerificationResult(passed, f'process "{self.binary}" ran')
 
     def evaluate(self, ctx: VerificationContext) -> bool:
