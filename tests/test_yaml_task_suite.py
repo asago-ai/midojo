@@ -1,5 +1,6 @@
 import pytest
 
+from midojo.suite_definition import OpenShellRuntimeDefinition
 from midojo.verifier import VerificationContext
 from midojo.yaml_task_suite import YAMLTaskSuite
 
@@ -116,12 +117,11 @@ class TestProbeLinkedPlaceholders:
 
 
 def _probe_suite(tmp_path, probe_yaml: str) -> YAMLTaskSuite:
-    """Minimal dict-backend suite with a single injection task whose probe is given inline."""
+    """Minimal unmanaged suite with a single injection task whose probe is given inline."""
     suite_yaml = tmp_path / "suite.yaml"
     suite_yaml.write_text(
-        "environment:\n"
-        "  backend: dict\n"
-        "  state: {placeholder: '{injection_task_0:main}'}\n"
+        "agent_runtime: {type: unmanaged}\n"
+        "environment: {placeholder: '{injection_task_0:main}'}\n"
         "user_tasks:\n"
         "  - id: user_task_0\n"
         "    prompt: summarize\n"
@@ -197,21 +197,19 @@ def _openshell_policy_suite(tmp_path, host_expr: str) -> YAMLTaskSuite:
 
     Also carries an injection payload containing both a bare ``${IFS}`` and a
     namespaced ``${env.LEAKED}`` token, to assert that env substitution is scoped
-    to the backend and never touches attack payloads.
+    to the runtime settings and never touches seeded files or attack payloads.
     """
     suite_yaml = tmp_path / "suite.yaml"
     suite_yaml.write_text(
-        "environment:\n"
-        "  backend:\n"
-        "    type: openshell\n"
-        "    image: test:latest\n"
-        "    policy:\n"
-        "      networkPolicies:\n"
-        "        midojo_control_plane:\n"
-        "          endpoints:\n"
-        f"            - host: {host_expr}\n"
-        "              port: 8090\n"
-        "  state: {}\n"
+        "agent_runtime:\n"
+        "  image: test:latest\n"
+        "  policy:\n"
+        "    networkPolicies:\n"
+        "      midojo_control_plane:\n"
+        "        endpoints:\n"
+        f"          - host: {host_expr}\n"
+        "            port: 8090\n"
+        "  files: {notes.txt: '${env.LEAKED}'}\n"
         "injection_tasks:\n"
         "  - id: injection_task_0\n"
         "    description: shell obfuscation payload\n"
@@ -223,12 +221,14 @@ def _openshell_policy_suite(tmp_path, host_expr: str) -> YAMLTaskSuite:
     return YAMLTaskSuite("cp_suite", suite_yaml)
 
 
-class TestBackendEnvSubstitution:
-    """``environment.backend`` supports OGX-style ``${env.VAR:=default}`` /
+class TestRuntimeEnvSubstitution:
+    """``agent_runtime`` supports OGX-style ``${env.VAR:=default}`` /
     ``${env.VAR:+value}`` and a bare (required) ``${env.VAR}`` (#A)."""
 
     def _cp_host(self, suite: YAMLTaskSuite) -> str:
-        return suite.backend.policy["networkPolicies"]["midojo_control_plane"]["endpoints"][0]["host"]
+        runtime = suite.definition.agent_runtime
+        assert isinstance(runtime, OpenShellRuntimeDefinition) and runtime.policy
+        return runtime.policy["networkPolicies"]["midojo_control_plane"]["endpoints"][0]["host"]
 
     def test_default_used_when_var_unset(self, tmp_path, monkeypatch):
         monkeypatch.delenv("MIDOJO_CONTROL_HOST", raising=False)
@@ -268,9 +268,9 @@ class TestBackendEnvSubstitution:
         with pytest.raises(ValueError, match="MIDOJO_CONTROL_HOST.*unset"):
             _openshell_policy_suite(tmp_path, "${env.MIDOJO_CONTROL_HOST}")
 
-    def test_substitution_does_not_touch_attack_payloads(self, tmp_path, monkeypatch):
-        # Neither a bare ${IFS} nor a namespaced ${env.LEAKED} in a payload may be
-        # expanded — substitution is backend-scoped only.
+    def test_substitution_does_not_touch_files_or_attack_payloads(self, tmp_path, monkeypatch):
+        # Neither a bare ${IFS} nor a namespaced ${env.LEAKED} in a payload or a
+        # seeded file may be expanded — substitution covers runtime settings only.
         monkeypatch.setenv("IFS", "SHOULD_NOT_APPEAR")
         monkeypatch.setenv("LEAKED", "SHOULD_NOT_APPEAR")
         suite = _openshell_policy_suite(tmp_path, "${env.MIDOJO_CONTROL_HOST:=host.openshell.internal}")
@@ -278,6 +278,7 @@ class TestBackendEnvSubstitution:
         assert "${IFS}" in payload
         assert "${env.LEAKED}" in payload
         assert "SHOULD_NOT_APPEAR" not in payload
+        assert suite.definition.agent_runtime.model_dump()["files"] == {"notes.txt": "${env.LEAKED}"}
 
 
 class TestPromptProbePlacement:
@@ -310,7 +311,8 @@ class TestProbeAttackType:
     def test_default_attack_type_verbatim_accepted(self, tmp_path):
         suite_yaml = tmp_path / "suite.yaml"
         suite_yaml.write_text(
-            "environment: {backend: dict, state: {data: '{injection_task_0:main}'}}\n"
+            "agent_runtime: {type: unmanaged}\n"
+            "environment: {data: '{injection_task_0:main}'}\n"
             "injection_tasks:\n"
             "  - id: injection_task_0\n"
             "    description: 'test'\n"
@@ -327,7 +329,8 @@ class TestProbeAttackType:
     def test_explicit_attack_type_verbatim_accepted(self, tmp_path):
         suite_yaml = tmp_path / "suite.yaml"
         suite_yaml.write_text(
-            "environment: {backend: dict, state: {data: '{injection_task_0:main}'}}\n"
+            "agent_runtime: {type: unmanaged}\n"
+            "environment: {data: '{injection_task_0:main}'}\n"
             "injection_tasks:\n"
             "  - id: injection_task_0\n"
             "    description: 'test'\n"
@@ -345,7 +348,8 @@ class TestProbeAttackType:
     def test_important_instructions_attack_type_wraps_at_suite_load(self, tmp_path):
         suite_yaml = tmp_path / "suite.yaml"
         suite_yaml.write_text(
-            "environment: {backend: dict, state: {data: '{injection_task_0:main}'}}\n"
+            "agent_runtime: {type: unmanaged}\n"
+            "environment: {data: '{injection_task_0:main}'}\n"
             "injection_tasks:\n"
             "  - id: injection_task_0\n"
             "    description: 'test'\n"
@@ -366,7 +370,8 @@ class TestProbeAttackType:
     def test_unsupported_attack_type_raises_at_parse_time(self, tmp_path):
         suite_yaml = tmp_path / "suite.yaml"
         suite_yaml.write_text(
-            "environment: {backend: dict, state: {data: '{injection_task_0:main}'}}\n"
+            "agent_runtime: {type: unmanaged}\n"
+            "environment: {data: '{injection_task_0:main}'}\n"
             "injection_tasks:\n"
             "  - id: injection_task_0\n"
             "    description: 'test'\n"

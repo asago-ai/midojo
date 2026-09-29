@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from midojo.app.state import Evaluation
-from midojo.backends.openshell import OpenShellObservations
+from midojo.runtimes.openshell import OpenShellObservations
 
 
 def _evaluation(client: TestClient, run_id: str, eval_id: str) -> Evaluation:

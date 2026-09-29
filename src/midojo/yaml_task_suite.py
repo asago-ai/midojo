@@ -10,14 +10,16 @@ import yaml
 from pydantic import BaseModel, ValidationError
 
 from midojo.attacks import resolve_source, wrap_payload
-from midojo.backends import EnvironmentBackend, build_backend
+from midojo.env_inference import infer_environment_type
 from midojo.probes import substitute_probes
-from midojo.suite_definition import ProbeDefinition, SuiteDefinition
+from midojo.runtimes import AgentRuntime, build_runtime
+from midojo.suite_definition import OpenShellRuntimeDefinition, ProbeDefinition, SuiteDefinition
 from midojo.types import Environment, FunctionCallRecord, SuiteName
 from midojo.verifier import Check, VerificationContext, parse_check
+from midojo.verifiers.openshell import reads_openshell_observations
 
 # ``${env.VAR}`` references (OGX-style), expanded from the process environment in
-# the backend config only (see ``_expand_env_vars``). The ``env.`` namespace
+# the runtime settings only (see ``_expand_env_vars``). The ``env.`` namespace
 # keeps these from colliding with the bare ``${...}`` shell tokens that appear in
 # attack payloads, and mirrors the syntax OGX uses in its distribution configs.
 _ENV_VAR_RE = re.compile(r"\$\{env\.([A-Za-z_][A-Za-z0-9_]*)(?:(:=|:\+)([^}]*))?\}")
@@ -35,10 +37,11 @@ def _expand_env_vars(value: Any) -> Any:
     - ``${env.VAR:+value}``   — ``value`` only when VAR is set and non-empty, else ""
     - ``${env.VAR}``          — required: raises when VAR is unset or empty
 
-    This is applied to the ``environment.backend`` subtree only — never to attack
-    payloads, which legitimately contain bare ``${...}`` (e.g. ``${IFS}`` shell
-    obfuscation). The ``env.`` namespace means even a stray ``${env.X}`` in a
-    payload would be out of scope here; nothing else looks like these tokens.
+    This is applied to the ``agent_runtime`` settings only — never to its seeded
+    ``files`` or to attack payloads, which legitimately contain bare ``${...}``
+    (e.g. ``${IFS}`` shell obfuscation). The ``env.`` namespace means even a
+    stray ``${env.X}`` in a payload would be out of scope here; nothing else
+    looks like these tokens.
     """
     if isinstance(value, dict):
         return {k: _expand_env_vars(v) for k, v in value.items()}
@@ -59,9 +62,24 @@ def _replace_env_match(match: re.Match[str]) -> str:
     if value:  # bare ${env.VAR} — required
         return value
     raise ValueError(
-        f"environment variable '{name}' referenced in suite backend config is unset "
+        f"environment variable '{name}' referenced in suite agent_runtime is unset "
         f"or empty (use '${{env.{name}:=default}}' to provide a default)"
     )
+
+
+def _substitute_in_structure(node: object, injections: dict[str, str]) -> object:
+    """Substitute probe payloads into every string value of a parsed structure.
+
+    Substituting structurally (rather than into serialized YAML text) keeps
+    payload content — quotes, colons, newlines — from corrupting the document.
+    """
+    if isinstance(node, str):
+        return substitute_probes(node, injections)
+    if isinstance(node, dict):
+        return {key: _substitute_in_structure(value, injections) for key, value in node.items()}
+    if isinstance(node, list):
+        return [_substitute_in_structure(item, injections) for item in node]
+    return node
 
 
 @dataclass
@@ -82,39 +100,30 @@ class InjectionTask:
 class YAMLTaskSuite:
     """Reads a suite definition from a single suite.yaml file."""
 
-    def __init__(
-        self,
-        name: SuiteName,
-        suite_yaml_path: Path,
-        backend: EnvironmentBackend | None = None,
-    ) -> None:
+    def __init__(self, name: SuiteName, suite_yaml_path: Path) -> None:
         self._suite_yaml_path = suite_yaml_path
         raw = yaml.safe_load(suite_yaml_path.read_text())
         if not isinstance(raw, dict):
             raise ValueError(f"Invalid suite definition in {suite_yaml_path}: expected a YAML mapping")
         if "name" in raw and raw["name"] != name:
             raise ValueError(f"Suite name in {suite_yaml_path} does not match the supplied name {name!r}")
-        environment = raw.get("environment")
-        if isinstance(environment, dict) and "backend" in environment:
-            environment["backend"] = _expand_env_vars(environment["backend"])
+        runtime = raw.get("agent_runtime")
+        if isinstance(runtime, dict):
+            raw["agent_runtime"] = {k: v if k == "files" else _expand_env_vars(v) for k, v in runtime.items()}
         try:
             self.definition = SuiteDefinition.model_validate({**raw, "name": name})
         except ValidationError as exc:
             raise ValueError(f"Invalid suite definition in {suite_yaml_path}:\n{exc}") from exc
         self.name = self.definition.name
-        self.backend: EnvironmentBackend = backend or build_backend(
-            self.name, self.definition.environment.model_dump(exclude_unset=True)
-        )
+        self.runtime: AgentRuntime = build_runtime(self.name, self.definition.agent_runtime)
+        self.environment_type: type[Environment] = infer_environment_type(self.name, self.definition.environment)
         self.user_tasks: dict[str, UserTask] = {}
         self.injection_tasks: dict[str, InjectionTask] = {}
         self._register_tasks()
 
-    @property
-    def environment_type(self) -> type[Environment]:
-        return self.backend.environment_type
-
     def provision_environment(self, injections: dict[str, str]) -> Environment:
-        return self.backend.provision(injections)
+        """A fresh environment from the declared state, with the active probe payloads substituted."""
+        return self.environment_type.model_validate(_substitute_in_structure(self.definition.environment, injections))
 
     def inject_user_task_prompt(self, user_task_id: str, injections: dict[str, str]) -> str:
         return substitute_probes(self.user_tasks[user_task_id].prompt, injections)
@@ -156,11 +165,11 @@ class YAMLTaskSuite:
 
     def _register_tasks(self) -> None:
         for task in self.definition.user_tasks:
-            check = parse_check(task.utility)
+            check = self._parse_check(task.id, task.utility)
             self.user_tasks[task.id] = UserTask(id=task.id, prompt=task.prompt, check=check)
 
         for task in self.definition.injection_tasks:
-            check = parse_check(task.security)
+            check = self._parse_check(task.id, task.security)
             probes = self._parse_probes(task.id, task.probes)
             self.injection_tasks[task.id] = InjectionTask(
                 id=task.id,
@@ -168,6 +177,14 @@ class YAMLTaskSuite:
                 check=check,
                 probes=probes,
             )
+
+    def _parse_check(self, task_id: str, raw: dict[str, Any]) -> Check:
+        check = parse_check(raw)
+        if not isinstance(self.definition.agent_runtime, OpenShellRuntimeDefinition) and (
+            reads_openshell_observations(check.parsed)
+        ):
+            raise ValueError(f"Task {task_id!r} uses OpenShell predicates, which require the openshell agent_runtime")
+        return check
 
     def _parse_probes(self, task_id: str, definitions: dict[str, ProbeDefinition]) -> dict[str, str]:
         probes: dict[str, str] = {}

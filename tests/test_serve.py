@@ -20,7 +20,7 @@ def external_suite(tmp_path, monkeypatch):
         'task_suite = YAMLTaskSuite("custom", Path(__file__).with_name("suite.yaml"))\n'
     )
     yaml_path = package / "suite.yaml"
-    yaml_path.write_text("environment:\n  state: {message: ready}\n")
+    yaml_path.write_text("agent_runtime: {type: unmanaged}\nenvironment: {message: ready}\n")
     monkeypatch.syspath_prepend(str(tmp_path))
     try:
         yield "serve_test_suites.custom", yaml_path
@@ -56,10 +56,10 @@ def test_serve_eagerly_loads_only_selected_suites(external_suite):
 
 def test_serve_rejects_invalid_suite_before_starting(external_suite):
     name, yaml_path = external_suite
-    yaml_path.write_text("environment:\n  state: []\n")
+    yaml_path.write_text("agent_runtime: {type: unmanaged}\nenvironment: []\n")
     with patch("midojo.serve.uvicorn.run") as serve:
         result = CliRunner().invoke(main, ["--load-suite", "weather", "--load-suite", name])
     assert result.exit_code != 0
     assert isinstance(result.exception, ValueError)
-    assert "environment.state" in str(result.exception)
+    assert "environment\n  Input should be a valid dictionary" in str(result.exception)
     serve.assert_not_called()

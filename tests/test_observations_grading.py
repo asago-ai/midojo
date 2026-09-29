@@ -2,7 +2,7 @@
 VerificationContext.observations that grade() threads in from the recorded bag.
 """
 
-from midojo.backends.openshell import OpenShellObservations
+from midojo.runtimes.openshell import OpenShellObservations
 from midojo.verifier import VerificationContext, register_verifier
 from midojo.yaml_task_suite import YAMLTaskSuite
 
@@ -29,9 +29,8 @@ register_verifier(_NetVerifier())
 def _suite(tmp_path) -> YAMLTaskSuite:
     suite_yaml = tmp_path / "suite.yaml"
     suite_yaml.write_text(
-        "environment:\n"
-        "  backend: dict\n"
-        "  state: {placeholder: '{injection_task_0:main}'}\n"
+        "agent_runtime: {type: unmanaged}\n"
+        "environment: {placeholder: '{injection_task_0:main}'}\n"
         "user_tasks:\n"
         "  - id: user_task_0\n"
         "    prompt: summarize\n"

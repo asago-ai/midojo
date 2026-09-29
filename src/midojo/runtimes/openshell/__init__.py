@@ -1,13 +1,11 @@
-"""OpenShell environment backend.
+"""OpenShell agent runtime.
 
-A container backend that provisions a sandboxed shell environment on NVIDIA
-OpenShell (https://github.com/NVIDIA/OpenShell). Unlike the dict backend — whose
-"environment" is an in-memory model — OpenShell's environment is a real Linux
-sandbox: the agent runs *inside* it, governed by a policy, and the kernel audits
-everything it does as OCSF events.
+Runs the agent in a sandbox on NVIDIA OpenShell
+(https://github.com/NVIDIA/OpenShell): a real Linux sandbox, governed by a
+policy, where the kernel audits everything the agent does as OCSF events.
 
-The environment is the seeded ``/sandbox/workdir`` files. After the agent runs,
-``observe()`` collects runtime observations from outside the agent:
+Each evaluation's sandbox is seeded with the runtime's ``files``. After the
+agent runs, ``observe()`` collects runtime observations from outside the agent:
 
   * **workdir diff** — files created, modified and deleted against the seeded files.
   * **OCSF events** — kernel-audited network connections, processes (command
@@ -50,16 +48,15 @@ from openshell import SandboxClient, WorkspaceClient
 from openshell._proto import openshell_pb2
 from pydantic import BaseModel, ConfigDict, Field
 
-from midojo.backends.openshell.logs import OCSFEvents, parse_ocsf_lines
 from midojo.observations import register_observation_type
 from midojo.probes import substitute_probes
-from midojo.types import Environment
+from midojo.runtimes.openshell.logs import OCSFEvents, parse_ocsf_lines
 
 # ---------------------------------------------------------------------------
 _COMMUNITY_REGISTRY = "ghcr.io/nvidia/openshell-community/sandboxes"
 
 # Directory inside the sandbox where the suite's files are seeded and where the
-# agent works. Relative paths in the suite's `state` are placed under it.
+# agent works. Relative paths in the runtime's `files` are placed under it.
 _WORKDIR = "/sandbox/workdir"
 
 # From inside an OpenShell sandbox, the host machine that runs the midojo control
@@ -211,17 +208,8 @@ def _warn_if_control_plane_not_allowed(policy_spec: dict | None, url: str) -> No
 
 
 # ---------------------------------------------------------------------------
-# Environment model
+# Observations
 # ---------------------------------------------------------------------------
-
-
-class OpenShellEnvironment(Environment):
-    """The files seeded into an OpenShell sandbox, with injection payloads substituted.
-
-    Keys are paths relative to ``/sandbox/workdir``, or absolute paths.
-    """
-
-    workdir_files: dict[str, str] = Field(default_factory=dict)
 
 
 # Key of the OpenShell entry in an evaluation's runtime observations.
@@ -242,7 +230,7 @@ class ProcessRecord(BaseModel):
 class OpenShellObservations(BaseModel):
     """What OpenShell saw the agent do during one evaluation.
 
-    Collected by ``OpenShellBackend.observe()`` outside the agent, and recorded
+    Collected by ``OpenShellRuntime.observe()`` outside the agent, and recorded
     by the orchestrator as ``observations["openshell"]``.
     """
 
@@ -265,47 +253,45 @@ register_observation_type(OBSERVATIONS_SOURCE, OpenShellObservations)
 
 
 # ---------------------------------------------------------------------------
-# Backend
+# Runtime
 # ---------------------------------------------------------------------------
 
 
-class OpenShellBackend:
+class OpenShellRuntime:
     """Provisions and manages OpenShell sandboxes for a benchmark run.
 
     Suite YAML::
 
-        environment:
-          backend:
-            type: openshell
-            image: pi              # OpenShell sandbox image
-            policy: pi             # built-in name or inline dict; omit for no policy
-          state:                   # seeded workdir files (probe placeholders allowed)
+        agent_runtime:
+          type: openshell          # the default, may be omitted
+          image: pi                # OpenShell sandbox image
+          policy: {...}            # inline policy; omit for the image's built-in policy
+          files:                   # seeded workdir files (probe placeholders allowed)
             customer_report.txt: "Q4 report ... {injection_task_0:main}"
 
     Lifecycle (driven by the orchestrator):
       1. ``configure(cluster=..., control_url=...)`` — inject deployment config (once)
       2. ``start_run(run_id)`` — open the run's OpenShell workspace + client (once)
-      3. ``provision(injections)`` — render workdir files (pure, no sandbox needed)
-      4. ``setup(pre_env, ...)`` — create sandbox with evaluation labels, seed workdir (per evaluation)
-      5. agent executes (via ``exec_agent``)
-      6. ``observe()`` — workdir diff + OCSF events → ``OpenShellObservations``
-      7. ``teardown()`` — delete the sandbox (per evaluation)
-      8. ``end_run()`` — delete the run's workspace, close the client (once)
+      3. ``setup(injections, ...)`` — create sandbox with evaluation labels, seed files (per evaluation)
+      4. agent executes (via ``exec_agent``)
+      5. ``observe()`` — workdir diff + OCSF events → ``OpenShellObservations``
+      6. ``teardown()`` — delete the sandbox (per evaluation)
+      7. ``end_run()`` — delete the run's workspace, close the client (once)
     """
+
+    name = "openshell"
 
     def __init__(
         self,
         suite_name: str,
         *,
-        image: str | None,
+        image: str,
         policy: dict | None = None,
         providers: list[str] | None = None,
         env_vars: dict[str, str] | None = None,
         agent_command: list[str] | None = None,
-        workdir_files: dict[str, str] | None = None,
+        files: dict[str, str] | None = None,
     ) -> None:
-        if not image:
-            raise ValueError("openshell backend requires an 'image' field under 'environment.backend'")
         self._suite_name = suite_name
         self._image: str = image
         self._policy_spec: dict | None = policy
@@ -320,11 +306,11 @@ class OpenShellBackend:
         # a local model server) without needing a registered provider.
         self._env_vars: dict[str, str] = env_vars or {}
         # Command used to invoke the agent inside the sandbox.
-        # Analogous to --agent-uri for other protocols: this is how midojo calls
+        # Analogous to --agent-uri for unmanaged runtimes: this is how midojo calls
         # the user's agent, expressed as a command inside the sandbox image.
         self._agent_command: list[str] | None = agent_command
-        # Seed-file templates from the suite's `state` (probe placeholders intact).
-        self._workdir_files: dict[str, str] = workdir_files or {}
+        # Seed-file templates (probe placeholders intact), rendered in setup().
+        self._files: dict[str, str] = files or {}
 
         # Deployment config — set by configure() before start_run()
         self._cluster: str = ""
@@ -334,7 +320,7 @@ class OpenShellBackend:
         self._client: Any = None
         # OpenShell workspace resource: a gateway-side named scope that holds the
         # run's sandboxes and their policies. One per orchestrator run; every
-        # sandbox is created inside it. Distinct from ``_workdir_files`` (the
+        # sandbox is created inside it. Distinct from ``_files`` (the
         # seed-file contents) and ``/sandbox/workdir`` (a directory in the sandbox).
         self._workspace_client: Any = None
         self._workspace_name: str = ""
@@ -344,7 +330,6 @@ class OpenShellBackend:
         self._ref: Any = None
         self._start_ms: int = 0
         self._cached_ocsf: OCSFEvents | None = None
-        self._seeded_workdir: dict[str, str] = {}  # rendered file contents (pre_env.workdir_files)
 
     # --- Public read-only accessors (avoid direct private attribute access) ---
 
@@ -376,24 +361,10 @@ class OpenShellBackend:
         self._cluster = cluster
         self._control_url = control_url
 
-    # --- EnvironmentBackend protocol ---
-
-    @property
-    def environment_type(self) -> type[Environment]:
-        return OpenShellEnvironment
-
-    def provision(self, injections: dict[str, str]) -> OpenShellEnvironment:
-        """Render seeded workdir files with active injections substituted.
-
-        Pure — no sandbox connection needed. Suites load without a gateway.
-        """
-        files = {path: substitute_probes(template, injections) for path, template in self._workdir_files.items()}
-        return OpenShellEnvironment(workdir_files=files)
-
     # --- Run-level lifecycle ---
 
-    def start_run(self, run_id: str, *, suite_name: str | None = None) -> None:
-        """Open the run's OpenShell workspace and gRPC client.
+    def start_run(self, run_id: str, *, suite_name: str | None = None) -> str:
+        """Open the run's OpenShell workspace and gRPC client, and name the workspace.
 
         Called once per orchestrator run, before the first ``setup()``. Connects
         via ``SandboxClient.from_active_cluster(cluster=...)``, which reads the
@@ -415,24 +386,25 @@ class OpenShellBackend:
         # control-plane allow rule once here rather than on every setup().
         if self._control_url:
             _warn_if_control_plane_not_allowed(self._policy_spec, self._control_url)
+        return f"workspace {self._workspace_name}"
 
     # --- Per-evaluation sandbox lifecycle ---
 
-    def setup(  # type: ignore[override]
+    def setup(
         self,
-        pre_env: OpenShellEnvironment,
+        injections: dict[str, str],
         *,
         session_token: str,
         eval_id: str,
         user_task_id: str,
         injection_task_id: str | None,
     ) -> None:
-        """Create the sandbox in the run's workspace, seed the workdir, mark a baseline.
+        """Create the sandbox in the run's workspace, seed the files, mark a baseline.
 
-        Requires ``start_run()`` to have opened the client and workspace.
+        The injections are substituted into the seeded files. Requires
+        ``start_run()`` to have opened the client and workspace.
         """
         self._cached_ocsf = None
-        self._seeded_workdir = dict(pre_env.workdir_files)
 
         env = {**self._env_vars, "MIDOJO_SESSION_TOKEN": session_token}
         # The in-sandbox agent SDK POSTs its tool calls to the control plane, so
@@ -466,7 +438,8 @@ class OpenShellBackend:
         # files outside the workdir). All other paths are relative to
         # /sandbox/workdir/ (the agent's working directory).
         self._client.exec(self._ref.id, ["mkdir", "-p", _WORKDIR])
-        for path, content in pre_env.workdir_files.items():
+        for path, template in self._files.items():
+            content = substitute_probes(template, injections)
             if path.startswith("/"):
                 dest = path
             else:
@@ -525,9 +498,9 @@ class OpenShellBackend:
         self._cached_ocsf = parse_ocsf_lines(messages)
         return self._cached_ocsf
 
-    def observe(self) -> OpenShellObservations:
-        """Collect the workdir diff and OCSF events for the current evaluation."""
-        seeded = {f"{_WORKDIR}/{p}" for p in self._seeded_workdir}
+    def observe(self) -> dict[str, BaseModel]:
+        """Collect the workdir diff and OCSF events as ``observations["openshell"]``."""
+        seeded = {f"{_WORKDIR}/{p}" for p in self._files}
 
         diff_result = self._client.exec(
             self._ref.id,
@@ -557,7 +530,7 @@ class OpenShellBackend:
 
         ocsf = self._fetch_ocsf()
 
-        return OpenShellObservations(
+        observed = OpenShellObservations(
             files_created=files_created,
             files_modified=files_modified,
             files_deleted=files_deleted,
@@ -567,6 +540,7 @@ class OpenShellBackend:
             network_calls_blocked=ocsf.network_blocked_endpoints,
             security_findings=[f.title for f in ocsf.findings],
         )
+        return {OBSERVATIONS_SOURCE: observed}
 
     def teardown(self) -> None:
         """Delete the evaluation's sandbox. The workspace is deleted in ``end_run()``."""
@@ -583,7 +557,6 @@ class OpenShellBackend:
         self._ref = None
         self._start_ms = 0
         self._cached_ocsf = None
-        self._seeded_workdir = {}
 
     def end_run(self) -> None:
         """Wait for the run's workspace to drain, delete it, and close the client.
