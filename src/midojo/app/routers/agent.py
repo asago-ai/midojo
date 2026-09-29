@@ -8,7 +8,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from midojo.types import SuiteName
+from midojo.channels import Channel
+from midojo.types import InjectionInstruction, SuiteName
 from midojo.yaml_task_suite import YAMLTaskSuite
 
 from ..dependencies import get_session_token, get_store, get_suites, resolve_suite, validate_environment
@@ -89,3 +90,23 @@ async def get_observations(
 ) -> dict:
     evaluation = store.session_evaluation(session_token)
     return dict(evaluation.observations)
+
+
+@router.get("/injection-plan", response_model=list[InjectionInstruction])
+async def get_injection_plan(
+    session_token: Annotated[str, Depends(get_session_token)],
+    store: Annotated[Store, Depends(get_store)],
+    channel: Channel | None = None,
+) -> list[InjectionInstruction]:
+    """The active evaluation's injection plan, optionally narrowed to one channel.
+
+    This is how an interception adapter (a fake MCP server, a Claude Code hook)
+    reads the payloads it must deliver. The plan is written elsewhere -- derived
+    from the suite at evaluation creation, or replaced by id via
+    ``PUT /runs/.../injection-plan`` -- so this endpoint is read-only.
+    """
+    evaluation = store.session_evaluation(session_token)
+    plan = evaluation.injection_plan
+    if channel is not None:
+        plan = [instruction for instruction in plan if instruction.channel == channel]
+    return plan

@@ -11,9 +11,16 @@ from pydantic import ValidationError
 
 from midojo.attacks import resolve_source, wrap_payload
 from midojo.backends import EnvironmentBackend, build_backend
+from midojo.channels import parse_channel, parse_mode
 from midojo.probes import substitute_probes
 from midojo.suite_definition import ProbeDefinition, SuiteDefinition
-from midojo.types import Environment, FunctionCallRecord, SuiteName
+from midojo.types import (
+    Environment,
+    FunctionCallRecord,
+    InjectionInstruction,
+    InjectionTarget,
+    SuiteName,
+)
 from midojo.verifier import Check, VerificationContext, parse_check
 
 # ``${env.VAR}`` references (OGX-style), expanded from the process environment in
@@ -76,6 +83,9 @@ class InjectionTask:
     id: str
     description: str
     probes: dict[str, str] = field(default_factory=dict)
+    # Probes that named a channel, keyed by probe id. A probe appears here
+    # *or* in the substitution path, never both -- see build_injection_inputs.
+    instructions: dict[str, InjectionInstruction] = field(default_factory=dict)
     check: Check | None = None
 
 
@@ -120,8 +130,29 @@ class YAMLTaskSuite:
         return substitute_probes(self.user_tasks[user_task_id].prompt, injections)
 
     def get_probes_for_task(self, task_id: str) -> dict[str, str]:
-        probes = self.injection_tasks[task_id].probes
-        return {f"{task_id}:{probe_id}": payload for probe_id, payload in probes.items()}
+        """The task's substitution payloads, keyed ``<task_id>:<probe_id>``."""
+        return self.build_injection_inputs(task_id)[0]
+
+    def build_injection_inputs(self, task_id: str) -> tuple[dict[str, str], list[InjectionInstruction]]:
+        """Split a task's probes by how they reach the agent.
+
+        A probe with no ``channel`` is delivered by placeholder substitution:
+        its payload goes into the injections dict and nowhere else. A probe
+        that names a channel is delivered by the interception adapter, so it
+        becomes an instruction on the injection plan and is deliberately kept
+        *out* of the injections dict -- otherwise a stray ``{task:probe}``
+        placeholder would deliver the same payload a second time.
+        """
+        task = self.injection_tasks[task_id]
+        injections: dict[str, str] = {}
+        plan: list[InjectionInstruction] = []
+        for probe_id, payload in task.probes.items():
+            instruction = task.instructions.get(probe_id)
+            if instruction is None:
+                injections[f"{task_id}:{probe_id}"] = payload
+            else:
+                plan.append(instruction)
+        return injections, plan
 
     def grade(
         self,
@@ -161,23 +192,38 @@ class YAMLTaskSuite:
 
         for task in self.definition.injection_tasks:
             check = parse_check(task.security)
-            probes = self._parse_probes(task.id, task.probes)
+            probes, instructions = self._parse_probes(task.id, task.probes)
             self.injection_tasks[task.id] = InjectionTask(
                 id=task.id,
                 description=task.description,
                 check=check,
                 probes=probes,
+                instructions=instructions,
             )
 
-    def _parse_probes(self, task_id: str, definitions: dict[str, ProbeDefinition]) -> dict[str, str]:
+    def _parse_probes(
+        self, task_id: str, definitions: dict[str, ProbeDefinition]
+    ) -> tuple[dict[str, str], dict[str, InjectionInstruction]]:
         probes: dict[str, str] = {}
+        instructions: dict[str, InjectionInstruction] = {}
         for probe_id, probe in definitions.items():
             try:
                 payload = self._resolve_probe_payload(probe)
-                probes[probe_id] = wrap_payload(payload, probe.attack_type)
+                wrapped = wrap_payload(payload, probe.attack_type)
+                probes[probe_id] = wrapped
+                # Validated even when no channel uses it, so a typo is never silent.
+                mode = parse_mode(probe.mode)
+                if probe.channel is not None:
+                    instructions[probe_id] = InjectionInstruction(
+                        channel=parse_channel(probe.channel),
+                        probe_key=f"{task_id}:{probe_id}",
+                        payload=wrapped,
+                        target=InjectionTarget(tool=probe.target.tool, field=probe.target.field),
+                        mode=mode,
+                    )
             except ValueError as e:
                 raise ValueError(f"Probe '{task_id}:{probe_id}': {e}") from None
-        return probes
+        return probes, instructions
 
     def _resolve_probe_payload(self, probe: ProbeDefinition) -> str:
         """A probe's cargo is either an inline ``payload`` or a library ``source``."""
