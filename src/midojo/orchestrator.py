@@ -25,8 +25,10 @@ from midojo.agent_client import (
     PIAgentClient,
     SimpleHTTPAgentClient,
 )
+from midojo.app.models import GradeResponse
 from midojo.backends import DictEnvironmentBackend, EnvironmentBackend
 from midojo.backends.openshell import OpenShellBackend
+from midojo.control_plane_client import ControlPlaneClient
 from midojo.suites import get_suite, list_suites
 from midojo.yaml_task_suite import YAMLTaskSuite
 
@@ -51,6 +53,13 @@ class TaskPair(NamedTuple):
     injection_task_id: str
 
 
+class TaskResult(NamedTuple):
+    eval_id: str
+    prompt: str
+    agent_output: str
+    grade: GradeResponse
+
+
 def _utility(value: bool) -> Text:
     return Text("✅ task completed", style="bold green") if value else Text("❌ task not completed", style="bold red")
 
@@ -70,23 +79,8 @@ def _security(value: bool) -> Text:
     return Text("🛡️ attack failed", style="bold green")
 
 
-async def _fetch_suite_info(control_url: str, suite_name: str) -> dict:
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.get(f"{control_url}/suites/{suite_name}")
-        resp.raise_for_status()
-        return resp.json()
-
-
-async def _create_run(control_url: str, suite_name: str) -> str:
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(f"{control_url}/runs", json={"suite_name": suite_name})
-        resp.raise_for_status()
-        return resp.json()["id"]
-
-
 def _print_banner(
     suite_name: str,
-    suite_info: dict,
     agent_uri: str,
     protocol: str,
     user_tasks_to_run: list[str],
@@ -148,21 +142,13 @@ def _print_results_table(
 
 
 async def _injection_reached_agent(
-    control_url: str, run_id: str, eval_id: str, injections: dict[str, str]
+    control: ControlPlaneClient, run_id: str, eval_id: str, injections: dict[str, str]
 ) -> list[str]:
     """Return channels through which an injection payload reached the agent.
 
     Checks both the agent input (prompt) and function call results (tool output).
     """
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        eval_resp, calls_resp = await asyncio.gather(
-            client.get(f"{control_url}/runs/{run_id}/evaluations/{eval_id}"),
-            client.get(f"{control_url}/runs/{run_id}/evaluations/{eval_id}/function-calls"),
-        )
-        eval_resp.raise_for_status()
-        calls_resp.raise_for_status()
-        eval_data = eval_resp.json()
-        calls = calls_resp.json()
+    evaluation = await control.evaluation(run_id, eval_id)
     payloads = [v for v in injections.values() if v]
     if not payloads:
         return []
@@ -172,61 +158,18 @@ async def _injection_reached_agent(
 
     normalized_payloads = [_normalize(p) for p in payloads]
     hits: list[str] = []
-    agent_input = eval_data.get("agent_input") or ""
+    agent_input = evaluation.agent_input or ""
     if agent_input and any(p in _normalize(agent_input) for p in normalized_payloads):
         hits.append("agent input")
-    for call in calls:
-        result = _normalize(call.get("result", "") or "")
+    for call in evaluation.function_calls:
+        result = _normalize(call.result)
         if any(p in result for p in normalized_payloads):
-            hits.append(call["function"])
+            hits.append(call.function)
     return hits
 
 
-async def _create_evaluation(
-    client: httpx.AsyncClient,
-    control_url: str,
-    run_id: str,
-    user_task_id: str,
-    injection_task_id: str | None,
-    injections: dict[str, str],
-) -> tuple[str, str, str]:
-    """Create an evaluation and return its ID, prompt, and private callback token."""
-    resp = await client.post(
-        f"{control_url}/runs/{run_id}/evaluations",
-        json={
-            "user_task_id": user_task_id,
-            "injection_task_id": injection_task_id,
-            "injections": injections,
-        },
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    return data["id"], data["prompt"], data["session_token"]
-
-
-async def _complete_and_grade(
-    client: httpx.AsyncClient,
-    control_url: str,
-    run_id: str,
-    eval_id: str,
-    agent_output: str,
-) -> dict:
-    """POST /complete + POST /grade and return the grading result dict."""
-    complete_resp = await client.post(
-        f"{control_url}/runs/{run_id}/evaluations/{eval_id}/complete",
-        json={"agent_output": agent_output},
-    )
-    complete_resp.raise_for_status()
-
-    grade_resp = await client.post(f"{control_url}/runs/{run_id}/evaluations/{eval_id}/grade")
-    grade_resp.raise_for_status()
-    result = grade_resp.json()
-    result["eval_id"] = eval_id
-    return result
-
-
 async def run_task(
-    control_url: str,
+    control: ControlPlaneClient,
     agent_client: AgentClient,
     run_id: str,
     user_task_id: str,
@@ -234,60 +177,53 @@ async def run_task(
     injections: dict[str, str],
     *,
     backend: EnvironmentBackend,
-) -> dict:
+) -> TaskResult:
     """Run a single evaluation.
 
     OpenShell backends manage a sandbox around agent execution; dict backends
     keep their environment in the control plane.
     """
-    async with httpx.AsyncClient(timeout=300.0) as client:
-        eval_id, prompt, session_token = await _create_evaluation(
-            client, control_url, run_id, user_task_id, injection_task_id, injections
-        )
+    evaluation = await control.create_evaluation(run_id, user_task_id, injection_task_id, injections)
+    eval_id, prompt, session_token = evaluation.id, evaluation.prompt, evaluation.session_token
 
-        try:
-            if isinstance(backend, OpenShellBackend):
-                pair = f"{user_task_id} x {injection_task_id}" if injection_task_id else user_task_id
-                try:
-                    pre_env = backend.provision(injections)
-                    with console.status(f"[dim]{pair} · creating sandbox…[/dim]", spinner="dots"):
-                        await asyncio.to_thread(
-                            backend.setup,
-                            pre_env,
-                            session_token=session_token,
-                            eval_id=eval_id,
-                            user_task_id=user_task_id,
-                            injection_task_id=injection_task_id,
-                        )
-                    with console.status(f"[dim]{pair} · running agent in sandbox…[/dim]", spinner="dots"):
-                        agent_output = await agent_client.send_task(prompt, session_token=session_token)
-                    with console.status(f"[dim]{pair} · collecting sandbox observations…[/dim]", spinner="dots"):
-                        post_env = await asyncio.to_thread(backend.snapshot)
-                    env_resp = await client.put(
-                        f"{control_url}/runs/{run_id}/evaluations/{eval_id}/environment",
-                        json=post_env.model_dump(),
+    try:
+        if isinstance(backend, OpenShellBackend):
+            pair = f"{user_task_id} x {injection_task_id}" if injection_task_id else user_task_id
+            try:
+                pre_env = backend.provision(injections)
+                with console.status(f"[dim]{pair} · creating sandbox…[/dim]", spinner="dots"):
+                    await asyncio.to_thread(
+                        backend.setup,
+                        pre_env,
+                        session_token=session_token,
+                        eval_id=eval_id,
+                        user_task_id=user_task_id,
+                        injection_task_id=injection_task_id,
                     )
-                    env_resp.raise_for_status()
-                finally:
-                    with console.status(f"[dim]{pair} · tearing down sandbox…[/dim]", spinner="dots"):
-                        await asyncio.to_thread(backend.teardown)
-            elif isinstance(backend, DictEnvironmentBackend):
-                agent_output = await agent_client.send_task(prompt, session_token=session_token)
-            else:
-                raise TypeError(f"Unsupported environment backend: {type(backend).__name__}")
+                with console.status(f"[dim]{pair} · running agent in sandbox…[/dim]", spinner="dots"):
+                    agent_output = await agent_client.send_task(prompt, session_token=session_token)
+                with console.status(f"[dim]{pair} · collecting sandbox observations…[/dim]", spinner="dots"):
+                    post_env = await asyncio.to_thread(backend.snapshot)
+                await control.put_evaluation_environment(run_id, eval_id, post_env.model_dump())
+            finally:
+                with console.status(f"[dim]{pair} · tearing down sandbox…[/dim]", spinner="dots"):
+                    await asyncio.to_thread(backend.teardown)
+        elif isinstance(backend, DictEnvironmentBackend):
+            agent_output = await agent_client.send_task(prompt, session_token=session_token)
+        else:
+            raise TypeError(f"Unsupported environment backend: {type(backend).__name__}")
 
-            result = await _complete_and_grade(client, control_url, run_id, eval_id, agent_output)
-            result["prompt"] = prompt
-            result["agent_output"] = agent_output
-            return result
-        except BaseException:
-            with contextlib.suppress(httpx.HTTPError):
-                response = await client.delete(f"{control_url}/runs/{run_id}/evaluations/{eval_id}/session")
-                response.raise_for_status()
-            raise
+        await control.complete_evaluation(run_id, eval_id, agent_output)
+        grade = await control.grade_evaluation(run_id, eval_id)
+        return TaskResult(eval_id=eval_id, prompt=prompt, agent_output=agent_output, grade=grade)
+    except BaseException:
+        with contextlib.suppress(httpx.HTTPError):
+            await control.revoke_session(run_id, eval_id)
+        raise
 
 
-async def run_benchmark(
+async def _run_benchmark(
+    control: ControlPlaneClient,
     control_url: str,
     agent_client: AgentClient,
     agent_uri: str,
@@ -309,10 +245,8 @@ async def run_benchmark(
         # -ut without -it: utility-only run
         injection_tasks_to_run = []
 
-    suite_info = await _fetch_suite_info(control_url, suite_name)
-    _print_banner(suite_name, suite_info, agent_uri, protocol, user_tasks_to_run, injection_tasks_to_run)
-
-    run_id = await _create_run(control_url, suite_name)
+    run_id = (await control.create_run(suite_name)).id
+    _print_banner(suite_name, agent_uri, protocol, user_tasks_to_run, injection_tasks_to_run)
     console.print(f"  [dim]run[/dim] [cyan underline]{run_id}[/cyan underline]\n")
 
     utility_results: dict[TaskPair, bool] = {}
@@ -335,7 +269,7 @@ async def run_benchmark(
             for it_id in it_ids_to_run:
                 injections = suite.get_probes_for_task(it_id) if it_id else {}
                 result = await run_task(
-                    control_url,
+                    control,
                     agent_client,
                     run_id,
                     ut_id,
@@ -343,28 +277,28 @@ async def run_benchmark(
                     injections,
                     backend=backend,
                 )
-                utility_results[TaskPair(ut_id, it_id or "")] = result["utility"]
-                eval_id = result["eval_id"]
+                grade = result.grade
+                utility_results[TaskPair(ut_id, it_id or "")] = grade.utility
+                eval_id = result.eval_id
                 eval_url = f"{control_url}/runs/{run_id}/evaluations/{eval_id}"
                 label = f"[bold]{ut_id}[/bold] x [bold]{it_id}[/bold]" if it_id else f"[bold]{ut_id}[/bold]"
                 console.print(f"  [dim]\\[eval: [link={eval_url}][cyan]{eval_id}[/cyan][/link]][/dim] {label}")
-                _print_agent_text("agent input", result["prompt"])
-                _print_agent_text("agent output", result["agent_output"])
-                console.print("    ", _utility(result["utility"]))
+                _print_agent_text("agent input", result.prompt)
+                _print_agent_text("agent output", result.agent_output)
+                console.print("    ", _utility(grade.utility))
                 if it_id:
-                    hit_channels = await _injection_reached_agent(control_url, run_id, eval_id, injections)
+                    hit_channels = await _injection_reached_agent(control, run_id, eval_id, injections)
                     if hit_channels:
-                        security_results[TaskPair(ut_id, it_id)] = result["security"]
-                        security_reasons[TaskPair(ut_id, it_id)] = result.get("security_reason")
+                        security_results[TaskPair(ut_id, it_id)] = grade.security
+                        security_reasons[TaskPair(ut_id, it_id)] = grade.security_reason
                         counts = Counter(hit_channels)
                         parts = [f"{ch} x{n}" if n > 1 else ch for ch, n in counts.items()]
                         via = ", ".join(parts)
                         detail = f"injection in {via}"
-                        reason = result.get("security_reason")
-                        if result["security"] and reason:
+                        if grade.security and grade.security_reason:
                             # attack succeeded — name the criterion that graded it
-                            detail += f" · {reason}"
-                        console.print("    ", _security(result["security"]), Text(f"  ({detail})", style="dim"))
+                            detail += f" · {grade.security_reason}"
+                        console.print("    ", _security(grade.security), Text(f"  ({detail})", style="dim"))
                     else:
                         console.print("    ", Text("N/A (payload not in any result)", style="dim"))
     finally:
@@ -394,6 +328,32 @@ async def run_benchmark(
         )
 
     _print_results_table(utility_results, security_results, bool(injection_tasks_to_run), results_file)
+
+
+async def run_benchmark(
+    control_url: str,
+    agent_client: AgentClient,
+    agent_uri: str,
+    protocol: str,
+    suite: YAMLTaskSuite,
+    suite_name: str,
+    user_task_ids: list[str] | None,
+    injection_task_ids: list[str] | None,
+    logdir: Path,
+) -> None:
+    async with ControlPlaneClient(control_url) as control:
+        await _run_benchmark(
+            control,
+            control_url,
+            agent_client,
+            agent_uri,
+            protocol,
+            suite,
+            suite_name,
+            user_task_ids,
+            injection_task_ids,
+            logdir,
+        )
 
 
 @click.command()

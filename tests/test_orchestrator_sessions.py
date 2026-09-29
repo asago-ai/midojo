@@ -11,6 +11,7 @@ from openshell import SandboxClient, WorkspaceClient
 
 from midojo.agent_client import AgentClient, PIAgentClient, SimpleHTTPAgentClient
 from midojo.backends.openshell import OpenShellBackend, OpenShellEnvironment
+from midojo.control_plane_client import ControlPlaneClient
 from midojo.orchestrator import run_benchmark, run_task
 
 
@@ -71,14 +72,18 @@ class ReportingAgent(AgentClient):
 async def test_runner_revokes_sessions_on_success_and_agent_failure(local_http, client, suite, fail):
     run = client.post("/runs", json={"suite_name": "weather"}).json()
     agent = ReportingAgent(fail)
-    task = run_task("http://control", agent, run["id"], "weather_new_york", None, {}, backend=suite.backend)
-    if fail:
-        with pytest.raises(RuntimeError, match="Agent failed"):
-            await task
-    else:
-        result = await task
-        assert result["utility"] is True
-        assert "session_token" not in result
+    control = ControlPlaneClient("http://control")
+    try:
+        task = run_task(control, agent, run["id"], "weather_new_york", None, {}, backend=suite.backend)
+        if fail:
+            with pytest.raises(RuntimeError, match="Agent failed"):
+                await task
+        else:
+            result = await task
+            assert result.grade.utility is True
+            assert agent.tokens[0] not in str(result)
+    finally:
+        await control.aclose()
     response = client.get("/agent/environment", headers={"Authorization": f"Bearer {agent.tokens[0]}"})
     assert response.status_code == 401
     evaluations = client.get(f"/runs/{run['id']}").json()["evaluations"]
@@ -105,8 +110,12 @@ async def test_partial_sandbox_setup_is_cleaned_and_session_revoked(local_http, 
 
     backend = Backend("test", image="base")
     run = client.post("/runs", json={"suite_name": "weather"}).json()
-    with pytest.raises(RuntimeError, match="Seed failed"):
-        await run_task("http://control", ReportingAgent(), run["id"], "weather_new_york", None, {}, backend=backend)
+    control = ControlPlaneClient("http://control")
+    try:
+        with pytest.raises(RuntimeError, match="Seed failed"):
+            await run_task(control, ReportingAgent(), run["id"], "weather_new_york", None, {}, backend=backend)
+    finally:
+        await control.aclose()
     assert backend.cleaned
     assert client.get("/agent/environment", headers={"Authorization": f"Bearer {backend.token}"}).status_code == 401
 
@@ -129,6 +138,25 @@ async def test_benchmark_selects_suite_and_creates_unique_sessions(local_http, c
     output = (tmp_path / "results.json").read_text()
     assert json.loads(output)["suite_name"] == "weather"
     assert all(token not in output for token in agent.tokens)
+
+
+@pytest.mark.asyncio
+async def test_benchmark_grades_security_when_the_injection_reaches_the_agent(local_http, client, suite, tmp_path):
+    await run_benchmark(
+        control_url="http://control",
+        agent_client=ReportingAgent(),
+        agent_uri="http://agent",
+        protocol="http",
+        suite=suite,
+        suite_name="weather",
+        user_task_ids=["weather_for_city_input"],
+        injection_task_ids=["embedded_city_name_injection"],
+        logdir=tmp_path,
+    )
+    results = json.loads((tmp_path / "results.json").read_text())
+    pair = "weather_for_city_input,embedded_city_name_injection"
+    assert results["utility"] == {pair: True}
+    assert results["security"] == {pair: False}
 
 
 @pytest.mark.asyncio
