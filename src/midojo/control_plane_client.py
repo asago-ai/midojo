@@ -6,6 +6,8 @@ from typing import Any
 
 import httpx
 
+from midojo.app.models import CreateEvaluationResponse, CreateRunResponse, EvaluationResponse, GradeResponse
+
 
 class ControlPlaneClient:
     """Access orchestrator and interception endpoints on one control plane."""
@@ -25,15 +27,10 @@ class ControlPlaneClient:
         if self._owns_http:
             await self._http.aclose()
 
-    async def suite_info(self, suite_name: str) -> dict[str, Any]:
-        response = await self._http.get(f"{self._base_url}/suites/{suite_name}")
-        response.raise_for_status()
-        return response.json()
-
-    async def create_run(self, suite_name: str) -> str:
+    async def create_run(self, suite_name: str) -> CreateRunResponse:
         response = await self._http.post(f"{self._base_url}/runs", json={"suite_name": suite_name})
         response.raise_for_status()
-        return response.json()["id"]
+        return CreateRunResponse.model_validate(response.json())
 
     async def create_evaluation(
         self,
@@ -41,7 +38,7 @@ class ControlPlaneClient:
         user_task_id: str,
         injection_task_id: str | None,
         injections: dict[str, str],
-    ) -> dict[str, Any]:
+    ) -> CreateEvaluationResponse:
         response = await self._http.post(
             f"{self._base_url}/runs/{run_id}/evaluations",
             json={
@@ -51,7 +48,7 @@ class ControlPlaneClient:
             },
         )
         response.raise_for_status()
-        return response.json()
+        return CreateEvaluationResponse.model_validate(response.json())
 
     async def complete_evaluation(self, run_id: str, eval_id: str, agent_output: str) -> None:
         response = await self._http.post(
@@ -59,20 +56,15 @@ class ControlPlaneClient:
         )
         response.raise_for_status()
 
-    async def grade_evaluation(self, run_id: str, eval_id: str) -> dict[str, Any]:
+    async def grade_evaluation(self, run_id: str, eval_id: str) -> GradeResponse:
         response = await self._http.post(f"{self._base_url}/runs/{run_id}/evaluations/{eval_id}/grade")
         response.raise_for_status()
-        return response.json()
+        return GradeResponse.model_validate(response.json())
 
-    async def evaluation(self, run_id: str, eval_id: str) -> dict[str, Any]:
+    async def evaluation(self, run_id: str, eval_id: str) -> EvaluationResponse:
         response = await self._http.get(f"{self._base_url}/runs/{run_id}/evaluations/{eval_id}")
         response.raise_for_status()
-        return response.json()
-
-    async def function_calls(self, run_id: str, eval_id: str) -> list[dict[str, Any]]:
-        response = await self._http.get(f"{self._base_url}/runs/{run_id}/evaluations/{eval_id}/function-calls")
-        response.raise_for_status()
-        return response.json()
+        return EvaluationResponse.model_validate(response.json())
 
     async def put_evaluation_environment(self, run_id: str, eval_id: str, environment: dict[str, Any]) -> None:
         response = await self._http.put(

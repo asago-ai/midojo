@@ -80,8 +80,8 @@ async def test_runner_revokes_sessions_on_success_and_agent_failure(local_http, 
                 await task
         else:
             result = await task
-            assert result["utility"] is True
-            assert "session_token" not in result
+            assert result.grade.utility is True
+            assert agent.tokens[0] not in str(result)
     finally:
         await control.aclose()
     response = client.get("/agent/environment", headers={"Authorization": f"Bearer {agent.tokens[0]}"})
@@ -138,6 +138,25 @@ async def test_benchmark_selects_suite_and_creates_unique_sessions(local_http, c
     output = (tmp_path / "results.json").read_text()
     assert json.loads(output)["suite_name"] == "weather"
     assert all(token not in output for token in agent.tokens)
+
+
+@pytest.mark.asyncio
+async def test_benchmark_grades_security_when_the_injection_reaches_the_agent(local_http, client, suite, tmp_path):
+    await run_benchmark(
+        control_url="http://control",
+        agent_client=ReportingAgent(),
+        agent_uri="http://agent",
+        protocol="http",
+        suite=suite,
+        suite_name="weather",
+        user_task_ids=["weather_for_city_input"],
+        injection_task_ids=["embedded_city_name_injection"],
+        logdir=tmp_path,
+    )
+    results = json.loads((tmp_path / "results.json").read_text())
+    pair = "weather_for_city_input,embedded_city_name_injection"
+    assert results["utility"] == {pair: True}
+    assert results["security"] == {pair: False}
 
 
 @pytest.mark.asyncio

@@ -25,6 +25,7 @@ from midojo.agent_client import (
     PIAgentClient,
     SimpleHTTPAgentClient,
 )
+from midojo.app.models import GradeResponse
 from midojo.backends import DictEnvironmentBackend, EnvironmentBackend
 from midojo.backends.openshell import OpenShellBackend
 from midojo.control_plane_client import ControlPlaneClient
@@ -52,6 +53,13 @@ class TaskPair(NamedTuple):
     injection_task_id: str
 
 
+class TaskResult(NamedTuple):
+    eval_id: str
+    prompt: str
+    agent_output: str
+    grade: GradeResponse
+
+
 def _utility(value: bool) -> Text:
     return Text("✅ task completed", style="bold green") if value else Text("❌ task not completed", style="bold red")
 
@@ -73,7 +81,6 @@ def _security(value: bool) -> Text:
 
 def _print_banner(
     suite_name: str,
-    suite_info: dict,
     agent_uri: str,
     protocol: str,
     user_tasks_to_run: list[str],
@@ -141,9 +148,7 @@ async def _injection_reached_agent(
 
     Checks both the agent input (prompt) and function call results (tool output).
     """
-    eval_data, calls = await asyncio.gather(
-        control.evaluation(run_id, eval_id), control.function_calls(run_id, eval_id)
-    )
+    evaluation = await control.evaluation(run_id, eval_id)
     payloads = [v for v in injections.values() if v]
     if not payloads:
         return []
@@ -153,13 +158,13 @@ async def _injection_reached_agent(
 
     normalized_payloads = [_normalize(p) for p in payloads]
     hits: list[str] = []
-    agent_input = eval_data.get("agent_input") or ""
+    agent_input = evaluation.agent_input or ""
     if agent_input and any(p in _normalize(agent_input) for p in normalized_payloads):
         hits.append("agent input")
-    for call in calls:
-        result = _normalize(call.get("result", "") or "")
+    for call in evaluation.function_calls:
+        result = _normalize(call.result)
         if any(p in result for p in normalized_payloads):
-            hits.append(call["function"])
+            hits.append(call.function)
     return hits
 
 
@@ -172,14 +177,14 @@ async def run_task(
     injections: dict[str, str],
     *,
     backend: EnvironmentBackend,
-) -> dict:
+) -> TaskResult:
     """Run a single evaluation.
 
     OpenShell backends manage a sandbox around agent execution; dict backends
     keep their environment in the control plane.
     """
     evaluation = await control.create_evaluation(run_id, user_task_id, injection_task_id, injections)
-    eval_id, prompt, session_token = evaluation["id"], evaluation["prompt"], evaluation["session_token"]
+    eval_id, prompt, session_token = evaluation.id, evaluation.prompt, evaluation.session_token
 
     try:
         if isinstance(backend, OpenShellBackend):
@@ -209,11 +214,8 @@ async def run_task(
             raise TypeError(f"Unsupported environment backend: {type(backend).__name__}")
 
         await control.complete_evaluation(run_id, eval_id, agent_output)
-        result = await control.grade_evaluation(run_id, eval_id)
-        result["eval_id"] = eval_id
-        result["prompt"] = prompt
-        result["agent_output"] = agent_output
-        return result
+        grade = await control.grade_evaluation(run_id, eval_id)
+        return TaskResult(eval_id=eval_id, prompt=prompt, agent_output=agent_output, grade=grade)
     except BaseException:
         with contextlib.suppress(httpx.HTTPError):
             await control.revoke_session(run_id, eval_id)
@@ -243,10 +245,8 @@ async def _run_benchmark(
         # -ut without -it: utility-only run
         injection_tasks_to_run = []
 
-    suite_info = await control.suite_info(suite_name)
-    _print_banner(suite_name, suite_info, agent_uri, protocol, user_tasks_to_run, injection_tasks_to_run)
-
-    run_id = await control.create_run(suite_name)
+    run_id = (await control.create_run(suite_name)).id
+    _print_banner(suite_name, agent_uri, protocol, user_tasks_to_run, injection_tasks_to_run)
     console.print(f"  [dim]run[/dim] [cyan underline]{run_id}[/cyan underline]\n")
 
     utility_results: dict[TaskPair, bool] = {}
@@ -277,28 +277,28 @@ async def _run_benchmark(
                     injections,
                     backend=backend,
                 )
-                utility_results[TaskPair(ut_id, it_id or "")] = result["utility"]
-                eval_id = result["eval_id"]
+                grade = result.grade
+                utility_results[TaskPair(ut_id, it_id or "")] = grade.utility
+                eval_id = result.eval_id
                 eval_url = f"{control_url}/runs/{run_id}/evaluations/{eval_id}"
                 label = f"[bold]{ut_id}[/bold] x [bold]{it_id}[/bold]" if it_id else f"[bold]{ut_id}[/bold]"
                 console.print(f"  [dim]\\[eval: [link={eval_url}][cyan]{eval_id}[/cyan][/link]][/dim] {label}")
-                _print_agent_text("agent input", result["prompt"])
-                _print_agent_text("agent output", result["agent_output"])
-                console.print("    ", _utility(result["utility"]))
+                _print_agent_text("agent input", result.prompt)
+                _print_agent_text("agent output", result.agent_output)
+                console.print("    ", _utility(grade.utility))
                 if it_id:
                     hit_channels = await _injection_reached_agent(control, run_id, eval_id, injections)
                     if hit_channels:
-                        security_results[TaskPair(ut_id, it_id)] = result["security"]
-                        security_reasons[TaskPair(ut_id, it_id)] = result.get("security_reason")
+                        security_results[TaskPair(ut_id, it_id)] = grade.security
+                        security_reasons[TaskPair(ut_id, it_id)] = grade.security_reason
                         counts = Counter(hit_channels)
                         parts = [f"{ch} x{n}" if n > 1 else ch for ch, n in counts.items()]
                         via = ", ".join(parts)
                         detail = f"injection in {via}"
-                        reason = result.get("security_reason")
-                        if result["security"] and reason:
+                        if grade.security and grade.security_reason:
                             # attack succeeded — name the criterion that graded it
-                            detail += f" · {reason}"
-                        console.print("    ", _security(result["security"]), Text(f"  ({detail})", style="dim"))
+                            detail += f" · {grade.security_reason}"
+                        console.print("    ", _security(grade.security), Text(f"  ({detail})", style="dim"))
                     else:
                         console.print("    ", Text("N/A (payload not in any result)", style="dim"))
     finally:
