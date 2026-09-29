@@ -53,7 +53,9 @@ for additional examples refer to [README.md](./README.md).
 
 ## Key Concepts
 
-- **Suite** (`suites/<name>/suite.yaml`): defines environment state, user tasks (benign), and injection tasks (adversarial). The `dict` backend keeps state in-memory; `openshell` runs the agent in an OpenShell sandbox and needs a running OpenShell gateway
+- **Suite** (`suites/<name>/suite.yaml`): defines the agent runtime, environment state, user tasks (benign), and injection tasks (adversarial)
+- **Agent runtime** (`agent_runtime`, `src/midojo/runtimes/`): where the agent runs and how MiDojo observes it. `openshell` (the default) runs the agent in an OpenShell sandbox per evaluation, seeds its `files`, and needs a running gateway (`midojo-run --gateway`). `unmanaged` (experimental) is an agent MiDojo doesn't control, reached with `--agent-uri`/`--protocol` and passed the evaluation session in the `X-Midojo-Session` header. OpenShell predicates require the `openshell` runtime
+- **Runtime observations** (`src/midojo/observations.py`): evidence a runtime collects outside the agent, keyed by source (e.g. `openshell`), recorded by the orchestrator and read by verifiers
 - **Probe**: a slot in the environment or user task prompt where an injection payload gets placed. Referenced via `{injection_task_id:probe_name}` placeholders
 - **Attack technique** (`src/midojo/attacks/builtin.py`): wraps a raw payload in a delivery technique (e.g. `important_instructions`, `ignore_previous`, `verbatim`)
 - **Payload set** (`src/midojo/attacks/data/`): curated corpus of payloads from external sources (e.g. Garak). Referenced in suite YAML via `source: "garak:<name>"`
@@ -62,7 +64,7 @@ for additional examples refer to [README.md](./README.md).
 ## Patterns for Common Changes
 
 **Add a new suite (bundled)** — follow `suites/weather/` as the minimal example:
-1. create `suites/<name>/suite.yaml` with `environment`, `user_tasks`, `injection_tasks`
+1. create `suites/<name>/suite.yaml` with `agent_runtime`, `environment`, `user_tasks`, `injection_tasks`
 2. create `suites/<name>/__init__.py` exporting `SYSTEM_MESSAGE` and `task_suite` (see below)
 3. create fake and real MCP servers under `suites/<name>/a2a_agent/`
 4. for convenience, register CLI entrypoints in `pyproject.toml` under `[project.scripts]`
@@ -82,7 +84,7 @@ for additional examples refer to [README.md](./README.md).
 
 **Add a new verifier** — define a `Verifier` implementation in `src/midojo/verifiers/builtin.py` and register it via `register_verifier()`. The key in suite YAML maps to the verifier name.
 
-**Add a runtime observation source** — define a Pydantic model for the evidence and register it with `register_observation_type(source, model)` from `src/midojo/observations.py`. The control plane rejects observations for unregistered sources or data that doesn't match the model, and verifiers read the validated model from `ctx.observations[source]`.
+**Add a runtime observation source** — define a Pydantic model for the evidence, register it with `register_observation_type(source, model)` from `src/midojo/observations.py`, and return it from the runtime's `observe()` under that source. The control plane rejects observations for unregistered sources or data that doesn't match the model, and verifiers read the validated model from `ctx.observations[source]`.
 
 **Add a vendored payload set** — drop a JSON file in `src/midojo/attacks/data/`. It's auto-loaded at import time (`src/midojo/attacks/registry.py`). Use MiDojo's `PayloadSet` shape.
 

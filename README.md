@@ -48,19 +48,29 @@ The system has three moving parts:
 
 3. **Interception layer** — SDKs for framework-specific interception and services, such as MCP servers, for framework-agnostic interception.
 
-## Environment backends
+## Agent runtimes
 
-What the agent operates on is pluggable. A suite picks its backend in `suite.yaml` (`environment.backend`); the engine provisions it and grades against the resulting pre/post state plus any runtime observations.
+A suite declares where its agent runs under `agent_runtime` in `suite.yaml`. The runtime prepares the agent for each evaluation and collects runtime observations from outside it, which verifiers can read. The suite's `environment` is separate: it's the world state the agent's tools read and write, and the control plane holds it whatever the runtime.
 
-- **`dict`** (default) — an in-memory state model declared inline; fake tools read/write it via the control plane.
-- **`openshell`** — a sandboxed [OpenShell](https://github.com/NVIDIA/OpenShell) container where the agent runs inside: the workspace diff is the pre/post environment, and the kernel's OCSF events feed verifiers.
+- **`openshell`** (the default) — MiDojo creates an [OpenShell](https://github.com/NVIDIA/OpenShell) sandbox for each evaluation and runs the agent inside it. The runtime seeds the sandbox with its `files`, with the active injections in place, and observes the workdir diff and the OCSF process and network events. Pick the gateway with `midojo-run --gateway NAME`.
+- **`unmanaged`** (experimental) — the agent runs somewhere MiDojo doesn't control, and MiDojo observes nothing outside it. Reach it with `midojo-run --agent-uri` and `--protocol`. Each task carries its evaluation session: in the `X-Midojo-Session` header for `http` and `a2a`, in that header on the MCP server config for `ogx` and `openai`, and in `MIDOJO_SESSION_TOKEN` for `pi`.
 
-`backend` is a bare name (`backend: dict`) or an object carrying infra config (`backend: {type: openshell, image: pi}`); the declared `state` is a sibling key either way.
+```yaml
+agent_runtime:
+  type: openshell  # the default, may be omitted
+  image: my-agent-sandbox
+  agent_command: ["pi", "-p", "--no-session"]
+  files:
+    reports/q4.txt: "Q4 summary... {exfiltrate_report_via_curl:main}"
+```
+
+Runtimes for other infrastructure, such as Kubernetes or Docker, can follow the same lifecycle.
 
 ## Weather Suite (Reference Implementation)
 
 The weather suite is a minimal working example. Have a look at `suites/weather/suite.yaml`. In there you will find:
 
+- the agent runtime (`unmanaged`: you start the agent yourself),
 - the environment definition,
 - the user tasks that the agent will be asked to perform (these are the legitimate tasks you want the agent to do), and
 - the injection tasks (these are meant to trick the agent into doing something illegitimate).
