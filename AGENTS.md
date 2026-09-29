@@ -53,7 +53,7 @@ for additional examples refer to [README.md](./README.md).
 
 ## Key Concepts
 
-- **Suite** (`suites/<name>/suite.yaml`): defines environment state, user tasks (benign), and injection tasks (adversarial). The `dict` backend keeps state in-memory; `openshell` (container-based) requires the optional openshell SDK
+- **Suite** (`suites/<name>/suite.yaml`): defines environment state, user tasks (benign), and injection tasks (adversarial). The `dict` backend keeps state in-memory; `openshell` runs the agent in an OpenShell sandbox and needs a running OpenShell gateway
 - **Probe**: a slot in the environment or user task prompt where an injection payload gets placed. Referenced via `{injection_task_id:probe_name}` placeholders
 - **Attack technique** (`src/midojo/attacks/builtin.py`): wraps a raw payload in a delivery technique (e.g. `important_instructions`, `ignore_previous`, `verbatim`)
 - **Payload set** (`src/midojo/attacks/data/`): curated corpus of payloads from external sources (e.g. Garak). Referenced in suite YAML via `source: "garak:<name>"`

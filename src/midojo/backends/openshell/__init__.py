@@ -41,6 +41,10 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+import grpc
+from google.protobuf.json_format import ParseDict
+from openshell import SandboxClient, WorkspaceClient
+from openshell._proto import openshell_pb2
 from pydantic import BaseModel, Field
 
 from midojo.backends.openshell.logs import OCSFEvents, parse_ocsf_lines
@@ -81,15 +85,13 @@ def _short_name(value: str, length: int, fallback: str) -> str:
 
 def _create_named_resource[T](prefix: str, identity: str, create: Callable[[str], T]) -> T:
     """Keep names within 19 characters; retry short-suffix collisions without reusing resources."""
-    from grpc import RpcError, StatusCode
-
     for attempt in range(5):
         digest = hashlib.sha256(f"{identity}:{attempt}".encode()).digest()
         suffix = base64.b32encode(digest).decode().lower()[:6]
         try:
             return create(f"{prefix}-{suffix}")
-        except RpcError as exc:
-            if exc.code() != StatusCode.ALREADY_EXISTS or attempt == 4:
+        except grpc.RpcError as exc:
+            if exc.code() != grpc.StatusCode.ALREADY_EXISTS or attempt == 4:
                 raise
     raise AssertionError("Unreachable")
 
@@ -123,8 +125,6 @@ def _resolve_policy(spec: dict | None, sandbox_spec: Any) -> None:
     """
     if spec is None:
         return
-    from google.protobuf.json_format import ParseDict  # protobuf is a required dep
-
     ParseDict(spec, sandbox_spec.policy)
 
 
@@ -315,7 +315,6 @@ class OpenShellBackend:
 
         # Run-level state — set by start_run(), cleared by end_run()
         self._client: Any = None
-        self._pb2: Any = None  # openshell_pb2, stored at start_run() to avoid repeated lazy imports
         # OpenShell workspace resource: a gateway-side named scope that holds the
         # run's sandboxes and their policies. One per orchestrator run; every
         # sandbox is created inside it. Distinct from ``_workdir_files`` (the
@@ -385,10 +384,6 @@ class OpenShellBackend:
         (written by the CLI). Names contain a shortened suite name; labels retain
         the full registered suite name and run ID.
         """
-        from openshell import SandboxClient, WorkspaceClient  # pyright: ignore[reportMissingImports]
-        from openshell._proto import openshell_pb2  # pyright: ignore[reportMissingImports]
-
-        self._pb2 = openshell_pb2
         self._client = SandboxClient.from_active_cluster(cluster=self._cluster, timeout=_CLIENT_TIMEOUT_SECONDS)
         self._workspace_client = WorkspaceClient.from_sandbox_client(self._client)
         labels = {"midojo.suite": suite_name or self._suite_name, "midojo.run-id": run_id}
@@ -430,8 +425,8 @@ class OpenShellBackend:
         # start_run); midojo never edits the declared policy.
         if self._control_url:
             env["MIDOJO_URL"] = _rewrite_host_for_sandbox(self._control_url)
-        spec = self._pb2.SandboxSpec(
-            template=self._pb2.SandboxTemplate(image=_resolve_image(self._image)),
+        spec = openshell_pb2.SandboxSpec(
+            template=openshell_pb2.SandboxTemplate(image=_resolve_image(self._image)),
             environment=env,
             providers=self._providers,
         )
@@ -494,7 +489,7 @@ class OpenShellBackend:
         messages: list[str] = []
         try:
             logs_resp = self._client._stub.GetSandboxLogs(
-                self._pb2.GetSandboxLogsRequest(
+                openshell_pb2.GetSandboxLogsRequest(
                     sandbox_id=self._ref.id,
                     workspace=self._workspace_name,
                     since_ms=self._start_ms,
@@ -600,7 +595,6 @@ class OpenShellBackend:
             except Exception:
                 pass
         self._client = None
-        self._pb2 = None
         self._workspace_client = None
         self._workspace_name = ""
         self._run_labels = {}

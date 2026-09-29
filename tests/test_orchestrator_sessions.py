@@ -1,13 +1,13 @@
 import asyncio
 import json
 import re
-import sys
-from enum import Enum
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import grpc
 import httpx
 import pytest
+from openshell import SandboxClient, WorkspaceClient
 
 from midojo.agent_client import AgentClient, PIAgentClient, SimpleHTTPAgentClient
 from midojo.backends.openshell import OpenShellBackend, OpenShellEnvironment
@@ -16,13 +16,9 @@ from midojo.orchestrator import run_benchmark, run_task
 
 @pytest.fixture
 def gateway(monkeypatch):
-    """Fake the optional OpenShell/gRPC dependencies at their SDK boundary."""
+    """Fake the OpenShell gateway behind the SDK's sandbox and workspace clients."""
 
-    class StatusCode(Enum):
-        ALREADY_EXISTS = 1
-        UNAVAILABLE = 2
-
-    class RpcError(Exception):
+    class RpcError(grpc.RpcError):
         def __init__(self, status):
             self.status = status
 
@@ -34,23 +30,9 @@ def gateway(monkeypatch):
     sandboxes.create.side_effect = lambda **kw: SimpleNamespace(name=kw["name"], id=kw["name"])
     workspaces = MagicMock()
     workspaces.create.side_effect = lambda name, **kw: SimpleNamespace(name=name)
-    monkeypatch.setitem(sys.modules, "grpc", SimpleNamespace(RpcError=RpcError, StatusCode=StatusCode))
-    monkeypatch.setitem(
-        sys.modules,
-        "openshell",
-        SimpleNamespace(
-            SandboxClient=SimpleNamespace(from_active_cluster=lambda **kw: sandboxes),
-            WorkspaceClient=SimpleNamespace(from_sandbox_client=lambda client: workspaces),
-        ),
-    )
-    monkeypatch.setitem(
-        sys.modules,
-        "openshell._proto",
-        SimpleNamespace(
-            openshell_pb2=SimpleNamespace(SandboxSpec=SimpleNamespace, SandboxTemplate=SimpleNamespace),
-        ),
-    )
-    return SimpleNamespace(sandboxes=sandboxes, workspaces=workspaces, RpcError=RpcError, StatusCode=StatusCode)
+    monkeypatch.setattr(SandboxClient, "from_active_cluster", lambda **kw: sandboxes)
+    monkeypatch.setattr(WorkspaceClient, "from_sandbox_client", lambda client: workspaces)
+    return SimpleNamespace(sandboxes=sandboxes, workspaces=workspaces, RpcError=RpcError, StatusCode=grpc.StatusCode)
 
 
 @pytest.fixture

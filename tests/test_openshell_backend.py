@@ -1,4 +1,5 @@
 import pytest
+from openshell._proto import openshell_pb2
 
 from midojo.backends import build_backend
 from midojo.backends.openshell import (
@@ -114,22 +115,13 @@ class TestConfigure:
 class TestPolicy:
     """_resolve_policy accepts None (no-op) or an inline dict."""
 
-    def _make_spec(self):
-        from unittest.mock import MagicMock
-
-        return MagicMock()
-
     def test_none_is_noop(self):
-        spec = self._make_spec()
+        spec = openshell_pb2.SandboxSpec()
         _resolve_policy(None, spec)
-        spec.policy.assert_not_called()
+        assert not spec.HasField("policy")
 
-    def test_inline_dict_reaches_parse_dict(self):
-        spec = self._make_spec()
+    def test_inline_dict_fills_policy(self):
+        spec = openshell_pb2.SandboxSpec()
         inline = {"networkPolicies": {"allow_all": {"endpoints": [{"host": "api.example.com", "port": 443}]}}}
-        try:
-            _resolve_policy(inline, spec)
-        except ValueError:
-            pytest.fail("Inline dict should not raise ValueError")
-        except Exception:
-            pass  # ParseDict fails on MagicMock — dispatch was correct
+        _resolve_policy(inline, spec)
+        assert spec.policy.network_policies["allow_all"].endpoints[0].host == "api.example.com"
