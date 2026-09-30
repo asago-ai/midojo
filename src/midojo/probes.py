@@ -25,3 +25,19 @@ def substitute_probes(text: str, injections: dict[str, str]) -> str:
         lambda m: injections.get(f"{m.group(1)}:{m.group(2)}", ""),
         text,
     )
+
+
+def substitute_probes_deep(value: object, injections: dict[str, str]) -> object:
+    """Substitute probe payloads into every string inside a parsed YAML value.
+
+    Dicts and lists are walked and rebuilt; other values pass through.
+    Substituting structurally (rather than into serialized YAML text) keeps
+    payload content — quotes, colons, newlines — from corrupting the document.
+    """
+    if isinstance(value, str):
+        return substitute_probes(value, injections)
+    if isinstance(value, dict):
+        return {key: substitute_probes_deep(item, injections) for key, item in value.items()}
+    if isinstance(value, list):
+        return [substitute_probes_deep(item, injections) for item in value]
+    return value

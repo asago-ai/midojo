@@ -11,7 +11,7 @@ from pydantic import BaseModel, ValidationError
 
 from midojo.attacks import resolve_source, wrap_payload
 from midojo.env_inference import infer_environment_type
-from midojo.probes import substitute_probes
+from midojo.probes import substitute_probes, substitute_probes_deep
 from midojo.runtimes import AgentRuntime, build_runtime
 from midojo.suite_definition import OpenShellRuntimeDefinition, ProbeDefinition, SuiteDefinition
 from midojo.types import Environment, FunctionCallRecord, SuiteName
@@ -67,21 +67,6 @@ def _replace_env_match(match: re.Match[str]) -> str:
     )
 
 
-def _substitute_in_structure(node: object, injections: dict[str, str]) -> object:
-    """Substitute probe payloads into every string value of a parsed structure.
-
-    Substituting structurally (rather than into serialized YAML text) keeps
-    payload content — quotes, colons, newlines — from corrupting the document.
-    """
-    if isinstance(node, str):
-        return substitute_probes(node, injections)
-    if isinstance(node, dict):
-        return {key: _substitute_in_structure(value, injections) for key, value in node.items()}
-    if isinstance(node, list):
-        return [_substitute_in_structure(item, injections) for item in node]
-    return node
-
-
 @dataclass
 class UserTask:
     id: str
@@ -123,7 +108,7 @@ class YAMLTaskSuite:
 
     def provision_environment(self, injections: dict[str, str]) -> Environment:
         """A fresh environment from the declared state, with the active probe payloads substituted."""
-        return self.environment_type.model_validate(_substitute_in_structure(self.definition.environment, injections))
+        return self.environment_type.model_validate(substitute_probes_deep(self.definition.environment, injections))
 
     def inject_user_task_prompt(self, user_task_id: str, injections: dict[str, str]) -> str:
         return substitute_probes(self.user_tasks[user_task_id].prompt, injections)
