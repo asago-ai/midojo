@@ -27,7 +27,7 @@ from midojo.agent_client import (
 )
 from midojo.app.models import GradeResponse
 from midojo.backends import DictEnvironmentBackend, EnvironmentBackend
-from midojo.backends.openshell import OpenShellBackend
+from midojo.backends.openshell import OBSERVATIONS_SOURCE, OpenShellBackend
 from midojo.control_plane_client import ControlPlaneClient
 from midojo.suites import get_suite, list_suites
 from midojo.yaml_task_suite import YAMLTaskSuite
@@ -203,8 +203,8 @@ async def run_task(
                 with console.status(f"[dim]{pair} · running agent in sandbox…[/dim]", spinner="dots"):
                     agent_output = await agent_client.send_task(prompt, session_token=session_token)
                 with console.status(f"[dim]{pair} · collecting sandbox observations…[/dim]", spinner="dots"):
-                    post_env = await asyncio.to_thread(backend.snapshot)
-                await control.put_evaluation_environment(run_id, eval_id, post_env.model_dump())
+                    observations = await asyncio.to_thread(backend.observe)
+                await control.record_observations(run_id, eval_id, OBSERVATIONS_SOURCE, observations)
             finally:
                 with console.status(f"[dim]{pair} · tearing down sandbox…[/dim]", spinner="dots"):
                     await asyncio.to_thread(backend.teardown)

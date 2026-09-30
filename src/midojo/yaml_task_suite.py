@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from midojo.attacks import resolve_source, wrap_payload
 from midojo.backends import EnvironmentBackend, build_backend
@@ -131,7 +131,7 @@ class YAMLTaskSuite:
         pre_environment: Environment,
         post_environment: Environment,
         function_calls: list[FunctionCallRecord],
-        observations: dict[str, Any] | None = None,
+        observations: dict[str, BaseModel] | None = None,
     ) -> dict[str, bool | str | None]:
         ctx = VerificationContext(
             agent_output=agent_output,

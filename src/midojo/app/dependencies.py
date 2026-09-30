@@ -6,8 +6,9 @@ from typing import Annotated
 from fastapi import Depends, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
+from midojo.observations import observation_type
 from midojo.types import Environment, SuiteName
 from midojo.yaml_task_suite import YAMLTaskSuite
 
@@ -78,4 +79,16 @@ def validate_environment(suite: YAMLTaskSuite, body: dict) -> Environment:
         return suite.environment_type.model_validate(body)
     except ValidationError as exc:
         errors = [{**error, "loc": ("body", *error["loc"])} for error in exc.errors()]
+        raise RequestValidationError(errors) from exc
+
+
+def validate_observations(source: str, data: dict) -> BaseModel:
+    model = observation_type(source)
+    if model is None:
+        error = {"type": "value_error", "loc": ("body", "source"), "msg": f"Unknown observation source: {source!r}"}
+        raise RequestValidationError([{**error, "input": source}])
+    try:
+        return model.model_validate(data)
+    except ValidationError as exc:
+        errors = [{**error, "loc": ("body", "data", *error["loc"])} for error in exc.errors()]
         raise RequestValidationError(errors) from exc

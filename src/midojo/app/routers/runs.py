@@ -18,6 +18,7 @@ from ..dependencies import (
     get_suites,
     resolve_suite,
     validate_environment,
+    validate_observations,
 )
 from ..models import (
     CompleteRequest,
@@ -243,14 +244,21 @@ async def record_function_call(
 
 # --- Observation endpoints ---
 #
-# Runtime evidence streams (e.g. OpenShell OCSF events) the runner reads from a
-# source and records here, keyed by source — symmetric with PUT /environment.
-# Verifiers read them from VerificationContext.observations at grade time.
+# Runtime observations: evidence the orchestrator collects outside the agent
+# (e.g. OpenShell's workdir diff and OCSF events), keyed by source. There is no
+# /agent route for them, so an agent's session token can't write them. Each
+# source's data is validated against its registered model (midojo.observations)
+# when it's recorded. Verifiers read the models from
+# VerificationContext.observations at grade time.
+
+
+def _observations_json(evaluation: Evaluation) -> dict:
+    return {source: observed.model_dump(mode="json") for source, observed in evaluation.observations.items()}
 
 
 @router.get("/{run_id}/evaluations/{eval_id}/observations", status_code=status.HTTP_200_OK)
 async def get_observations(evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)]) -> dict:
-    return evaluation.observations
+    return _observations_json(evaluation)
 
 
 @router.post("/{run_id}/evaluations/{eval_id}/observations", status_code=status.HTTP_200_OK)
@@ -260,5 +268,6 @@ async def record_observations(
     run: Annotated[Run, Depends(get_run)],
     store: Annotated[Store, Depends(get_store)],
 ) -> dict:
-    evaluation = _require_eval(store.record_observations(run.id, eval_id, req.source, req.data), eval_id)
-    return evaluation.observations
+    observed = validate_observations(req.source, req.data)
+    evaluation = _require_eval(store.record_observations(run.id, eval_id, req.source, observed), eval_id)
+    return _observations_json(evaluation)

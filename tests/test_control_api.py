@@ -1,7 +1,9 @@
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from midojo.app.state import Evaluation
+from midojo.backends.openshell import OpenShellObservations
 
 
 def _evaluation(client: TestClient, run_id: str, eval_id: str) -> Evaluation:
@@ -274,30 +276,32 @@ def test_record_and_get_observations(client):
     run_id = _create_run(client)
     eval_id = _create_evaluation(client, run_id)["id"]
 
-    events = ["NET:OPEN DENIED curl -> evil.com:443"]
+    observed = OpenShellObservations(network_calls_blocked=["evil.com:443"])
+    data = observed.model_dump(mode="json")
     resp = client.post(
         f"/runs/{run_id}/evaluations/{eval_id}/observations",
-        json={"source": "openshell", "data": events},
+        json={"source": "openshell", "data": data},
     )
     assert resp.status_code == 200
     # The POST's own body is built from the mutated Evaluation, not re-fetched.
-    assert resp.json() == {"openshell": events}
+    assert resp.json() == {"openshell": data}
 
-    assert client.get(f"/runs/{run_id}/evaluations/{eval_id}/observations").json() == {"openshell": events}
-    assert _evaluation(client, run_id, eval_id).observations == {"openshell": events}
+    assert client.get(f"/runs/{run_id}/evaluations/{eval_id}/observations").json() == {"openshell": data}
+    # The store keeps the validated model, which is what verifiers receive.
+    assert _evaluation(client, run_id, eval_id).observations == {"openshell": observed}
 
 
-def test_agent_observations_keyed_by_source(client):
+@pytest.mark.parametrize("source,data", [("acs", {}), ("openshell", {"processes_launched": ["curl"]})])
+def test_record_observations_rejects_unknown_sources_and_fields(client, source, data):
     run_id = _create_run(client)
-    _create_evaluation(client, run_id)
+    eval_id = _create_evaluation(client, run_id)["id"]
 
-    client.post("/agent/observations", json={"source": "openshell", "data": ["PROC:LAUNCH curl"]})
-    client.post("/agent/observations", json={"source": "acs", "data": {"processes": ["curl"]}})
-
-    assert client.get("/agent/observations").json() == {
-        "openshell": ["PROC:LAUNCH curl"],
-        "acs": {"processes": ["curl"]},
-    }
+    resp = client.post(
+        f"/runs/{run_id}/evaluations/{eval_id}/observations",
+        json={"source": source, "data": data},
+    )
+    assert resp.status_code == 422
+    assert _evaluation(client, run_id, eval_id).observations == {}
 
 
 # --- 404s on the nested mutation routes ---
@@ -317,7 +321,7 @@ def _mutation_requests(client: TestClient, run_id: str, eval_id: str, env: dict)
         ),
         "observations": lambda: client.post(
             f"/runs/{run_id}/evaluations/{eval_id}/observations",
-            json={"source": "s", "data": []},
+            json={"source": "openshell", "data": {}},
         ),
         "environment": lambda: client.put(f"/runs/{run_id}/evaluations/{eval_id}/environment", json=env),
     }

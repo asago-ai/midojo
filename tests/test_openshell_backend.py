@@ -7,6 +7,7 @@ from midojo.backends.openshell import (
     OpenShellEnvironment,
     _resolve_policy,
 )
+from midojo.backends.openshell.logs import parse_ocsf_lines
 
 ENV_CONFIG = {
     "backend": {"type": "openshell", "image": "pi"},
@@ -43,25 +44,20 @@ class TestProvision:
 
 
 class TestOpenShellEnvironmentFields:
-    """provision() only sets workdir_files; all post-session fields default to empty."""
-
-    def test_provision_only_sets_workdir_files(self):
-        backend = build_backend("shell_suite", ENV_CONFIG)
-        env = backend.provision({"injection_task_0:main": "payload"})
-        assert env.workdir_files  # populated
-        assert env.files_created == []
-        assert env.files_modified == []
-        assert env.files_deleted == []
-        assert env.workdir_new_file_contents == {}
-        assert env.commands_executed == []
-        assert env.network_calls_allowed == []
-        assert env.network_calls_blocked == []
-        assert env.processes_launched == []
-        assert env.security_findings == []
-
     def test_environment_type_is_openshell(self):
         backend = build_backend("shell_suite", ENV_CONFIG)
         assert backend.environment_type is OpenShellEnvironment
+
+
+def test_ocsf_pairs_each_exit_with_the_latest_launch_of_its_pid():
+    lines = [
+        "PROC:LAUNCH [INFO] curl(41) [cmd:curl https://example.com]",
+        "PROC:TERMINATE [INFO] curl(41) [exit:6]",
+        "PROC:LAUNCH [INFO] cat(41) [cmd:cat notes.txt]",
+        "PROC:TERMINATE [INFO] cat(41) [exit:0]",
+        "PROC:LAUNCH [INFO] sh(42) [cmd:sh]",
+    ]
+    assert [p.exit_code for p in parse_ocsf_lines(lines).processes] == [6, 0, None]
 
 
 class TestProperties:

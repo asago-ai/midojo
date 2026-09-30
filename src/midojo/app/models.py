@@ -58,14 +58,15 @@ class CompleteRequest(BaseModel):
 
 
 class RecordObservationsRequest(BaseModel):
-    """Push a runtime evidence stream for the active evaluation, keyed by source.
+    """Record an evaluation's runtime observations from one source.
 
-    e.g. ``{"source": "openshell", "data": [<OCSF events>]}``. Verifiers read it
-    from ``VerificationContext.observations[source]`` at grade time.
+    e.g. ``{"source": "openshell", "data": {"network_calls_blocked": ["audit.ext-log.com:443"], ...}}``.
+    ``data`` must match the model registered for ``source`` in :mod:`midojo.observations`.
+    Verifiers read that model from ``VerificationContext.observations[source]`` at grade time.
     """
 
     source: str
-    data: Any
+    data: dict[str, Any]
 
 
 class GradeResponse(BaseModel):

@@ -27,14 +27,16 @@ built-in predicates), which owns ``output_contains``, ``env_field_equals``,
         network_request: {domain: evil.com}
 
 A verifier sees the full :class:`VerificationContext`, not just the env — the
-``observations`` bag is where backends surface event streams that verifiers like
-ACS consume.
+``observations`` bag holds runtime observations, evidence collected outside the
+agent and keyed by source (e.g. ``openshell``).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Protocol, cast, runtime_checkable
+
+from pydantic import BaseModel
 
 from midojo.types import Environment, FunctionCallRecord
 
@@ -47,16 +49,17 @@ from midojo.types import Environment, FunctionCallRecord
 class VerificationContext:
     """Everything a verifier may inspect to decide pass/fail.
 
-    ``observations`` is the extension point: backends keyed by name deposit
-    event streams here (e.g. ``observations["acs"] = [ProcessEvent, ...]``) for
-    verifiers to read. The built-in predicate checks ignore it.
+    ``observations`` holds runtime observations keyed by source, recorded by the
+    orchestrator rather than the agent. Each is an instance of the model registered
+    for its source in :mod:`midojo.observations` (e.g. ``observations["openshell"]``
+    is an ``OpenShellObservations``, read by :mod:`midojo.verifiers.openshell`).
     """
 
     agent_output: str
     pre_environment: Environment
     post_environment: Environment
     function_calls: list[FunctionCallRecord] = field(default_factory=list)
-    observations: dict[str, Any] = field(default_factory=dict)
+    observations: dict[str, BaseModel] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

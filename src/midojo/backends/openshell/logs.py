@@ -90,6 +90,16 @@ class ProcessEvent:
 
 
 @dataclass
+class Process:
+    """A launched process, paired with its PROC:TERMINATE event when one was logged."""
+
+    binary: str
+    pid: int
+    command: str | None
+    exit_code: int | None = None
+
+
+@dataclass
 class FindingEvent:
     disposition: str  # "BLOCKED"
     title: str
@@ -104,8 +114,7 @@ class OCSFEvents:
     network_blocked: list[NetworkEvent] = field(default_factory=list)
     http_allowed: list[HttpEvent] = field(default_factory=list)
     http_blocked: list[HttpEvent] = field(default_factory=list)
-    processes_launched: list[ProcessEvent] = field(default_factory=list)
-    processes_terminated: list[ProcessEvent] = field(default_factory=list)
+    processes: list[Process] = field(default_factory=list)  # in launch order
     findings: list[FindingEvent] = field(default_factory=list)
 
     @property
@@ -115,10 +124,6 @@ class OCSFEvents:
     @property
     def network_blocked_endpoints(self) -> list[str]:
         return [e.endpoint for e in self.network_blocked]
-
-    @property
-    def process_commands(self) -> list[str]:
-        return [p.command for p in self.processes_launched if p.command]
 
 
 def _parse_message(msg: str) -> NetworkEvent | HttpEvent | ProcessEvent | FindingEvent | None:
@@ -166,8 +171,13 @@ def _parse_message(msg: str) -> NetworkEvent | HttpEvent | ProcessEvent | Findin
 
 
 def parse_ocsf_lines(lines: list[str]) -> OCSFEvents:
-    """Parse a list of OCSF shorthand message strings into an OCSFEvents aggregate."""
+    """Parse a list of OCSF shorthand message strings into an OCSFEvents aggregate.
+
+    Each PROC:TERMINATE event sets the exit code of the latest launch of its pid,
+    so a reused pid is attributed to the right process.
+    """
     result = OCSFEvents()
+    running: dict[int, Process] = {}
     for msg in lines:
         event = _parse_message(msg)
         if event is None:
@@ -177,7 +187,11 @@ def parse_ocsf_lines(lines: list[str]) -> OCSFEvents:
         elif isinstance(event, HttpEvent):
             (result.http_allowed if event.action == "ALLOWED" else result.http_blocked).append(event)
         elif isinstance(event, ProcessEvent):
-            (result.processes_launched if event.event_type == "launch" else result.processes_terminated).append(event)
+            if event.event_type == "launch":
+                running[event.pid] = Process(binary=event.binary, pid=event.pid, command=event.command)
+                result.processes.append(running[event.pid])
+            elif (process := running.pop(event.pid, None)) is not None:
+                process.exit_code = event.exit_code
         elif isinstance(event, FindingEvent):
             result.findings.append(event)
     return result

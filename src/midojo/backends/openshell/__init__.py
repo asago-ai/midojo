@@ -6,13 +6,15 @@ OpenShell (https://github.com/NVIDIA/OpenShell). Unlike the dict backend — who
 sandbox: the agent runs *inside* it, governed by a policy, and the kernel audits
 everything it does as OCSF events.
 
-Two grading channels:
-  * **workdir diff** — seeded ``/sandbox/workdir`` files before vs. after the session —
-    is the pre/post environment (graded by workdir env predicates).
-  * **OCSF events** — kernel-audited network/process/finding events — stored on the
-    environment as typed fields (``network_calls_allowed``, ``processes_launched``, etc.)
-    for predicate grading via the ``openshell`` predicates in
-    :mod:`midojo.verifiers.openshell`.
+The environment is the seeded ``/sandbox/workdir`` files. After the agent runs,
+``observe()`` collects runtime observations from outside the agent:
+
+  * **workdir diff** — files created, modified and deleted against the seeded files.
+  * **OCSF events** — kernel-audited network connections, processes (command
+    line and exit code) and security findings.
+
+The orchestrator records them as ``observations["openshell"]``, and the predicates
+in :mod:`midojo.verifiers.openshell` grade them.
 
 The seed directory (``/sandbox/workdir``) is distinct from an OpenShell
 *workspace*: a workspace is a gateway-side named scope that holds sandboxes and
@@ -39,15 +41,17 @@ import hashlib
 import re
 import time
 from collections.abc import Callable
+from dataclasses import asdict
 from typing import Any
 
 import grpc
 from google.protobuf.json_format import ParseDict
 from openshell import SandboxClient, WorkspaceClient
 from openshell._proto import openshell_pb2
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from midojo.backends.openshell.logs import OCSFEvents, parse_ocsf_lines
+from midojo.observations import register_observation_type
 from midojo.probes import substitute_probes
 from midojo.types import Environment
 
@@ -211,40 +215,53 @@ def _warn_if_control_plane_not_allowed(policy_spec: dict | None, url: str) -> No
 # ---------------------------------------------------------------------------
 
 
-class CommandRecord(BaseModel):
-    """A shell command executed by the agent inside the sandbox."""
-
-    command: str
-    exit_code: int
-    stdout: str
-    stderr: str = ""
-
-
 class OpenShellEnvironment(Environment):
-    """Observable state of an OpenShell sandbox.
+    """The files seeded into an OpenShell sandbox, with injection payloads substituted.
 
-    ``workdir_files`` is populated by ``provision()`` (pre-session, injection
-    payloads already substituted). All other fields are populated post-session by
-    ``OpenShellBackend.snapshot()``.
+    Keys are paths relative to ``/sandbox/workdir``, or absolute paths.
     """
 
-    # Pre-session: seeded file contents keyed by path relative to /sandbox/workdir
     workdir_files: dict[str, str] = Field(default_factory=dict)
 
-    # Post-session workdir diff
+
+# Key of the OpenShell entry in an evaluation's runtime observations.
+OBSERVATIONS_SOURCE = "openshell"
+
+
+class ProcessRecord(BaseModel):
+    """A process OCSF saw launch in the sandbox."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    binary: str
+    pid: int
+    command: str | None = None  # the launched command line, when OCSF logged it
+    exit_code: int | None = None  # None when no PROC:TERMINATE event was logged
+
+
+class OpenShellObservations(BaseModel):
+    """What OpenShell saw the agent do during one evaluation.
+
+    Collected by ``OpenShellBackend.observe()`` outside the agent, and recorded
+    by the orchestrator as ``observations["openshell"]``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Workdir diff against the seeded files (absolute paths)
     files_created: list[str] = Field(default_factory=list)
     files_modified: list[str] = Field(default_factory=list)
     files_deleted: list[str] = Field(default_factory=list)
     workdir_new_file_contents: dict[str, str] = Field(default_factory=dict)
 
-    # Shell commands the agent executed (from PI tool trace — future)
-    commands_executed: list[CommandRecord] = Field(default_factory=list)
-
-    # OCSF-derived fields (kernel-verified; also in observations["openshell"])
+    # OCSF events (kernel-verified)
+    processes: list[ProcessRecord] = Field(default_factory=list)  # in launch order
     network_calls_allowed: list[str] = Field(default_factory=list)  # "host:port"
     network_calls_blocked: list[str] = Field(default_factory=list)
-    processes_launched: list[str] = Field(default_factory=list)  # binary names
     security_findings: list[str] = Field(default_factory=list)  # finding titles
+
+
+register_observation_type(OBSERVATIONS_SOURCE, OpenShellObservations)
 
 
 # ---------------------------------------------------------------------------
@@ -271,7 +288,7 @@ class OpenShellBackend:
       3. ``provision(injections)`` — render workdir files (pure, no sandbox needed)
       4. ``setup(pre_env, ...)`` — create sandbox with evaluation labels, seed workdir (per evaluation)
       5. agent executes (via ``exec_agent``)
-      6. ``snapshot()`` — workdir diff + OCSF events → full ``OpenShellEnvironment``
+      6. ``observe()`` — workdir diff + OCSF events → ``OpenShellObservations``
       7. ``teardown()`` — delete the sandbox (per evaluation)
       8. ``end_run()`` — delete the run's workspace, close the client (once)
     """
@@ -508,8 +525,8 @@ class OpenShellBackend:
         self._cached_ocsf = parse_ocsf_lines(messages)
         return self._cached_ocsf
 
-    def snapshot(self) -> OpenShellEnvironment:  # type: ignore[override]
-        """Compute workdir diff and OCSF events, returning a fully-populated env."""
+    def observe(self) -> OpenShellObservations:
+        """Collect the workdir diff and OCSF events for the current evaluation."""
         seeded = {f"{_WORKDIR}/{p}" for p in self._seeded_workdir}
 
         diff_result = self._client.exec(
@@ -540,15 +557,14 @@ class OpenShellBackend:
 
         ocsf = self._fetch_ocsf()
 
-        return OpenShellEnvironment(
-            workdir_files=self._seeded_workdir,
+        return OpenShellObservations(
             files_created=files_created,
             files_modified=files_modified,
             files_deleted=files_deleted,
             workdir_new_file_contents=new_file_contents,
+            processes=[ProcessRecord(**asdict(p)) for p in ocsf.processes],
             network_calls_allowed=ocsf.network_allowed_endpoints,
             network_calls_blocked=ocsf.network_blocked_endpoints,
-            processes_launched=[p.binary for p in ocsf.processes_launched],
             security_findings=[f.title for f in ocsf.findings],
         )
 

@@ -161,13 +161,14 @@ def test_set_environment_replaces(store):
 def test_record_observations_keyed_by_source(store):
     run = store.create_run("test")
     ev = _make_eval(store, run.id)
-    assert store.record_observations(run.id, ev.id, "openshell", ["e1"]) is ev
-    assert ev.observations == {"openshell": ["e1"]}
-    store.record_observations(run.id, ev.id, "acs", {"x": 1})
-    assert ev.observations == {"openshell": ["e1"], "acs": {"x": 1}}
+    e1, e2, acs = _Env(counter=1), _Env(counter=2), _Env(counter=3)
+    assert store.record_observations(run.id, ev.id, "openshell", e1) is ev
+    assert ev.observations == {"openshell": e1}
+    store.record_observations(run.id, ev.id, "acs", acs)
+    assert ev.observations == {"openshell": e1, "acs": acs}
     # A second write to the same source replaces that source's value only.
-    store.record_observations(run.id, ev.id, "openshell", ["e2"])
-    assert ev.observations == {"openshell": ["e2"], "acs": {"x": 1}}
+    store.record_observations(run.id, ev.id, "openshell", e2)
+    assert ev.observations == {"openshell": e2, "acs": acs}
 
 
 def test_set_grade(store):
@@ -213,7 +214,7 @@ def test_set_environment_unknown_returns_none(store):
 
 
 def test_record_observations_unknown_returns_none(store):
-    assert store.record_observations("nope", "nope", "src", []) is None
+    assert store.record_observations("nope", "nope", "src", _Env()) is None
 
 
 def test_set_grade_unknown_returns_none(store):
