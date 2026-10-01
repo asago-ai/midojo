@@ -24,3 +24,17 @@ jobs:
 
       - name: Run tests
         run: uv run pytest
+
+  pi-sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Run tests
+        working-directory: pi-sdk
+        run: npm test
