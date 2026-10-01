@@ -1,15 +1,15 @@
 {
   "providers": {
     "local": {
-      "baseUrl": "http://host.openshell.internal:8321/v1",
+      "baseUrl": "@LITELLM_API_URL@",
       "api": "openai-completions",
-      "apiKey": "x",
+      "apiKey": "LITELLM_API_KEY",
       "compat": {
         "supportsDeveloperRole": false,
         "supportsReasoningEffort": false
       },
       "models": [
-        { "id": "ollama/qwen3.5:2b" }
+        { "id": "@LITELLM_MODEL@" }
       ]
     }
   }
