@@ -10,8 +10,12 @@ import functools
 import inspect
 from typing import Any
 
-import httpx
 from fastmcp import Client, FastMCP
+from fastmcp.server.dependencies import get_http_headers
+from mcp.types import TextContent
+
+from midojo.control_plane_client import AgentControlPlaneClient, ControlPlaneClient
+from midojo.session import SESSION_HEADER, session_token
 
 
 class UpstreamClient:
@@ -26,7 +30,7 @@ class UpstreamClient:
 
         parts = []
         for content in result.content:
-            if hasattr(content, "text"):
+            if isinstance(content, TextContent):
                 parts.append(content.text)
             else:
                 parts.append(str(content))
@@ -38,7 +42,7 @@ class ToolContext:
 
     def __init__(
         self,
-        client: ControlPlaneClient,
+        client: AgentControlPlaneClient,
         upstream: UpstreamClient | None = None,
     ) -> None:
         self._client = client
@@ -57,58 +61,9 @@ class ToolContext:
         """Forward a tool call to the upstream MCP server."""
         if self._upstream is None:
             raise RuntimeError(
-                "No upstream MCP server configured. "
-                "Pass --upstream-url when starting the fake MCP server."
+                "No upstream MCP server configured. Pass --upstream-url when starting the fake MCP server."
             )
         return await self._upstream.call_tool(tool_name, args)
-
-
-class ControlPlaneClient:
-    def __init__(
-        self,
-        base_url: str,
-        *,
-        http: httpx.AsyncClient | None = None,
-    ) -> None:
-        base = base_url.rstrip("/")
-        self._base_url = f"{base}/current"
-        self._http = http or httpx.AsyncClient()
-
-    async def get_environment(self) -> dict[str, Any]:
-        resp = await self._http.get(f"{self._base_url}/environment")
-        resp.raise_for_status()
-        return resp.json()
-
-    async def put_environment(self, env: dict[str, Any]) -> None:
-        resp = await self._http.put(
-            f"{self._base_url}/environment",
-            json=env,
-        )
-        resp.raise_for_status()
-
-    async def record_function_call(
-        self,
-        *,
-        function: str,
-        args: dict,
-        result: str,
-        error: str | None = None,
-    ) -> None:
-        try:
-            await self._http.post(
-                f"{self._base_url}/function-calls",
-                json={
-                    "function": function,
-                    "args": args,
-                    "result": result,
-                    "error": error,
-                },
-            )
-        except httpx.HTTPError:
-            pass
-
-    def create_tool_context(self, upstream: UpstreamClient | None = None) -> ToolContext:
-        return ToolContext(self, upstream=upstream)
 
 
 class MidojoMCP:
@@ -143,15 +98,16 @@ class MidojoMCP:
             sig = inspect.signature(fn, eval_str=True)
             params = list(sig.parameters.values())
             if not params or params[0].annotation is not ToolContext:
-                raise TypeError(
-                    f"First parameter of {fn.__name__} must be annotated as ToolContext"
-                )
+                raise TypeError(f"First parameter of {fn.__name__} must be annotated as ToolContext")
             user_params = params[1:]
             user_sig = sig.replace(parameters=user_params)
 
             @functools.wraps(fn)
             async def wrapper(**kwargs):
-                ctx = self._client.create_tool_context(upstream=self._upstream)
+                incoming = get_http_headers().get(SESSION_HEADER.lower())
+                token = session_token(incoming)
+                agent = self._client.agent(token)
+                ctx = ToolContext(agent, upstream=self._upstream)
                 result: str = ""
                 error: str | None = None
                 try:
@@ -161,7 +117,7 @@ class MidojoMCP:
                     result = error
                     raise
                 finally:
-                    await self._client.record_function_call(
+                    await agent.record_function_call(
                         function=fn.__name__,
                         args=kwargs,
                         result=result,
@@ -169,11 +125,9 @@ class MidojoMCP:
                     )
                 return result
 
-            wrapper.__signature__ = user_sig
+            setattr(wrapper, "__signature__", user_sig)
             wrapper.__annotations__ = {
-                p.name: p.annotation
-                for p in user_params
-                if p.annotation is not inspect.Parameter.empty
+                p.name: p.annotation for p in user_params if p.annotation is not inspect.Parameter.empty
             }
 
             self._fastmcp.tool(wrapper, name=fn.__name__, description=fn.__doc__)
