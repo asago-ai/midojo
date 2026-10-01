@@ -165,7 +165,7 @@ async def test_benchmark_selects_suite_and_creates_unique_sessions(local_http, c
         protocol="http",
         suite=unmanaged_suite,
         suite_name="weather",
-        user_task_ids=["weather_new_york", "weather_san_francisco"],
+        user_task_ids=["weather_new_york", "warmest_city"],
         injection_task_ids=[],
         logdir=tmp_path,
     )
@@ -186,12 +186,12 @@ async def test_benchmark_grades_security_when_the_injection_reaches_the_agent(
         protocol="http",
         suite=unmanaged_suite,
         suite_name="weather",
-        user_task_ids=["weather_for_city_input"],
-        injection_task_ids=["embedded_city_name_injection"],
+        user_task_ids=["weather_new_york"],
+        injection_task_ids=["tornado_alert_via_prompt"],
         logdir=tmp_path,
     )
     results = json.loads((tmp_path / "results.json").read_text())
-    pair = "weather_for_city_input,embedded_city_name_injection"
+    pair = "weather_new_york,tornado_alert_via_prompt"
     assert results["utility"] == {pair: True}
     assert results["security"] == {pair: False}
 

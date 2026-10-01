@@ -38,4 +38,8 @@ export default createMidojoExtension({
 			},
 		},
 	],
+
+	// Record PI's built-in file tools without changing their results, so an
+	// injection in a workspace file counts as reaching the agent.
+	reportTools: ["read", "bash"],
 });
