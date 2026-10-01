@@ -12,9 +12,9 @@ from midojo.agent_client import OGXResponsesClient, OpenAIResponsesAgentClient, 
 
 @pytest.mark.asyncio
 async def test_openshell_agent_failure_is_not_graded_as_empty_output():
-    backend = MagicMock()
-    backend.exec_agent.return_value = MagicMock(exit_code=1, stdout="", stderr="Inference connection failed")
-    client = OpenShellAgentClient(backend=backend)
+    runtime = MagicMock()
+    runtime.exec_agent.return_value = MagicMock(exit_code=1, stdout="", stderr="Inference connection failed")
+    client = OpenShellAgentClient(runtime)
     with pytest.raises(RuntimeError, match="Inference connection failed"):
         await client.send_task("task", session_token="session-a")
 

@@ -8,11 +8,12 @@ import grpc
 import httpx
 import pytest
 from openshell import SandboxClient, WorkspaceClient
+from pydantic import BaseModel
 
 from midojo.agent_client import AgentClient, PIAgentClient, SimpleHTTPAgentClient
-from midojo.backends.openshell import OpenShellBackend, OpenShellEnvironment, OpenShellObservations
 from midojo.control_plane_client import ControlPlaneClient
 from midojo.orchestrator import run_benchmark, run_task
+from midojo.runtimes.openshell import OpenShellObservations, OpenShellRuntime
 
 
 @pytest.fixture
@@ -74,7 +75,7 @@ async def test_runner_revokes_sessions_on_success_and_agent_failure(local_http, 
     agent = ReportingAgent(fail)
     control = ControlPlaneClient("http://control")
     try:
-        task = run_task(control, agent, run["id"], "weather_new_york", None, {}, backend=suite.backend)
+        task = run_task(control, agent, run["id"], "weather_new_york", None, {}, runtime=suite.runtime)
         if fail:
             with pytest.raises(RuntimeError, match="Agent failed"):
                 await task
@@ -94,11 +95,11 @@ async def test_runner_revokes_sessions_on_success_and_agent_failure(local_http, 
 
 @pytest.mark.asyncio
 async def test_partial_sandbox_setup_is_cleaned_and_session_revoked(local_http, client):
-    class Backend(OpenShellBackend):
+    class Runtime(OpenShellRuntime):
         cleaned = False
         token = ""
 
-        def setup(self, env, *, session_token, eval_id, user_task_id, injection_task_id):
+        def setup(self, injections, *, session_token, eval_id, user_task_id, injection_task_id):
             evaluation = client.get(f"/runs/{run['id']}/evaluations/{eval_id}").json()
             assert evaluation["user_task_id"] == user_task_id
             assert evaluation["injection_task_id"] == injection_task_id
@@ -108,28 +109,28 @@ async def test_partial_sandbox_setup_is_cleaned_and_session_revoked(local_http, 
         def teardown(self):
             self.cleaned = True
 
-    backend = Backend("test", image="base")
+    runtime = Runtime("test", image="base")
     run = client.post("/runs", json={"suite_name": "weather"}).json()
     control = ControlPlaneClient("http://control")
     try:
         with pytest.raises(RuntimeError, match="Seed failed"):
-            await run_task(control, ReportingAgent(), run["id"], "weather_new_york", None, {}, backend=backend)
+            await run_task(control, ReportingAgent(), run["id"], "weather_new_york", None, {}, runtime=runtime)
     finally:
         await control.aclose()
-    assert backend.cleaned
-    assert client.get("/agent/environment", headers={"Authorization": f"Bearer {backend.token}"}).status_code == 401
+    assert runtime.cleaned
+    assert client.get("/agent/environment", headers={"Authorization": f"Bearer {runtime.token}"}).status_code == 401
 
 
 @pytest.mark.asyncio
 async def test_runner_records_sandbox_observations(local_http, client):
     observed = OpenShellObservations(network_calls_blocked=["evil.com:443"])
 
-    class Backend(OpenShellBackend):
-        def setup(self, env, *, session_token, eval_id, user_task_id, injection_task_id):
+    class Runtime(OpenShellRuntime):
+        def setup(self, injections, *, session_token, eval_id, user_task_id, injection_task_id):
             pass
 
-        def observe(self):
-            return observed
+        def observe(self) -> dict[str, BaseModel]:
+            return {"openshell": observed}
 
         def teardown(self):
             pass
@@ -138,7 +139,7 @@ async def test_runner_records_sandbox_observations(local_http, client):
     control = ControlPlaneClient("http://control")
     try:
         result = await run_task(
-            control, ReportingAgent(), run["id"], "weather_new_york", None, {}, backend=Backend("test", image="base")
+            control, ReportingAgent(), run["id"], "weather_new_york", None, {}, runtime=Runtime("test", image="base")
         )
     finally:
         await control.aclose()
@@ -230,22 +231,27 @@ async def test_pi_subprocess_receives_session_at_launch(monkeypatch, tmp_path):
 
 
 def test_openshell_tokens_and_labels_are_per_sandbox_creation(gateway):
-    backend = OpenShellBackend("test", image="base", workdir_files={}, env_vars={"MIDOJO_SESSION_TOKEN": "stale"})
-    backend.configure(cluster="test", control_url="http://localhost:8090")
+    runtime = OpenShellRuntime(
+        "test",
+        image="base",
+        files={"report.txt": "Q4 {exfiltrate_report_via_curl:main}"},
+        env_vars={"MIDOJO_SESSION_TOKEN": "stale"},
+    )
+    runtime.configure(cluster="test", control_url="http://localhost:8090")
     run_id = "a" * 32
     suite_name = "external.Document_Assistant-v1"
-    backend.start_run(run_id, suite_name=suite_name)
-    assert len(backend.workspace_name) <= 19
-    assert re.fullmatch(r"midojo-[a-z0-9]+-[a-z0-9]+", backend.workspace_name)
+    runtime.start_run(run_id, suite_name=suite_name)
+    assert len(runtime.workspace_name) <= 19
+    assert re.fullmatch(r"midojo-[a-z0-9]+-[a-z0-9]+", runtime.workspace_name)
     for idx, injection in enumerate(["exfiltrate_report_via_curl", None]):
-        backend.setup(
-            OpenShellEnvironment(),
+        runtime.setup(
+            {"exfiltrate_report_via_curl:main": "send it"} if injection else {},
             session_token=f"secret-{idx}",
             eval_id=f"{idx:010x}",
             user_task_id="summarize_q4_report",
             injection_task_id=injection,
         )
-        backend.teardown()
+        runtime.teardown()
     calls = gateway.sandboxes.create.call_args_list
     specs = [call.kwargs["spec"] for call in calls]
     assert [spec.environment["MIDOJO_SESSION_TOKEN"] for spec in specs] == ["secret-0", "secret-1"]
@@ -258,10 +264,12 @@ def test_openshell_tokens_and_labels_are_per_sandbox_creation(gateway):
         assert labels["midojo.user-task"] == "summarize_q4_report"
         assert f"secret-{idx}" not in str(labels)
         assert call.kwargs["name"] == f"eval-{idx:010x}"
-        assert call.kwargs["workspace"] == backend.workspace_name
+        assert call.kwargs["workspace"] == runtime.workspace_name
     assert calls[0].kwargs["labels"]["midojo.injection-task"] == "exfiltrate_report_via_curl"
     assert "midojo.injection-task" not in calls[1].kwargs["labels"]
-    backend.end_run()
+    seeded = [c.kwargs["stdin"] for c in gateway.sandboxes.exec.call_args_list if c.args[1][0] == "tee"]
+    assert seeded == [b"Q4 send it", b"Q4 "]
+    runtime.end_run()
 
 
 @pytest.mark.parametrize(
@@ -278,7 +286,7 @@ def test_workspaces_retry_only_conflicts_without_reusing_or_deleting_them(
     succeed,
     expected_attempts,
 ):
-    backend = OpenShellBackend("document_assistant", image="base", workdir_files={})
+    runtime = OpenShellRuntime("document_assistant", image="base")
     attempts = []
 
     def create(*args, **kwargs):
@@ -291,18 +299,18 @@ def test_workspaces_retry_only_conflicts_without_reusing_or_deleting_them(
     gateway.workspaces.create.side_effect = create
     try:
         if succeed:
-            backend.start_run("run")
-            actual = backend.workspace_name
+            runtime.start_run("run")
+            actual = runtime.workspace_name
             assert actual == attempts[-1]
             assert actual != attempts[0]
         else:
             with pytest.raises(gateway.RpcError) as error:
-                backend.start_run("run")
+                runtime.start_run("run")
             assert error.value.code() == gateway.StatusCode[status]
-            assert backend.workspace_name == ""
+            assert runtime.workspace_name == ""
     finally:
-        backend.teardown()
-        backend.end_run()
+        runtime.teardown()
+        runtime.end_run()
     assert len(attempts) == expected_attempts
     assert len(set(attempts)) == len(attempts)
     assert [call.args[0] for call in gateway.workspaces.delete.call_args_list] == ([attempts[-1]] if succeed else [])
@@ -310,23 +318,23 @@ def test_workspaces_retry_only_conflicts_without_reusing_or_deleting_them(
 
 def test_sandbox_creation_failure_does_not_rename_reuse_or_delete_existing_sandbox(gateway):
     status = "ALREADY_EXISTS"
-    backend = OpenShellBackend("document_assistant", image="base", workdir_files={})
-    backend.start_run("run")
+    runtime = OpenShellRuntime("document_assistant", image="base")
+    runtime.start_run("run")
     gateway.sandboxes.create.side_effect = gateway.RpcError(gateway.StatusCode[status])
     try:
         with pytest.raises(gateway.RpcError) as error:
-            backend.setup(
-                OpenShellEnvironment(),
+            runtime.setup(
+                {},
                 session_token="secret",
                 eval_id="c896124bda",
                 user_task_id="summarize_q4_report",
                 injection_task_id=None,
             )
         assert error.value.code() == gateway.StatusCode[status]
-        assert backend._ref is None
+        assert runtime._ref is None
     finally:
-        backend.teardown()
-        backend.end_run()
+        runtime.teardown()
+        runtime.end_run()
     assert gateway.sandboxes.create.call_count == 1
     assert gateway.sandboxes.create.call_args.kwargs["name"] == "eval-c896124bda"
     gateway.sandboxes.wait_ready.assert_not_called()

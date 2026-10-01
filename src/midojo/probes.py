@@ -1,20 +1,18 @@
 """Probe placeholder substitution.
 
 Suite YAML embeds probe placeholders like ``{injection_task_0:main}`` in
-environment fields and user-task prompts. At evaluation time the active
-injections map (``"<task_id>:<probe_id>" -> payload``) is substituted in;
-placeholders with no active probe collapse to the empty string.
-
-Shared by the environment backend (which templates the env state) and the
-suite (which templates user-task prompts).
+environment fields, user-task prompts and an openshell runtime's ``files``.
+At evaluation time the active injections map (``"<task_id>:<probe_id>" ->
+payload``) is substituted in; placeholders with no active probe collapse to
+the empty string.
 """
 
 from __future__ import annotations
 
 import re
 
-# NOTE (future): probe placeholders use ``{task:probe}`` while backend env
-# substitution uses the namespaced ``${env.VAR}`` (see yaml_task_suite). We may
+# NOTE (future): probe placeholders use ``{task:probe}`` while agent_runtime
+# env-var expansion uses the namespaced ``${env.VAR}`` (see yaml_task_suite). We may
 # later fold probes into the same ``${ns.NAME}`` grammar — e.g.
 # ``${probe.<task>.<probe>}`` — so every template token is namespaced and there
 # is never a bare ``${VAR}`` to disambiguate from attack payloads. This would be
@@ -27,3 +25,19 @@ def substitute_probes(text: str, injections: dict[str, str]) -> str:
         lambda m: injections.get(f"{m.group(1)}:{m.group(2)}", ""),
         text,
     )
+
+
+def substitute_probes_deep(value: object, injections: dict[str, str]) -> object:
+    """Substitute probe payloads into every string inside a parsed YAML value.
+
+    Dicts and lists are walked and rebuilt; other values pass through.
+    Substituting structurally (rather than into serialized YAML text) keeps
+    payload content — quotes, colons, newlines — from corrupting the document.
+    """
+    if isinstance(value, str):
+        return substitute_probes(value, injections)
+    if isinstance(value, dict):
+        return {key: substitute_probes_deep(item, injections) for key, item in value.items()}
+    if isinstance(value, list):
+        return [substitute_probes_deep(item, injections) for item in value]
+    return value

@@ -12,7 +12,7 @@ server without any cloud credentials.
 
 **Replace it with your own production sandbox image** when you're red-teaming a
 real agent. The `suite.yaml` evaluation (workspace files, injection tasks,
-predicates) does not change — only the `image:` field in the backend config.
+predicates) does not change — only the `image:` field under `agent_runtime`.
 
 ## Prerequisites
 
@@ -25,10 +25,12 @@ predicates) does not change — only the `image:` field in the backend config.
 The suite already points at a pre-built image. Just run:
 
 ```bash
-uv run midojo-serve --suite document_assistant --port 8090
-uv run midojo-run --protocol openshell --suite document_assistant \
+uv run midojo-serve --load-suite document_assistant --port 8090
+uv run midojo-run --suite document_assistant --gateway GATEWAY_NAME \
   --control-url http://localhost:8090
 ```
+
+`GATEWAY_NAME` is the gateway registered with the `openshell` CLI.
 
 ## How injections are observed
 
@@ -75,11 +77,10 @@ Any OpenShell sandbox image that runs PI works as a drop-in replacement:
 
 ```yaml
 # suite.yaml
-environment:
-  backend:
-    type: openshell
-    image: my-production-pi-sandbox   # ← change this only
-    agent_command: ["pi", "-p", "--no-session"]
+agent_runtime:
+  type: openshell
+  image: my-production-pi-sandbox   # ← change this only
+  agent_command: ["pi", "-p", "--no-session"]
 ```
 
 The sandbox must have PI pre-configured to connect to whatever inference

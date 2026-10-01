@@ -11,7 +11,7 @@ import httpx
 from midojo.session import session_headers
 
 if TYPE_CHECKING:
-    from midojo.backends.openshell import OpenShellBackend
+    from midojo.runtimes.openshell import OpenShellRuntime
 
 
 class AgentClient(abc.ABC):
@@ -253,20 +253,20 @@ class OpenShellAgentClient(AgentClient):
     """Runs the agent command inside an OpenShell sandbox.
 
     Thin wrapper — the sandbox lifecycle (create, seed, teardown) is managed by
-    ``OpenShellBackend``. This class only executes the agent once the sandbox is ready.
+    ``OpenShellRuntime``. This class only executes the agent once the sandbox is ready.
     """
 
     def __init__(
         self,
-        backend: OpenShellBackend,
+        runtime: OpenShellRuntime,
         *,
         timeout: float = 300.0,
     ) -> None:
-        self._backend = backend
+        self._runtime = runtime
         self._timeout = timeout
 
     async def send_task(self, prompt: str, *, session_token: str) -> str:
-        result = await asyncio.to_thread(self._backend.exec_agent, prompt, timeout_seconds=int(self._timeout))
+        result = await asyncio.to_thread(self._runtime.exec_agent, prompt, timeout_seconds=int(self._timeout))
         if result.exit_code != 0:
             raise RuntimeError(f"OpenShell agent exited with code {result.exit_code}: {result.stderr}")
         return result.stdout.strip()

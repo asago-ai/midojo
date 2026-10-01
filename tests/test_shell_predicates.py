@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from midojo.backends.openshell import OpenShellEnvironment, OpenShellObservations, ProcessRecord
+from midojo.runtimes.openshell import OpenShellObservations, ProcessRecord
+from midojo.types import Environment
 from midojo.verifiers import VerificationContext
 from midojo.verifiers.builtin import parse_predicate
 from midojo.verifiers.openshell import (
@@ -18,7 +19,7 @@ from midojo.verifiers.openshell import (
 
 
 def _ctx(observed: OpenShellObservations | None = None) -> VerificationContext:
-    empty = OpenShellEnvironment()
+    empty = Environment()
     return VerificationContext(
         agent_output="",
         pre_environment=empty,

@@ -2,7 +2,7 @@
 
 These predicates read the runtime observations OpenShell collects outside the
 agent after each evaluation (``observations["openshell"]``, an
-:class:`~midojo.backends.openshell.OpenShellObservations`):
+:class:`~midojo.runtimes.openshell.OpenShellObservations`):
 
 - **Workdir predicates** inspect the filesystem diff (files created, modified,
   deleted, and their contents).
@@ -10,8 +10,9 @@ agent after each evaluation (``observations["openshell"]``, an
   exit codes, network connections, security findings) surfaced by the OpenShell
   policy proxy.
 
-All predicates are ``False`` when no OpenShell observations were recorded
-(e.g. when running a dict-backend suite). They are registered with the built-in
+All predicates are ``False`` when no OpenShell observations were recorded. A
+suite that uses them must declare the ``openshell`` agent runtime, which is
+checked when the suite loads. They are registered with the built-in
 default verifier in :mod:`midojo.verifiers.builtin`, so they are usable directly
 in suite YAML without a verifier prefix::
 
@@ -30,8 +31,9 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from midojo.backends.openshell import OBSERVATIONS_SOURCE, OpenShellObservations
+from midojo.runtimes.openshell import OBSERVATIONS_SOURCE, OpenShellObservations
 from midojo.verifiers import VerificationContext, VerificationResult
+from midojo.verifiers.combinators import AllOf, AnyOf, Not
 
 
 def _observed(ctx: VerificationContext) -> OpenShellObservations:
@@ -179,3 +181,24 @@ class SecurityFindingRaised:
 
     def evaluate(self, ctx: VerificationContext) -> bool:
         return self.assess(ctx).passed
+
+
+_PREDICATES = (
+    CommandsMatchPattern,
+    WorkdirFileExists,
+    WorkdirFileDeleted,
+    WorkdirFileContains,
+    ProcessRan,
+    NetworkCallTo,
+    NetworkCallBlockedTo,
+    SecurityFindingRaised,
+)
+
+
+def reads_openshell_observations(check: object) -> bool:
+    """Whether a parsed check uses these predicates, including inside combinators."""
+    if isinstance(check, AllOf | AnyOf):
+        return any(reads_openshell_observations(p) for p in check.predicates)
+    if isinstance(check, Not):
+        return reads_openshell_observations(check.predicate)
+    return isinstance(check, _PREDICATES)

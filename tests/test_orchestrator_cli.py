@@ -58,3 +58,27 @@ def test_cli_resolves_inference_config_only_for_responses_protocols(benchmark, p
         assert agent.model == "cli-model"
         assert agent.mcp_server_url == "http://cli-tools/mcp"
         assert agent.api_key == "test-key"
+
+
+@pytest.mark.parametrize(
+    "args,message",
+    [
+        (["--suite", "document_assistant"], "requires --gateway"),
+        (["--suite", "document_assistant", "--gateway", "g", "--protocol", "http"], "instead of --agent-uri"),
+        (["--suite", "weather", "--gateway", "g", "--agent-uri", "http://agent", "--protocol", "http"], "unmanaged"),
+        (["--suite", "weather", "--agent-uri", "http://agent"], "requires --agent-uri and --protocol"),
+    ],
+)
+def test_cli_flags_must_match_the_suite_runtime(benchmark, args, message):
+    result = CliRunner().invoke(orchestrator.main, args)
+    assert result.exit_code == 2
+    assert message in result.output
+    benchmark.assert_not_called()
+
+
+def test_openshell_suite_runs_on_the_gateway(benchmark):
+    result = CliRunner().invoke(orchestrator.main, ["--suite", "document_assistant", "--gateway", "g"])
+    assert result.exit_code == 0, result.exception
+    kwargs = benchmark.call_args.kwargs
+    assert isinstance(kwargs["agent_client"], orchestrator.OpenShellAgentClient)
+    assert (kwargs["agent_uri"], kwargs["protocol"]) == ("g", "openshell")

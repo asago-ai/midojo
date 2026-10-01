@@ -1,14 +1,14 @@
-"""Validated suite data, separate from backend construction and evaluation.
+"""Validated suite data, separate from runtime construction and evaluation.
 
-Backend options, environment state, and verifier arguments remain extensible.
-Their runtime implementations validate the parts specific to each plugin.
+Environment state and verifier arguments remain extensible. Their
+implementations validate the parts specific to each plugin.
 """
 
 from __future__ import annotations
 
-from typing import Any, Self
+from typing import Annotated, Any, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag, field_validator, model_validator
 
 from midojo.types import SuiteName
 
@@ -17,21 +17,35 @@ class _DefinitionModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
 
-class BackendDefinition(_DefinitionModel):
-    """Object form of a backend selector; options belong to the backend."""
+class OpenShellRuntimeDefinition(_DefinitionModel):
+    """Runs the agent in an OpenShell sandbox created for each evaluation."""
 
-    model_config = ConfigDict(extra="allow")
+    type: Literal["openshell"] = "openshell"
+    image: str = Field(min_length=1)
+    agent_command: list[str] | None = None
+    policy: dict[str, Any] | None = None
+    providers: list[str] = Field(default_factory=list)
+    env_vars: dict[str, str] = Field(default_factory=dict)
+    # Seeded into the sandbox; relative paths land under /sandbox/workdir.
+    files: dict[str, str] = Field(default_factory=dict)
 
-    type: str = Field(min_length=1)
+
+class UnmanagedRuntimeDefinition(_DefinitionModel):
+    """The agent runs somewhere MiDojo doesn't control."""
+
+    type: Literal["unmanaged"]
 
 
-class EnvironmentDefinition(_DefinitionModel):
-    """Common environment fields, with additional fields owned by backends."""
+def _runtime_type(value: Any) -> Any:
+    if isinstance(value, dict):
+        return value.get("type", "openshell")
+    return getattr(value, "type", None)
 
-    model_config = ConfigDict(extra="allow")
 
-    backend: str | BackendDefinition = "dict"
-    state: dict[str, Any] = Field(default_factory=dict)
+AgentRuntimeDefinition = Annotated[
+    Annotated[OpenShellRuntimeDefinition, Tag("openshell")] | Annotated[UnmanagedRuntimeDefinition, Tag("unmanaged")],
+    Discriminator(_runtime_type),
+]
 
 
 class ProbeDefinition(_DefinitionModel):
@@ -66,7 +80,8 @@ class SuiteDefinition(_DefinitionModel):
     """Suite name plus the contents of suite.yaml, validated before setup."""
 
     name: SuiteName
-    environment: EnvironmentDefinition
+    agent_runtime: AgentRuntimeDefinition
+    environment: dict[str, Any] = Field(default_factory=dict)
     user_tasks: list[UserTaskDefinition] = Field(default_factory=list)
     injection_tasks: list[InjectionTaskDefinition] = Field(default_factory=list)
 

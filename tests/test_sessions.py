@@ -18,9 +18,9 @@ from midojo.yaml_task_suite import YAMLTaskSuite
 def make_suite(tmp_path, name, field, value):
     path = tmp_path / f"{name}.yaml"
     path.write_text(f"""
+agent_runtime: {{type: unmanaged}}
 environment:
-  state:
-    {field}: {value}
+  {field}: {value}
 user_tasks:
   - id: shared_task
     prompt: Work on {name}

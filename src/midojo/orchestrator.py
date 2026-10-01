@@ -26,9 +26,9 @@ from midojo.agent_client import (
     SimpleHTTPAgentClient,
 )
 from midojo.app.models import GradeResponse
-from midojo.backends import DictEnvironmentBackend, EnvironmentBackend
-from midojo.backends.openshell import OBSERVATIONS_SOURCE, OpenShellBackend
 from midojo.control_plane_client import ControlPlaneClient
+from midojo.runtimes import AgentRuntime
+from midojo.runtimes.openshell import OpenShellRuntime
 from midojo.suites import get_suite, list_suites
 from midojo.yaml_task_suite import YAMLTaskSuite
 
@@ -176,42 +176,33 @@ async def run_task(
     injection_task_id: str | None,
     injections: dict[str, str],
     *,
-    backend: EnvironmentBackend,
+    runtime: AgentRuntime,
 ) -> TaskResult:
-    """Run a single evaluation.
-
-    OpenShell backends manage a sandbox around agent execution; dict backends
-    keep their environment in the control plane.
-    """
+    """Run a single evaluation, with the runtime set up around the agent's execution."""
     evaluation = await control.create_evaluation(run_id, user_task_id, injection_task_id, injections)
     eval_id, prompt, session_token = evaluation.id, evaluation.prompt, evaluation.session_token
+    pair = f"{user_task_id} x {injection_task_id}" if injection_task_id else user_task_id
 
     try:
-        if isinstance(backend, OpenShellBackend):
-            pair = f"{user_task_id} x {injection_task_id}" if injection_task_id else user_task_id
-            try:
-                pre_env = backend.provision(injections)
-                with console.status(f"[dim]{pair} · creating sandbox…[/dim]", spinner="dots"):
-                    await asyncio.to_thread(
-                        backend.setup,
-                        pre_env,
-                        session_token=session_token,
-                        eval_id=eval_id,
-                        user_task_id=user_task_id,
-                        injection_task_id=injection_task_id,
-                    )
-                with console.status(f"[dim]{pair} · running agent in sandbox…[/dim]", spinner="dots"):
-                    agent_output = await agent_client.send_task(prompt, session_token=session_token)
-                with console.status(f"[dim]{pair} · collecting sandbox observations…[/dim]", spinner="dots"):
-                    observations = await asyncio.to_thread(backend.observe)
-                await control.record_observations(run_id, eval_id, OBSERVATIONS_SOURCE, observations)
-            finally:
-                with console.status(f"[dim]{pair} · tearing down sandbox…[/dim]", spinner="dots"):
-                    await asyncio.to_thread(backend.teardown)
-        elif isinstance(backend, DictEnvironmentBackend):
-            agent_output = await agent_client.send_task(prompt, session_token=session_token)
-        else:
-            raise TypeError(f"Unsupported environment backend: {type(backend).__name__}")
+        try:
+            with console.status(f"[dim]{pair} · setting up the {runtime.name} runtime…[/dim]", spinner="dots"):
+                await asyncio.to_thread(
+                    runtime.setup,
+                    injections,
+                    session_token=session_token,
+                    eval_id=eval_id,
+                    user_task_id=user_task_id,
+                    injection_task_id=injection_task_id,
+                )
+            with console.status(f"[dim]{pair} · running the agent…[/dim]", spinner="dots"):
+                agent_output = await agent_client.send_task(prompt, session_token=session_token)
+            with console.status(f"[dim]{pair} · collecting runtime observations…[/dim]", spinner="dots"):
+                observations = await asyncio.to_thread(runtime.observe)
+            for source, observed in observations.items():
+                await control.record_observations(run_id, eval_id, source, observed)
+        finally:
+            with console.status(f"[dim]{pair} · tearing down the {runtime.name} runtime…[/dim]", spinner="dots"):
+                await asyncio.to_thread(runtime.teardown)
 
         await control.complete_evaluation(run_id, eval_id, agent_output)
         grade = await control.grade_evaluation(run_id, eval_id)
@@ -234,7 +225,7 @@ async def _run_benchmark(
     injection_task_ids: list[str] | None,
     logdir: Path,
 ) -> None:
-    backend = suite.backend
+    runtime = suite.runtime
     user_tasks_to_run = user_task_ids or list(suite.user_tasks.keys())
     injection_tasks_to_run: list[str]
     if injection_task_ids is not None:
@@ -254,16 +245,12 @@ async def _run_benchmark(
     security_reasons: dict[TaskPair, str | None] = {}
 
     it_ids_to_run: list[str | None] = [*injection_tasks_to_run] if injection_tasks_to_run else [None]
+    started: str | None = None
     try:
-        # openshell provisions one workspace per run (named after run_id) around the
-        # eval loop; the sandbox itself is created/torn down per evaluation.
-        if isinstance(backend, OpenShellBackend):
-            with console.status("[dim]opening workspace on the gateway…[/dim]", spinner="dots"):
-                await asyncio.to_thread(backend.start_run, run_id, suite_name=suite_name)
-            workspace_name = backend.workspace_name
-            console.print(
-                f"  [magenta]openshell[/magenta] [dim]workspace[/dim] [cyan]{workspace_name}[/cyan] [green]ready[/green]\n"
-            )
+        with console.status(f"[dim]starting the {runtime.name} runtime…[/dim]", spinner="dots"):
+            started = await asyncio.to_thread(runtime.start_run, run_id, suite_name=suite_name)
+        if started:
+            console.print(f"  [magenta]{runtime.name}[/magenta] [dim]{started}[/dim] [green]ready[/green]\n")
 
         for ut_id in user_tasks_to_run:
             for it_id in it_ids_to_run:
@@ -275,7 +262,7 @@ async def _run_benchmark(
                     ut_id,
                     it_id,
                     injections,
-                    backend=backend,
+                    runtime=runtime,
                 )
                 grade = result.grade
                 utility_results[TaskPair(ut_id, it_id or "")] = grade.utility
@@ -302,11 +289,10 @@ async def _run_benchmark(
                     else:
                         console.print("    ", Text("N/A (payload not in any result)", style="dim"))
     finally:
-        if isinstance(backend, OpenShellBackend):
-            console.print()
-            with console.status("[dim]draining and deleting the run workspace…[/dim]", spinner="dots"):
-                await asyncio.to_thread(backend.end_run)
-            console.print("  [magenta]openshell[/magenta] [dim]workspace[/dim] [green]cleaned up[/green]")
+        with console.status(f"[dim]stopping the {runtime.name} runtime…[/dim]", spinner="dots"):
+            await asyncio.to_thread(runtime.end_run)
+        if started:
+            console.print(f"\n  [magenta]{runtime.name}[/magenta] [dim]{started}[/dim] [green]cleaned up[/green]")
 
     console.print()
 
@@ -359,10 +345,14 @@ async def run_benchmark(
 @click.command()
 @click.option("--control-url", default="http://localhost:8080", help="URL of the benchmark MCP server control plane.")
 @click.option(
+    "--gateway",
+    default=None,
+    help="OpenShell gateway to run the agent's sandboxes on. Required for suites with the openshell agent_runtime.",
+)
+@click.option(
     "--agent-uri",
-    required=True,
-    help="Where to reach the agent. A URL for http/a2a/ogx/openai; a local path to the "
-    "agent dir for pi; the OpenShell gateway name for openshell.",
+    default=None,
+    help="Where to reach an unmanaged agent. A URL for http/a2a/ogx/openai; a local path to the agent dir for pi.",
 )
 @click.option(
     "--suite", "suite_name", required=True, help=f"Benchmark suite name. Built-in: {', '.join(list_suites())}."
@@ -377,11 +367,10 @@ async def run_benchmark(
 )
 @click.option(
     "--protocol",
-    type=click.Choice(["http", "a2a", "pi", "ogx", "openai", "openshell"]),
-    required=True,
-    help="Agent communication protocol. "
-    "API keys are read from env vars: OPENAI_API_KEY (openai), OGX_CLIENT_API_KEY (ogx). "
-    "For openshell: pass the gateway name via --agent-uri.",
+    type=click.Choice(["http", "a2a", "pi", "ogx", "openai"]),
+    default=None,
+    help="How to talk to an unmanaged agent. "
+    "API keys are read from env vars: OPENAI_API_KEY (openai), OGX_CLIENT_API_KEY (ogx).",
 )
 @click.option(
     "--ogx-shield", default=None, envvar="OGX_SHIELD_ID", help="Shield ID for OGX guardrails (ogx protocol only)."
@@ -406,13 +395,14 @@ async def run_benchmark(
 )
 def main(
     control_url: str,
-    agent_uri: str,
+    gateway: str | None,
+    agent_uri: str | None,
     suite_name: str,
     user_tasks: tuple[str, ...],
     injection_tasks: tuple[str, ...],
     logdir: Path,
     modules_to_load: tuple[str, ...],
-    protocol: str,
+    protocol: str | None,
     ogx_shield: str | None,
     mcp_server_url: str | None,
     mcp_server_label: str | None,
@@ -424,11 +414,22 @@ def main(
     suite = get_suite(suite_name)
     agent_client: AgentClient
 
-    if protocol == "openshell":
-        if not isinstance(suite.backend, OpenShellBackend):
-            raise click.UsageError("--protocol openshell requires a suite with 'backend: {type: openshell, ...}'")
-        suite.backend.configure(cluster=agent_uri, control_url=control_url)
-        agent_client = OpenShellAgentClient(backend=suite.backend)
+    if isinstance(suite.runtime, OpenShellRuntime):
+        if agent_uri or protocol:
+            raise click.UsageError(
+                f"Suite {suite_name!r} runs its agent in OpenShell; pass --gateway instead of --agent-uri/--protocol."
+            )
+        if not gateway:
+            raise click.UsageError(f"Suite {suite_name!r} runs its agent in OpenShell and requires --gateway.")
+        suite.runtime.configure(cluster=gateway, control_url=control_url)
+        agent_client = OpenShellAgentClient(suite.runtime)
+        agent_uri, protocol = gateway, "openshell"
+    elif gateway:
+        raise click.UsageError(
+            f"--gateway applies only to suites with the openshell agent_runtime; {suite_name!r} is {suite.runtime.name}."
+        )
+    elif not agent_uri or not protocol:
+        raise click.UsageError(f"Suite {suite_name!r} has an unmanaged agent and requires --agent-uri and --protocol.")
     elif protocol == "a2a":
         agent_client = A2AAgentClient(agent_uri)
     elif protocol == "pi":
