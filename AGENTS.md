@@ -39,14 +39,14 @@ The fake MCP server is the man-in-the-middle: it sits between the Agent and real
 - the control plane is long-lived and must be running before the orchestrator starts
 - the orchestrator is short-lived — it drives one benchmark run and exit
 
-Start them in order, for example of OGX Agent:
+Start them in order, for example for the weather suite on an OpenShell gateway:
 
 ```sh
-weather-real-mcp-serve --port 8081                                                 # 1. the real MCP
-midojo-serve --load-suite weather --port 8080                                           # 2. Control Plane (must be UP before anything else talks to it)
-weather-fake-mcp-serve --port 8082 --upstream-url http://localhost:8081/mcp        # 3. fake tools (registers with control plane)
-LITELLM_API_KEY=... LITELLM_API_URL=... ogx run suites/weather/ogx_agent/run.yaml  # 4. Start the OGX server for the OGX Agent
-midojo-run --agent-uri http://localhost:8000 --protocol a2a --suite weather        # 5. runs the benchmark (exits when done)
+podman build --build-arg LITELLM_API_URL=... --build-arg LITELLM_MODEL=... \
+  -t localhost/weather-pi:latest -f suites/weather/sandbox_pi/Containerfile .   # 1. the example agent image
+midojo-serve --load-suite weather --port 8090                                     # 2. Control Plane (must be UP before anything else talks to it)
+LITELLM_API_KEY=... LITELLM_API_HOST=... LITELLM_API_PORT=... \
+  midojo-run --suite weather --gateway GATEWAY --control-url http://localhost:8090  # 3. runs the benchmark (exits when done)
 ```
 
 for additional examples refer to [README.md](./README.md).
@@ -65,8 +65,8 @@ for additional examples refer to [README.md](./README.md).
 
 **Add a new suite (bundled)** — follow `suites/weather/` as the minimal example:
 1. create `suites/<name>/suite.yaml` with `agent_runtime`, `environment`, `user_tasks`, `injection_tasks`
-2. create `suites/<name>/__init__.py` exporting `SYSTEM_MESSAGE` and `task_suite` (see below)
-3. create fake and real MCP servers under `suites/<name>/a2a_agent/`
+2. create `suites/<name>/__init__.py` exporting `task_suite` (see below)
+3. for the `openshell` runtime, build an agent sandbox image (see `suites/weather/sandbox_pi/`). For an `unmanaged` agent, create fake and real MCP servers under `suites/<name>/a2a_agent/` (see `suites/minibank/`)
 4. for convenience, register CLI entrypoints in `pyproject.toml` under `[project.scripts]`
 
 **Use an external suite (out-of-tree)** — suites can live in any Python package; midojo does not need to be forked:
