@@ -278,7 +278,7 @@ M1 exit criterion: the scripted suite and one real agent run on a 0.1.2 gateway 
 - **#138/#139 and the document_assistant image.** #139 owns the suite migration, so the image rebuild lands after it or is agreed with its author.
 - **#145 and M1.** Once M1 lands, #145 can target an OpenShell sandbox. It also needs to move off `/current` onto evaluation sessions, following #138's pattern.
 
-Live status of each PR is tracked in the GitHub tracking issue for this plan.
+Live status of each PR is tracked in [#154](https://github.com/asago-ai/midojo/issues/154).
 
 ## Deployment: a dedicated red-team gateway
 
