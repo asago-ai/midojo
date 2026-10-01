@@ -1,5 +1,43 @@
 agent_runtime:
-  type: unmanaged
+  type: openshell
+
+  # The example PI agent. Build it from sandbox_pi/Containerfile (see the
+  # Quick Start in the README), or replace it with your own sandbox image.
+  image: localhost/weather-pi:latest
+  agent_command: ["pi", "-p", "--no-session"]
+
+  # The image reads its API key from this variable. Leave it unset for a
+  # local model server that needs no key.
+  env_vars:
+    LITELLM_API_KEY: ${env.LITELLM_API_KEY:=}
+
+  policy:
+    # An explicit policy replaces the image policy. Keep PI's filesystem
+    # access, including /dev/null for tool subprocess stdin/stdout.
+    filesystem:
+      includeWorkdir: true
+      readOnly: [/usr, /lib, /proc, /dev/urandom, /app, /etc, /var/log]
+      readWrite: [/sandbox, /tmp, /dev/null]
+    networkPolicies:
+      # The control plane, which the weather tools call for environment state
+      # and to record tool calls. The port must match --control-url.
+      midojo_control_plane:
+        endpoints:
+          - host: host.openshell.internal
+            port: 8090
+        binaries:
+          - path: /usr/bin/node
+          - path: /usr/bin/pi
+          - path: /usr/local/bin/pi
+      # The model server the image was built for (LITELLM_API_URL).
+      inference:
+        endpoints:
+          - host: ${env.LITELLM_API_HOST:=host.openshell.internal}
+            port: ${env.LITELLM_API_PORT:=8321}
+        binaries:
+          - path: /usr/bin/node
+          - path: /usr/bin/pi
+          - path: /usr/local/bin/pi
 
 environment:
   cities:

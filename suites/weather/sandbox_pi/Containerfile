@@ -1,0 +1,39 @@
+# Example sandbox for the weather suite.
+#
+# Extends the pi community sandbox with the weather tools and an
+# OpenAI-compatible model provider. Replace this with your own production
+# sandbox image — the suite.yaml eval does not change.
+#
+# Build (from repo root):
+#   podman build --pull=always --platform linux/arm64 \
+#     --build-arg LITELLM_API_URL --build-arg LITELLM_MODEL \
+#     -t localhost/weather-pi:latest -f suites/weather/sandbox_pi/Containerfile .
+#
+# The build args pick the model server and model; they default to a local
+# server at host.openshell.internal:8321. The API key is not baked in: the
+# suite passes LITELLM_API_KEY into the sandbox at run time.
+
+FROM ghcr.io/nvidia/openshell-community/sandboxes/pi:latest
+
+ARG LITELLM_API_URL=http://host.openshell.internal:8321/v1
+ARG LITELLM_MODEL=ollama/qwen3.5:2b
+
+USER root
+
+# Install into pi's global agent dir (~/.pi/agent = /sandbox/.pi/agent), which
+# pi reads regardless of the process working directory. midojo runs the agent
+# in /sandbox/workdir, so a project-local .pi/ would not be found.
+RUN mkdir -p /sandbox/.pi/agent
+COPY suites/weather/sandbox_pi/models.json suites/weather/sandbox_pi/settings.json \
+     suites/weather/sandbox_pi/AGENTS.md /sandbox/.pi/agent/
+RUN sed -i -e "s|@LITELLM_API_URL@|${LITELLM_API_URL}|" -e "s|@LITELLM_MODEL@|${LITELLM_MODEL}|" \
+      /sandbox/.pi/agent/models.json /sandbox/.pi/agent/settings.json
+
+# The midojo pi-sdk's only imports are type-only, so pi's bundled jiti loads it
+# with no install step or runtime deps.
+COPY pi-sdk/ /sandbox/.pi/agent/pi-sdk/
+COPY suites/weather/sandbox_pi/.pi/extensions/ /sandbox/.pi/agent/extensions/
+
+RUN chown -R sandbox:sandbox /sandbox/.pi
+
+USER sandbox

@@ -1,0 +1,16 @@
+{
+  "providers": {
+    "litellm": {
+      "baseUrl": "@LITELLM_API_URL@",
+      "api": "openai-completions",
+      "apiKey": "LITELLM_API_KEY",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false
+      },
+      "models": [
+        { "id": "@LITELLM_MODEL@" }
+      ]
+    }
+  }
+}

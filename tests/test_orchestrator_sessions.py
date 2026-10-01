@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from midojo.agent_client import AgentClient, PIAgentClient, SimpleHTTPAgentClient
 from midojo.control_plane_client import ControlPlaneClient
 from midojo.orchestrator import run_benchmark, run_task
+from midojo.runtimes import UnmanagedRuntime
 from midojo.runtimes.openshell import OpenShellObservations, OpenShellRuntime
 
 
@@ -49,6 +50,13 @@ def local_http(app, monkeypatch):
     return factory
 
 
+@pytest.fixture
+def unmanaged_suite(suite, monkeypatch):
+    """The weather suite, with an agent MiDojo doesn't manage."""
+    monkeypatch.setattr(suite, "runtime", UnmanagedRuntime())
+    return suite
+
+
 class ReportingAgent(AgentClient):
     def __init__(self, fail=False):
         self.tokens = []
@@ -70,12 +78,12 @@ class ReportingAgent(AgentClient):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("fail", [False, True])
-async def test_runner_revokes_sessions_on_success_and_agent_failure(local_http, client, suite, fail):
+async def test_runner_revokes_sessions_on_success_and_agent_failure(local_http, client, fail):
     run = client.post("/runs", json={"suite_name": "weather"}).json()
     agent = ReportingAgent(fail)
     control = ControlPlaneClient("http://control")
     try:
-        task = run_task(control, agent, run["id"], "weather_new_york", None, {}, runtime=suite.runtime)
+        task = run_task(control, agent, run["id"], "weather_new_york", None, {}, runtime=UnmanagedRuntime())
         if fail:
             with pytest.raises(RuntimeError, match="Agent failed"):
                 await task
@@ -148,14 +156,14 @@ async def test_runner_records_sandbox_observations(local_http, client):
 
 
 @pytest.mark.asyncio
-async def test_benchmark_selects_suite_and_creates_unique_sessions(local_http, client, suite, tmp_path):
+async def test_benchmark_selects_suite_and_creates_unique_sessions(local_http, client, unmanaged_suite, tmp_path):
     agent = ReportingAgent()
     await run_benchmark(
         control_url="http://control",
         agent_client=agent,
         agent_uri="http://agent",
         protocol="http",
-        suite=suite,
+        suite=unmanaged_suite,
         suite_name="weather",
         user_task_ids=["weather_new_york", "weather_san_francisco"],
         injection_task_ids=[],
@@ -168,13 +176,15 @@ async def test_benchmark_selects_suite_and_creates_unique_sessions(local_http, c
 
 
 @pytest.mark.asyncio
-async def test_benchmark_grades_security_when_the_injection_reaches_the_agent(local_http, client, suite, tmp_path):
+async def test_benchmark_grades_security_when_the_injection_reaches_the_agent(
+    local_http, client, unmanaged_suite, tmp_path
+):
     await run_benchmark(
         control_url="http://control",
         agent_client=ReportingAgent(),
         agent_uri="http://agent",
         protocol="http",
-        suite=suite,
+        suite=unmanaged_suite,
         suite_name="weather",
         user_task_ids=["weather_for_city_input"],
         injection_task_ids=["embedded_city_name_injection"],

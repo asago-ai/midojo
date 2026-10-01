@@ -1,4 +1,7 @@
-import { createMidojoExtension } from "../../../../../pi-sdk/src";
+// The import path is relative to this file's location inside the image
+// (/sandbox/.pi/agent/extensions/ -> /sandbox/.pi/agent/pi-sdk/src), not the
+// repo layout (see Containerfile).
+import { createMidojoExtension } from "../pi-sdk/src";
 import { Type } from "typebox";
 
 export default createMidojoExtension({
