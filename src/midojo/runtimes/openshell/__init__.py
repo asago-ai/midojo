@@ -44,8 +44,9 @@ from typing import Any
 
 import grpc
 from google.protobuf.json_format import ParseDict
+from google.protobuf.timestamp_pb2 import Timestamp
 from openshell import SandboxClient, WorkspaceClient
-from openshell._proto import openshell_pb2
+from openshell._proto import datamodel_pb2, openshell_pb2
 from pydantic import BaseModel, ConfigDict, Field
 
 from midojo.observations import register_observation_type
@@ -437,7 +438,7 @@ class OpenShellRuntime:
         # Paths starting with "/" are seeded at the absolute path (e.g. config
         # files outside the workdir). All other paths are relative to
         # /sandbox/workdir/ (the agent's working directory).
-        self._client.exec(self._ref.id, ["mkdir", "-p", _WORKDIR])
+        self._exec(["mkdir", "-p", _WORKDIR])
         for path, template in self._files.items():
             content = substitute_probes(template, injections)
             if path.startswith("/"):
@@ -445,11 +446,18 @@ class OpenShellRuntime:
             else:
                 dest = f"{_WORKDIR}/{path}"
             parent = dest.rsplit("/", 1)[0]
-            self._client.exec(self._ref.id, ["mkdir", "-p", parent])
-            self._client.exec(self._ref.id, ["tee", dest], stdin=content.encode())
+            self._exec(["mkdir", "-p", parent])
+            self._exec(["tee", dest], stdin=content.encode())
 
-        self._client.exec(self._ref.id, ["touch", "/tmp/.midojo_baseline"])
+        self._exec(["touch", "/tmp/.midojo_baseline"])
         self._start_ms = int(time.time() * 1000)
+
+    def _exec(self, command: list[str], **kwargs: Any) -> Any:
+        """Run a command in the evaluation's sandbox.
+
+        The SDK addresses a sandbox by its name within a workspace, not by ID.
+        """
+        return self._client.exec(self._ref.name, command, workspace=self._workspace_name, **kwargs)
 
     def exec_agent(self, prompt: str, *, timeout_seconds: float) -> Any:
         """Execute the agent inside the sandbox. Returns an ``ExecResult``.
@@ -465,7 +473,7 @@ class OpenShellRuntime:
         leading slash to drop, so it resolves correctly regardless of the model.
         """
         cmd = [*self._agent_command, prompt] if self._agent_command else [prompt]
-        return self._client.exec(self._ref.id, cmd, workdir=_WORKDIR, timeout_seconds=timeout_seconds)
+        return self._exec(cmd, workdir=_WORKDIR, timeout_seconds=timeout_seconds)
 
     def _fetch_ocsf(self) -> OCSFEvents:
         """Fetch OCSF events from the sandbox log stream, with caching.
@@ -478,11 +486,13 @@ class OpenShellRuntime:
 
         messages: list[str] = []
         try:
+            since = Timestamp()
+            since.FromMilliseconds(self._start_ms)
             logs_resp = self._client._stub.GetSandboxLogs(
                 openshell_pb2.GetSandboxLogsRequest(
-                    sandbox_id=self._ref.id,
-                    workspace=self._workspace_name,
-                    since_ms=self._start_ms,
+                    sandbox=self._ref.name,
+                    workspace_scope=datamodel_pb2.WorkspaceSelector(workspace=self._workspace_name),
+                    since_time=since,
                     sources=["sandbox"],
                 ),
                 timeout=10.0,
@@ -502,11 +512,8 @@ class OpenShellRuntime:
         """Collect the workdir diff and OCSF events as ``observations["openshell"]``."""
         seeded = {f"{_WORKDIR}/{p}" for p in self._files}
 
-        diff_result = self._client.exec(
-            self._ref.id,
-            ["find", _WORKDIR, "-type", "f", "-newer", "/tmp/.midojo_baseline"],
-        )
-        all_result = self._client.exec(self._ref.id, ["find", _WORKDIR, "-type", "f"])
+        diff_result = self._exec(["find", _WORKDIR, "-type", "f", "-newer", "/tmp/.midojo_baseline"])
+        all_result = self._exec(["find", _WORKDIR, "-type", "f"])
 
         current = {ln.strip() for ln in all_result.stdout.splitlines() if ln.strip()}
 
@@ -522,7 +529,7 @@ class OpenShellRuntime:
                 files_modified.append(fpath)
             else:
                 files_created.append(fpath)
-                cat = self._client.exec(self._ref.id, ["cat", fpath])
+                cat = self._exec(["cat", fpath])
                 if cat.exit_code == 0:
                     new_file_contents[fpath] = cat.stdout
 
