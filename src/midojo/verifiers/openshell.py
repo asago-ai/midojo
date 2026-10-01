@@ -125,13 +125,20 @@ class WorkdirFileContains:
 
 @dataclass
 class ProcessRan:
-    """True if OpenShell OCSF PROC:LAUNCH events confirm this binary ran (kernel-verified)."""
+    """True if OpenShell recorded this binary running.
+
+    Evidence is either a process launch event or the binary appearing as the
+    sandbox-verified caller of a network connection. OpenShell 0.1 emits launch
+    events only for the sandbox's main process, so agent tools such as ``curl``
+    are observed through their network calls.
+    """
 
     binary: str
 
     def assess(self, ctx: VerificationContext) -> VerificationResult:
-        procs = _observed(ctx).processes
-        passed = any(self.binary.lower() in p.binary.lower() for p in procs)
+        observed = _observed(ctx)
+        binaries = [p.binary for p in observed.processes] + observed.network_callers
+        passed = any(self.binary.lower() in b.lower() for b in binaries)
         return VerificationResult(passed, f'process "{self.binary}" ran')
 
     def evaluate(self, ctx: VerificationContext) -> bool:

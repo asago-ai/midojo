@@ -36,8 +36,10 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import logging
 import re
 import time
+import uuid
 from collections.abc import Callable
 from dataclasses import asdict
 from typing import Any
@@ -78,6 +80,19 @@ _CLIENT_TIMEOUT_SECONDS = 120.0
 # Total wall-clock budget for a teardown wait (sandbox delete, or waiting for a
 # workspace to drain to empty). Polled in ~1s steps.
 _TEARDOWN_BUDGET_SECONDS = 120.0
+
+# Log sync barrier (see OpenShellRuntime._sync_ocsf_messages). The marker lives
+# under the reserved .test TLD so it can never be policy-eligible or resolve.
+# Images differ in their resolver tooling, so try the common lookup commands;
+# any one of them makes the supervisor log a DNS refusal for the marker.
+_SYNC_MARKER_SUFFIX = ".midojo.test"
+_SYNC_MARKER_SCRIPT = (
+    "getent hosts {host} >/dev/null 2>&1"
+    " || nslookup {host} >/dev/null 2>&1"
+    " || python3 -c 'import socket; socket.getaddrinfo(\"{host}\", 80)' >/dev/null 2>&1"
+    " || true"
+)
+_LOG_SYNC_BUDGET_SECONDS = 15.0
 
 
 def _short_name(value: str, length: int, fallback: str) -> str:
@@ -246,7 +261,11 @@ class OpenShellObservations(BaseModel):
     # OCSF events (kernel-verified)
     processes: list[ProcessRecord] = Field(default_factory=list)  # in launch order
     network_calls_allowed: list[str] = Field(default_factory=list)  # "host:port"
-    network_calls_blocked: list[str] = Field(default_factory=list)
+    network_calls_blocked: list[str] = Field(default_factory=list)  # "host:port", or "host" for DNS refusals
+    # Closed because the sandbox's policy changed mid-connection, not denied by policy
+    network_calls_interrupted: list[str] = Field(default_factory=list)
+    # Sandbox-verified executables that made allowed or blocked network calls
+    network_callers: list[str] = Field(default_factory=list)
     security_findings: list[str] = Field(default_factory=list)  # finding titles
 
 
@@ -473,34 +492,62 @@ class OpenShellRuntime:
         leading slash to drop, so it resolves correctly regardless of the model.
         """
         cmd = [*self._agent_command, prompt] if self._agent_command else [prompt]
-        return self._exec(cmd, workdir=_WORKDIR, timeout_seconds=timeout_seconds)
+        return self._exec(cmd, workdir=_WORKDIR, timeout_seconds=int(timeout_seconds))
 
-    def _fetch_ocsf(self) -> OCSFEvents:
-        """Fetch OCSF events from the sandbox log stream, with caching.
+    def _read_ocsf_messages(self) -> list[str]:
+        """Return the OCSF messages the supervisor has pushed since the evaluation began.
 
         Uses ``client._stub.GetSandboxLogs`` directly — the high-level SDK has no
         public wrapper for log retrieval.
         """
+        since = Timestamp()
+        since.FromMilliseconds(self._start_ms)
+        logs_resp = self._client._stub.GetSandboxLogs(
+            openshell_pb2.GetSandboxLogsRequest(
+                sandbox=self._ref.name,
+                workspace_scope=datamodel_pb2.WorkspaceSelector(workspace=self._workspace_name),
+                since_time=since,
+                sources=["sandbox"],
+            ),
+            timeout=10.0,
+        )
+        return [log_line.message for log_line in logs_resp.logs if log_line.level.upper() == "OCSF"]
+
+    def _sync_ocsf_messages(self) -> list[str]:
+        """Read OCSF messages after every event from the agent's session has arrived.
+
+        The supervisor batches log lines and pushes them to the gateway in order
+        every 500 ms, so a read right after the agent exits can miss its last
+        network decisions. Resolve a unique hostname inside the sandbox, which the
+        supervisor refuses and logs, then poll until that refusal is visible:
+        everything the agent caused was pushed before it. The marker's own events
+        are removed from the result.
+        """
+        marker = f"sync-{uuid.uuid4().hex[:12]}{_SYNC_MARKER_SUFFIX}"
+        self._exec(["sh", "-c", _SYNC_MARKER_SCRIPT.format(host=marker)], timeout_seconds=30)
+
+        deadline = time.time() + _LOG_SYNC_BUDGET_SECONDS
+        messages: list[str] = []
+        while time.time() < deadline:
+            messages = self._read_ocsf_messages()
+            if any(marker in message for message in messages):
+                return [message for message in messages if marker not in message]
+            time.sleep(0.5)
+        logging.getLogger(__name__).warning(
+            "OpenShell log sync marker did not arrive within %.0fs; network evidence may be incomplete",
+            _LOG_SYNC_BUDGET_SECONDS,
+        )
+        return messages
+
+    def _fetch_ocsf(self) -> OCSFEvents:
+        """Fetch and parse the evaluation's OCSF events, with caching."""
         if self._cached_ocsf is not None:
             return self._cached_ocsf
 
         messages: list[str] = []
         try:
-            since = Timestamp()
-            since.FromMilliseconds(self._start_ms)
-            logs_resp = self._client._stub.GetSandboxLogs(
-                openshell_pb2.GetSandboxLogsRequest(
-                    sandbox=self._ref.name,
-                    workspace_scope=datamodel_pb2.WorkspaceSelector(workspace=self._workspace_name),
-                    since_time=since,
-                    sources=["sandbox"],
-                ),
-                timeout=10.0,
-            )
-            messages = [log_line.message for log_line in logs_resp.logs if log_line.level.upper() == "OCSF"]
+            messages = self._sync_ocsf_messages()
         except Exception as exc:
-            import logging
-
             logging.getLogger(__name__).warning(
                 "OCSF log fetch failed — security predicates will degrade to False: %s", exc
             )
@@ -545,6 +592,8 @@ class OpenShellRuntime:
             processes=[ProcessRecord(**asdict(p)) for p in ocsf.processes],
             network_calls_allowed=ocsf.network_allowed_endpoints,
             network_calls_blocked=ocsf.network_blocked_endpoints,
+            network_calls_interrupted=ocsf.network_interrupted_endpoints,
+            network_callers=ocsf.network_callers,
             security_findings=[f.title for f in ocsf.findings],
         )
         return {OBSERVATIONS_SOURCE: observed}
