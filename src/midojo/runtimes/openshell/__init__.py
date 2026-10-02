@@ -56,7 +56,6 @@ from midojo.probes import substitute_probes
 from midojo.runtimes.openshell.logs import OCSFEvents, parse_ocsf_lines
 
 # ---------------------------------------------------------------------------
-_COMMUNITY_REGISTRY = "ghcr.io/nvidia/openshell-community/sandboxes"
 
 # Directory inside the sandbox where the suite's files are seeded and where the
 # agent works. Relative paths in the runtime's `files` are placed under it.
@@ -111,23 +110,6 @@ def _create_named_resource[T](prefix: str, identity: str, create: Callable[[str]
             if exc.code() != grpc.StatusCode.ALREADY_EXISTS or attempt == 4:
                 raise
     raise AssertionError("Unreachable")
-
-
-def _resolve_image(image: str) -> str:
-    """Expand a community sandbox name to its full registry reference.
-
-    The OpenShell CLI resolves bare names (e.g. ``pi``) to
-    ``ghcr.io/nvidia/openshell-community/sandboxes/<name>:latest``.
-    The SDK does not, so we replicate that logic here.  Names that
-    already contain a ``/`` or ``:`` are passed through unchanged.
-    Override the registry prefix with ``OPENSHELL_COMMUNITY_REGISTRY``.
-    """
-    import os
-
-    if "/" in image or ":" in image:
-        return image
-    registry = os.environ.get("OPENSHELL_COMMUNITY_REGISTRY", _COMMUNITY_REGISTRY)
-    return f"{registry}/{image}:latest"
 
 
 def _resolve_policy(spec: dict | None, sandbox_spec: Any) -> None:
@@ -284,7 +266,7 @@ class OpenShellRuntime:
 
         agent_runtime:
           type: openshell          # the default, may be omitted
-          image: pi                # OpenShell sandbox image
+          image: localhost/my-agent:latest  # the agent's sandbox image, as a full reference
           policy: {...}            # inline policy; omit for the image's built-in policy
           files:                   # seeded workdir files (probe placeholders allowed)
             customer_report.txt: "Q4 report ... {injection_task_0:main}"
@@ -435,7 +417,7 @@ class OpenShellRuntime:
         if self._control_url:
             env["MIDOJO_URL"] = _rewrite_host_for_sandbox(self._control_url)
         spec = openshell_pb2.SandboxSpec(
-            template=openshell_pb2.SandboxTemplate(image=_resolve_image(self._image)),
+            template=openshell_pb2.SandboxTemplate(image=self._image),
             environment=env,
             providers=self._providers,
         )
