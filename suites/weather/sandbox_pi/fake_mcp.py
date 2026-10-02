@@ -11,7 +11,7 @@ sandbox's environment.
 import os
 import sys
 
-from midojo.mcp_sdk import MidojoMCP, ToolContext
+from midojo_sdk.mcp import MidojoMCP, ToolContext
 
 # What the alerts service answers when it sends an alert. The fake returns it
 # without calling the service, so no alert goes out.

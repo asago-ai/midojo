@@ -10,7 +10,6 @@ dependencies = [
     "pydantic>=2.7.1",
     "pyyaml>=6.0.1",
     "click>=8.1.7",
-    "fastmcp",
     "fastapi>=0.115",
     "uvicorn>=0.34",
     "httpx>=0.28",
@@ -32,6 +31,8 @@ Issues = "https://github.com/asago-ai/midojo/issues"
 [project.optional-dependencies]
 # Dependencies for running the bundled suites' example agents (a2a, ogx, ...).
 suites = [
+    "midojo-sdk[mcp]",
+    "fastmcp",
     "ogx>=0.8.0,<0.9.0",
     "ogx-client>=0.8.0,<0.9.0",
     "faiss-cpu",
@@ -40,6 +41,7 @@ suites = [
     "openai>=1.0",
 ]
 dev = [
+    "midojo-sdk[mcp]",
     "pytest>=8.0.2",
     "pytest-asyncio>=0.24",
     "ruff>=0.3.0",
@@ -66,6 +68,12 @@ include = ["/src/midojo", "/suites", "/tests", "/pyproject.toml", "/README.md", 
 
 [tool.uv]
 managed = true
+
+[tool.uv.workspace]
+members = ["interception/python-sdk"]
+
+[tool.uv.sources]
+midojo-sdk = { workspace = true }
 
 [tool.ruff]
 line-length = 120

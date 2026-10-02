@@ -8,10 +8,12 @@ from typing import TYPE_CHECKING
 
 import httpx
 
-from midojo.session import session_headers
-
 if TYPE_CHECKING:
     from midojo.runtimes.openshell import OpenShellRuntime
+
+# Carries the evaluation session to agents reached over HTTP. midojo_sdk.session
+# reads it on the agent side.
+SESSION_HEADER = "X-Midojo-Session"
 
 
 class AgentClient(abc.ABC):
@@ -34,7 +36,7 @@ class SimpleHTTPAgentClient(AgentClient):
 
     async def send_task(self, prompt: str, *, session_token: str) -> str:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.post(self.agent_url, json={"prompt": prompt}, headers=session_headers(session_token))
+            resp = await client.post(self.agent_url, json={"prompt": prompt}, headers={SESSION_HEADER: session_token})
             resp.raise_for_status()
             data = resp.json()
             for key in ("response", "output", "text"):
@@ -59,7 +61,7 @@ class A2AAgentClient(AgentClient):
         from a2a.types import Message, Part, Role, SendMessageRequest
 
         config = ClientConfig(
-            httpx_client=httpx.AsyncClient(timeout=self.timeout, headers=session_headers(session_token)),
+            httpx_client=httpx.AsyncClient(timeout=self.timeout, headers={SESSION_HEADER: session_token}),
         )
         client = await create_client(self.agent_url, client_config=config)
         try:
@@ -138,7 +140,7 @@ class OpenAIResponsesAgentClient(AgentClient):
                     "type": "mcp",
                     "server_label": self.mcp_server_label,
                     "server_url": self.mcp_server_url,
-                    "headers": session_headers(session_token),
+                    "headers": {SESSION_HEADER: session_token},
                     "require_approval": "never",
                 },
             ],
@@ -187,7 +189,7 @@ class OGXResponsesClient(AgentClient):
                     "type": "mcp",
                     "server_label": self.mcp_server_label,
                     "server_url": self.mcp_server_url,
-                    "headers": session_headers(session_token),
+                    "headers": {SESSION_HEADER: session_token},
                     "require_approval": "never",
                 },
             ],

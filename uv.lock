@@ -13,6 +13,12 @@ resolution-markers = [
     "python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 
+[manifest]
+members = [
+    "midojo",
+    "midojo-sdk",
+]
+
 [[package]]
 name = "a2a-sdk"
 version = "1.0.2"
@@ -159,9 +165,9 @@ name = "aiologic"
 version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "sniffio" },
-    { name = "typing-extensions" },
-    { name = "wrapt" },
+    { name = "sniffio", marker = "python_full_version < '3.13'" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+    { name = "wrapt", marker = "python_full_version < '3.13'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/a8/13/50b91a3ea6b030d280d2654be97c48b6ed81753a50286ee43c646ba36d3c/aiologic-0.16.0.tar.gz", hash = "sha256:c267ccbd3ff417ec93e78d28d4d577ccca115d5797cdbd16785a551d9658858f", size = 225952, upload-time = "2025-11-27T23:48:41.195Z" }
 wheels = [
@@ -589,8 +595,8 @@ name = "culsans"
 version = "0.11.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "aiologic" },
-    { name = "typing-extensions" },
+    { name = "aiologic", marker = "python_full_version < '3.13'" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/d9/e3/49afa1bc180e0d28008ec6bcdf82a4072d1c7a41032b5b759b60814ca4b0/culsans-0.11.0.tar.gz", hash = "sha256:0b43d0d05dce6106293d114c86e3fb4bfc63088cfe8ff08ed3fe36891447fe33", size = 107546, upload-time = "2025-12-31T23:15:38.196Z" }
 wheels = [
@@ -1388,7 +1394,6 @@ dependencies = [
     { name = "a2a-sdk" },
     { name = "click" },
     { name = "fastapi" },
-    { name = "fastmcp" },
     { name = "grpcio" },
     { name = "httpx" },
     { name = "openshell" },
@@ -1401,6 +1406,7 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
+    { name = "midojo-sdk", extra = ["mcp"] },
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -1410,6 +1416,8 @@ dev = [
 suites = [
     { name = "chardet" },
     { name = "faiss-cpu" },
+    { name = "fastmcp" },
+    { name = "midojo-sdk", extra = ["mcp"] },
     { name = "ogx" },
     { name = "ogx-client" },
     { name = "openai" },
@@ -1423,9 +1431,11 @@ requires-dist = [
     { name = "click", specifier = ">=8.1.7" },
     { name = "faiss-cpu", marker = "extra == 'suites'" },
     { name = "fastapi", specifier = ">=0.115" },
-    { name = "fastmcp" },
+    { name = "fastmcp", marker = "extra == 'suites'" },
     { name = "grpcio", specifier = ">=1.60" },
     { name = "httpx", specifier = ">=0.28" },
+    { name = "midojo-sdk", extras = ["mcp"], marker = "extra == 'dev'", editable = "interception/python-sdk" },
+    { name = "midojo-sdk", extras = ["mcp"], marker = "extra == 'suites'", editable = "interception/python-sdk" },
     { name = "ogx", marker = "extra == 'suites'", specifier = ">=0.8.0,<0.9.0" },
     { name = "ogx-client", marker = "extra == 'suites'", specifier = ">=0.8.0,<0.9.0" },
     { name = "openai", marker = "extra == 'suites'", specifier = ">=1.0" },
@@ -1443,6 +1453,26 @@ requires-dist = [
     { name = "uvicorn", specifier = ">=0.34" },
 ]
 provides-extras = ["suites", "dev"]
+
+[[package]]
+name = "midojo-sdk"
+version = "0.1.0"
+source = { editable = "interception/python-sdk" }
+dependencies = [
+    { name = "httpx" },
+]
+
+[package.optional-dependencies]
+mcp = [
+    { name = "fastmcp" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastmcp", marker = "extra == 'mcp'" },
+    { name = "httpx", specifier = ">=0.28" },
+]
+provides-extras = ["mcp"]
 
 [[package]]
 name = "more-itertools"
@@ -2855,8 +2885,8 @@ name = "secretstorage"
 version = "3.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cryptography" },
-    { name = "jeepney" },
+    { name = "cryptography", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "jeepney", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/1c/03/e834bcd866f2f8a49a85eaff47340affa3bfa391ee9912a952a1faa68c7b/secretstorage-3.5.0.tar.gz", hash = "sha256:f04b8e4689cbce351744d5537bf6b1329c6fc68f91fa666f60a380edddcd11be", size = 19884, upload-time = "2025-11-23T19:02:53.191Z" }
 wheels = [
