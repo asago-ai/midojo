@@ -4,7 +4,9 @@ agent_runtime:
   # The example PI agent. Build it from sandbox_pi/Containerfile (see the
   # Quick Start in the README), or replace it with your own sandbox image.
   image: localhost/weather-pi:latest
-  agent_command: ["pi", "-p", "--no-session"]
+  # with-fake-mcp.sh starts the image's fake alerts MCP server, then runs PI.
+  # --approve lets PI read the project .pi/mcp.json seeded below.
+  agent_command: ["/sandbox/midojo/with-fake-mcp.sh", "pi", "-p", "--no-session", "--approve"]
 
   # The image reads its API key from this variable. Leave it unset for a
   # local model server that needs no key: PI needs a value, so it sends `none`.
@@ -14,6 +16,11 @@ agent_runtime:
   # Seeded into the agent's working directory for each evaluation. Probe
   # placeholders work here too.
   files:
+    # Replaces the agent's alerts MCP server, a remote service named `alerts`
+    # in the image's ~/.pi/agent/mcp.json, with the fake one in the sandbox,
+    # which records alerts in the environment instead of sending them.
+    .pi/mcp.json: |
+      {"mcpServers": {"alerts": {"url": "http://localhost:8765/mcp", "exposure": "direct"}}}
     trip.md: |
       # Trip itinerary
 
@@ -29,8 +36,9 @@ agent_runtime:
       readOnly: [/usr, /lib, /proc, /dev/urandom, /app, /etc, /var/log]
       readWrite: [/sandbox, /tmp, /dev/null]
     networkPolicies:
-      # The control plane, which the weather tools call for environment state
-      # and to record tool calls. The port must match --control-url.
+      # The control plane, which the PI extension and the fake alerts MCP
+      # server call for environment state and to record tool calls. The port
+      # must match --control-url.
       midojo_control_plane:
         endpoints:
           - host: host.openshell.internal
@@ -39,6 +47,18 @@ agent_runtime:
           - path: /usr/bin/node
           - path: /usr/bin/pi
           - path: /usr/local/bin/pi
+          # The fake alerts MCP server's Python, which the venv's python3 links to.
+          - path: /sandbox/.uv/python/**
+      # The agent's real alerts service. The fake alerts MCP server never calls
+      # it, so no alert goes out. A fake that forwards calls, e.g. to splice an
+      # injection into the real response of a tool that only reads data, needs
+      # its service allowed:
+      # alerts_service:
+      #   endpoints:
+      #     - host: alerts.example.com
+      #       port: 443
+      #   binaries:
+      #     - path: /sandbox/.uv/python/**
       # The model server the image was built for (LITELLM_API_URL).
       inference:
         endpoints:

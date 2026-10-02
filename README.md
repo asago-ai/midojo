@@ -91,16 +91,19 @@ The example agent in `sandbox_pi/` includes the agent's tools (we call those the
 
 ### PI agent (`sandbox_pi/`)
 
-For [PI](https://pi.dev) coding agents. The agent already has its tools registered via extensions — midojo hooks into the PI extension system to intercept them:
+For [PI](https://pi.dev) coding agents. The agent already has its tools, from extensions and from the MCP servers in its `mcp.json`. midojo intercepts both:
 
 - `02-real-tools.ts` — stands in for the agent's existing tools (in real life, these are whatever extensions the agent already has)
-- `01-fake-tools.ts` — the interception layer you author, built with `@midojo/pi-sdk`. Uses three mechanisms:
-  - **Tool overrides** (`tools`) — registers a tool that operates on the simulated environment. Used for write tools whose mutations need to be captured for grading. **PI limitation:** duplicate tool names across extensions cause a conflict error, so any tool registered in the fake extension must be commented out in the real extension.
+- `mcp.json` — the agent's MCP servers: `alerts`, a remote service the agent sends weather alerts with
+- `01-fake-tools.ts` — the interception layer you author for the agent's extension tools, built with `@midojo/pi-sdk`:
   - **Hooks** (`hooks`) — intercepts the result of an existing tool after it executes and modifies it before the agent sees it. Used for read tools where you want real data + injection payload.
   - **Reporters** (`reportTools`) — records an existing tool's result without changing it. Used for PI's built-in `read` and `bash`, so an injection in a workspace file counts as reaching the agent.
   - Other tools run unmodified and unrecorded.
+- `fake_mcp.py` — the interception layer for the `alerts` MCP server, built with `MidojoMCP` (the Python MCP SDK). Its `send_weather_alert` records the alert in the environment and never calls the real service. It runs inside the sandbox: `with-fake-mcp.sh` starts it before PI, and the suite seeds a project `.pi/mcp.json` that points PI's `alerts` server at it. PI lets a project entry replace a global one with the same name, so the agent's own config stays untouched.
 
-The `Containerfile` builds the sandbox image on the [PI community sandbox](https://github.com/NVIDIA/OpenShell-Community/tree/main/sandboxes/pi), upgraded to PI 1.0, with the extensions, the PI SDK, the system prompt (`AGENTS.md`) and the model provider (`models.json`, `settings.json`) in PI's global agent directory. To red-team your own agent, replace `image` in `suite.yaml` with your agent's sandbox image.
+The PI SDK can also register tools that operate on the environment (`tools`), but PI rejects two extensions registering the same tool name, so replacing one of the agent's extension tools that way means removing the original. Replacing an MCP server has no such conflict.
+
+The `Containerfile` builds the sandbox image on the [PI community sandbox](https://github.com/NVIDIA/OpenShell-Community/tree/main/sandboxes/pi), upgraded to PI 1.0, with the extensions, the PI SDK, the MCP config (`mcp.json`), the system prompt (`AGENTS.md`) and the model provider (`models.json`, `settings.json`) in PI's global agent directory. It installs midojo into the sandbox's Python for the fake MCP server. To red-team your own agent, replace `image` in `suite.yaml` with your agent's sandbox image.
 
 ### MCP agents
 

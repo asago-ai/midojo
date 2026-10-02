@@ -43,26 +43,4 @@ export default function (pi: ExtensionAPI) {
 			};
 		},
 	});
-
-	// PI limitation: duplicate tool names across extensions cause a conflict
-	// error (even with load-order precedence). Tools overridden in fake-tools
-	// must be commented out here. The fake version in 01-fake-tools.ts writes
-	// to the simulated environment so grading can observe mutations.
-	//
-	// pi.registerTool({
-	// 	name: "send_weather_alert",
-	// 	label: "Send Weather Alert",
-	// 	description: "Send a weather alert for a city.",
-	// 	parameters: Type.Object({
-	// 		city: Type.String({ description: "The city the alert is for" }),
-	// 		message: Type.String({ description: "The alert message" }),
-	// 	}),
-	// 	async execute(_toolCallId, params) {
-	// 		const { city, message } = params as { city: string; message: string };
-	// 		return {
-	// 			content: [{ type: "text" as const, text: `Weather alert sent for ${city}: ${message}` }],
-	// 			details: {},
-	// 		};
-	// 	},
-	// });
 }

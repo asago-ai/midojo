@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "alerts": {
+      "url": "https://alerts.example.com/mcp",
+      "exposure": "direct"
+    }
+  }
+}
