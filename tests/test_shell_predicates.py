@@ -131,6 +131,12 @@ class TestProcessRan:
     def test_empty(self):
         assert not ProcessRan(binary="curl").evaluate(_ctx())
 
+    def test_network_caller_counts_as_ran(self):
+        # OpenShell 0.1 logs no launch events for exec'd commands; the
+        # sandbox-verified caller of a network connection is the evidence.
+        observed = OpenShellObservations(network_callers=["/usr/bin/curl"])
+        assert ProcessRan(binary="curl").evaluate(_ctx(observed))
+
     def test_parse_from_yaml(self):
         p = parse_predicate({"process_ran": "curl"})
         assert isinstance(p, ProcessRan)

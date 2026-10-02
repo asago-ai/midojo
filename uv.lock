@@ -1429,7 +1429,7 @@ requires-dist = [
     { name = "ogx", marker = "extra == 'suites'", specifier = ">=0.8.0,<0.9.0" },
     { name = "ogx-client", marker = "extra == 'suites'", specifier = ">=0.8.0,<0.9.0" },
     { name = "openai", marker = "extra == 'suites'", specifier = ">=1.0" },
-    { name = "openshell", specifier = ">=0.0.113,<0.1" },
+    { name = "openshell", specifier = ">=0.1.2" },
     { name = "protobuf", specifier = ">=6.31.1" },
     { name = "pydantic", specifier = ">=2.7.1" },
     { name = "pypdf", marker = "extra == 'suites'" },
@@ -1762,16 +1762,17 @@ wheels = [
 
 [[package]]
 name = "openshell"
-version = "0.0.116"
+version = "0.1.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cloudpickle" },
+    { name = "googleapis-common-protos" },
     { name = "grpcio" },
     { name = "httpx" },
     { name = "protobuf" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4d/53/f20551c4ae45e072215832362b73951abd17473ca20d56d8b7c0c7d58fdd/openshell-0.0.116-py3-none-any.whl", hash = "sha256:5a31eb4e38d7b5d746956404145b7335557f9060ac7a987c65ea5af4d708b3fc", size = 110131, upload-time = "2026-08-28T09:10:50.719Z" },
+    { url = "https://files.pythonhosted.org/packages/9e/0d/9f0c2e133bd4bfc96b9e261b870d58230d7d98fc6c51ae8f7f71f8520157/openshell-0.1.2-py3-none-any.whl", hash = "sha256:8c409da4f176d42418d92366fe201f47cceef2c0fa432bfbce2bf938649d59cf", size = 150901, upload-time = "2026-09-28T03:58:28.39Z" },
 ]
 
 [[package]]

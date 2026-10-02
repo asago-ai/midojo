@@ -1,5 +1,9 @@
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
 from openshell._proto import openshell_pb2
 
+import midojo.runtimes.openshell as openshell_runtime
 from midojo.runtimes import build_runtime
 from midojo.runtimes.openshell import OpenShellRuntime, _resolve_policy
 from midojo.runtimes.openshell.logs import parse_ocsf_lines
@@ -47,3 +51,84 @@ class TestPolicy:
         inline = {"networkPolicies": {"allow_all": {"endpoints": [{"host": "api.example.com", "port": 443}]}}}
         _resolve_policy(inline, spec)
         assert spec.policy.network_policies["allow_all"].endpoints[0].host == "api.example.com"
+
+
+class _FakeSandboxClient:
+    """Records the SDK calls the runtime makes against one sandbox."""
+
+    def __init__(self):
+        self.exec_calls = []
+        self.logs_requests = []
+        self._stub = self
+
+    def exec(self, sandbox_name, command, **kwargs):
+        self.exec_calls.append((sandbox_name, command, kwargs))
+
+    def GetSandboxLogs(self, request, timeout):  # noqa: N802 - mirrors the gRPC stub
+        self.logs_requests.append(request)
+        return openshell_pb2.GetSandboxLogsResponse()
+
+
+def _runtime_with_sandbox() -> tuple[OpenShellRuntime, _FakeSandboxClient]:
+    runtime = OpenShellRuntime("shell_suite", image="pi")
+    client = _FakeSandboxClient()
+    runtime._client = client
+    runtime._workspace_name = "midojo-shell-abc123"
+    runtime._ref = SimpleNamespace(name="midojo-eval-1")
+    runtime._start_ms = 1_790_000_000_123
+    return runtime, client
+
+
+def test_exec_addresses_the_sandbox_by_name_within_the_workspace():
+    runtime, client = _runtime_with_sandbox()
+    runtime.exec_agent("hello", timeout_seconds=30)
+    name, _, kwargs = client.exec_calls[0]
+    assert name == "midojo-eval-1"
+    assert kwargs["workspace"] == "midojo-shell-abc123"
+
+
+def test_log_fetch_scopes_to_the_sandbox_since_the_evaluation_started():
+    runtime, client = _runtime_with_sandbox()
+    runtime._read_ocsf_messages()
+    request = client.logs_requests[0]
+    assert request.sandbox == "midojo-eval-1"
+    assert request.workspace_scope.workspace == "midojo-shell-abc123"
+    assert request.since_time.ToMilliseconds() == 1_790_000_000_123
+    assert list(request.sources) == ["sandbox"]
+
+
+class TestLogSync:
+    """The OCSF read waits for a marker so late-pushed agent events are included."""
+
+    def _runtime(self, reads):
+        runtime = OpenShellRuntime("shell_suite", image="pi")
+        runtime._exec = MagicMock()
+        runtime._read_ocsf_messages = MagicMock(side_effect=reads)
+        return runtime
+
+    def test_waits_for_marker_and_drops_its_events(self, monkeypatch):
+        monkeypatch.setattr(openshell_runtime.time, "sleep", lambda _s: None)
+        agent_event = "NET:OPEN [MED] DENIED /usr/bin/curl(0) -> evil.test:443 [reason:transparent_tcp_policy_denied]"
+
+        def marker_from_exec():
+            script = runtime._exec.call_args.args[0][2]
+            host = script.split()[2]
+            return f"NET:REFUSE [MED] DENIED {host} [reason:policy_dns_ineligible]"
+
+        reads = iter([[], [agent_event], None])
+
+        def read():
+            batch = next(reads)
+            return batch if batch is not None else [agent_event, marker_from_exec()]
+
+        runtime = self._runtime(read)
+        assert runtime._sync_ocsf_messages() == [agent_event]
+        assert runtime._read_ocsf_messages.call_count == 3
+
+    def test_returns_last_read_when_marker_never_arrives(self, monkeypatch):
+        clock = iter(range(0, 100, 5))
+        monkeypatch.setattr(openshell_runtime.time, "time", lambda: next(clock))
+        monkeypatch.setattr(openshell_runtime.time, "sleep", lambda _s: None)
+        allowed = "NET:OPEN [INFO] ALLOWED /usr/bin/curl(0) -> ok.test:443"
+        runtime = self._runtime(lambda: [allowed])
+        assert runtime._sync_ocsf_messages() == [allowed]

@@ -15,9 +15,9 @@ dependencies = [
     "uvicorn>=0.34",
     "httpx>=0.28",
     "a2a-sdk>=1.0",
-    # 0.0.113 is the first release with pure-Python wheels. 0.1 changes the
-    # sandbox exec and log APIs the OpenShell backend calls.
-    "openshell>=0.0.113,<0.1",
+    # The OpenShell runtime uses the 0.1 sandbox exec and log APIs, which
+    # require a 0.1.x gateway.
+    "openshell>=0.1.2",
     "grpcio>=1.60",
     # OpenShell's generated protobuf code targets the 6.31.x runtime.
     "protobuf>=6.31.1",

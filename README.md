@@ -14,10 +14,12 @@ Plant prompt injections in your agent's prompts, files, or tool responses—then
 
 OpenShell gives this example a fresh, isolated sandbox for each evaluation. It also records file changes, processes, and network activity, so MiDojo can check what the agent actually did—not just what it said.
 
-Install [OpenShell v0.0.113](https://github.com/NVIDIA/OpenShell/releases/tag/v0.0.113), compatible with MiDojo's pinned SDK (`openshell>=0.0.113,<0.1`). The installer supports Linux and Apple Silicon macOS; macOS requires Homebrew. Skip installation if you already have a compatible gateway running.
+Install [OpenShell v0.1.2](https://github.com/NVIDIA/OpenShell/releases/tag/v0.1.2), compatible with MiDojo's pinned SDK (`openshell>=0.1.2`). The installer supports Linux and Apple Silicon macOS; macOS requires Homebrew. Skip installation if you already have a 0.1.x gateway running; MiDojo can't drive a 0.0.x gateway.
+
+If you have OpenShell 0.0.x installed, remove its sandboxes and gateway with the old CLI first (`openshell sandbox delete --all`, then `openshell gateway destroy`): 0.1.x can't use 0.0.x gateway state, and the installer stops until you do.
 
 ```bash
-curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/v0.0.113/install.sh | OPENSHELL_VERSION=v0.0.113 sh
+curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/v0.1.2/install.sh | OPENSHELL_VERSION=v0.1.2 sh
 openshell status
 ```
 
