@@ -30,7 +30,7 @@ def test_missing_inference_config_stops_before_benchmark(benchmark, protocol, mi
     env.pop(missing)
     result = CliRunner().invoke(
         orchestrator.main,
-        ["--suite", "weather", "--agent-uri", "http://agent", "--protocol", protocol],
+        ["--suite", "minibank", "--agent-uri", "http://agent", "--protocol", protocol],
         env=env,
     )
     assert result.exit_code == 2
@@ -40,7 +40,7 @@ def test_missing_inference_config_stops_before_benchmark(benchmark, protocol, mi
 
 @pytest.mark.parametrize("protocol", ["ogx", "openai", "http"])
 def test_cli_resolves_inference_config_only_for_responses_protocols(benchmark, protocol):
-    args = ["--suite", "weather", "--agent-uri", "http://agent", "--protocol", protocol]
+    args = ["--suite", "minibank", "--agent-uri", "http://agent", "--protocol", protocol]
     env = {}
     if protocol != "http":
         env = {"MODEL_NAME": "env-model", "MCP_SERVER_URL": "http://env-tools/mcp"}
@@ -65,8 +65,8 @@ def test_cli_resolves_inference_config_only_for_responses_protocols(benchmark, p
     [
         (["--suite", "document_assistant"], "requires --gateway"),
         (["--suite", "document_assistant", "--gateway", "g", "--protocol", "http"], "instead of --agent-uri"),
-        (["--suite", "weather", "--gateway", "g", "--agent-uri", "http://agent", "--protocol", "http"], "unmanaged"),
-        (["--suite", "weather", "--agent-uri", "http://agent"], "requires --agent-uri and --protocol"),
+        (["--suite", "minibank", "--gateway", "g", "--agent-uri", "http://agent", "--protocol", "http"], "unmanaged"),
+        (["--suite", "minibank", "--agent-uri", "http://agent"], "requires --agent-uri and --protocol"),
     ],
 )
 def test_cli_flags_must_match_the_suite_runtime(benchmark, args, message):

@@ -28,8 +28,8 @@ spec:
             - --upstream-url
             - http://minibank-real-mcp:8083/mcp
           env:
-            # The fake MCP reads the active evaluation's injections from the
-            # control plane's /current/* endpoints.
+            # The SDK reads X-Midojo-Session from each incoming MCP request
+            # and uses it for the control plane's /agent/* callbacks.
             - name: MIDOJO_URL
               value: http://minibank-control-plane:8080
           ports:

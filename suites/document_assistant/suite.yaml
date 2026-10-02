@@ -3,16 +3,27 @@ agent_runtime:
 
   # The sandbox image to use. Build the example agent from sandbox_pi/Containerfile
   # or replace with your own production sandbox image — the eval below does not change.
-  image: quay.io/rh-ee-spandraj/midojo:document-assistant-local
+  image: localhost/document-assistant-local:latest
 
   # How to invoke the agent for each evaluation. Equivalent to --agent-uri for
   # unmanaged runtimes. Change this to match your sandbox image's agent entrypoint.
   agent_command: ["pi", "-p", "--no-session"]
 
+  # The example image reads its API key from this variable. Leave it unset for a
+  # local model server that needs no key: PI needs a value, so it sends `none`.
+  env_vars:
+    LITELLM_API_KEY: ${env.LITELLM_API_KEY:=none}
+
   # Network policy: endpoints the agent is allowed to reach during the evaluation.
   # Add any endpoints your sandbox image needs (LLM provider, tool backends, etc.).
   # The sandbox proxy blocks all other egress by default.
   policy:
+    # An explicit policy replaces the image policy. Keep PI's filesystem
+    # access, including /dev/null for tool subprocess stdin/stdout.
+    filesystem:
+      includeWorkdir: true
+      readOnly: [/usr, /lib, /proc, /dev/urandom, /app, /etc, /var/log]
+      readWrite: [/sandbox, /tmp, /dev/null]
     networkPolicies:
       # midojo control plane. The in-sandbox agent SDK POSTs its tool calls
       # here so seeded-file injections are visible to the reachability check;
@@ -29,10 +40,11 @@ agent_runtime:
           - path: /usr/bin/node
           - path: /usr/bin/pi
           - path: /usr/local/bin/pi
-      local_inference:
+      # The model server the image was built for (LITELLM_API_URL).
+      inference:
         endpoints:
-          - host: host.openshell.internal
-            port: 8321
+          - host: ${env.LITELLM_API_HOST:=host.openshell.internal}
+            port: ${env.LITELLM_API_PORT:=8321}
         binaries:
           - path: /usr/bin/node
           - path: /usr/bin/pi

@@ -1,7 +1,7 @@
 import pytest
 from pydantic import BaseModel
 
-from midojo.types import Environment
+from midojo.types import Environment, FunctionCallRecord
 from midojo.verifier import VerificationContext
 from midojo.verifiers.builtin import (
     AllOf,
@@ -15,6 +15,7 @@ from midojo.verifiers.builtin import (
     OutputContains,
     OutputContainsAll,
     OutputContainsAny,
+    ToolCalled,
     parse_predicate,
 )
 
@@ -185,6 +186,36 @@ class TestEnvFieldUnchanged:
         assert not p.evaluate(_ctx(pre=BalanceEnv(balance=100), post=BalanceEnv(balance=50)))
 
 
+def _call(function: str, args: dict, *, blocked: bool = False) -> FunctionCallRecord:
+    return FunctionCallRecord(
+        function=function,
+        args=args,
+        result="",
+        blocked=blocked,
+        timestamp="",
+        pre_environment=EmptyEnv(),
+        post_environment=EmptyEnv(),
+    )
+
+
+class TestToolCalled:
+    def test_blocked_call_matches_args(self):
+        p = ToolCalled(name="send_email", args={"to": "travel-sync.example"})
+        call = _call("send_email", {"to": "Bookings@Travel-Sync.example"}, blocked=True)
+        ctx = VerificationContext(
+            agent_output="", pre_environment=EmptyEnv(), post_environment=EmptyEnv(), function_calls=[call]
+        )
+        assert p.evaluate(ctx)
+
+    def test_other_args_or_tool(self):
+        p = ToolCalled(name="send_email", args={"to": "travel-sync.example"})
+        calls = [_call("send_email", {"to": "me@example.com"}), _call("read", {"to": "travel-sync.example"})]
+        ctx = VerificationContext(
+            agent_output="", pre_environment=EmptyEnv(), post_environment=EmptyEnv(), function_calls=calls
+        )
+        assert not p.evaluate(ctx)
+
+
 class TestAllOf:
     def test_all_true(self):
         p = AllOf(predicates=[OutputContains(value="72"), OutputContains(value="sunny")])
@@ -290,6 +321,11 @@ class TestParsePredicate:
         p = parse_predicate({"env_field_unchanged": {"field": "balance"}})
         assert isinstance(p, EnvFieldUnchanged)
         assert p.field == "balance"
+
+    def test_tool_called(self):
+        assert parse_predicate({"tool_called": "send_email"}) == ToolCalled(name="send_email")
+        p = parse_predicate({"tool_called": {"name": "send_email", "args": {"to": "example"}}})
+        assert p == ToolCalled(name="send_email", args={"to": "example"})
 
     def test_all_of(self):
         p = parse_predicate({"all_of": [{"output_contains": "a"}, {"output_contains": "b"}]})

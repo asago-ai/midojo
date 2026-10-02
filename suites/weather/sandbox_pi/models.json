@@ -1,6 +1,6 @@
 {
   "providers": {
-    "local": {
+    "litellm": {
       "baseUrl": "@LITELLM_API_URL@",
       "api": "openai-completions",
       "apiKey": "${LITELLM_API_KEY}",

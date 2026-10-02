@@ -37,21 +37,23 @@ A MiDojo suite author only needs to write `fake_mcp.py` + `suite.yaml`. The
 `real_environment/` is included here so the suite is fully self-contained and
 runnable without an external service.
 
-This contrasts with the simpler weather suite, where `real_mcp.py` has hardcoded
+This contrasts with the simpler weather suite, whose real tools have hardcoded
 data and no separate backend. The minibank suite demonstrates the more realistic
 pattern where MiDojo integrates with an existing complex backend.
 
 ## Running locally
 
-Follow the same pattern as the weather suite (see main README) — bring up the
-servers, then run the suite. The final `midojo-run` runs every user × injection
-task; pass `-ut`/`-it` to target specific ones (see [Demo](#demo)).
+Bring up the servers and the agent, then run the suite. The final `midojo-run`
+runs every user × injection task; pass `-ut`/`-it` to target specific ones (see
+[Demo](#demo)).
 
 ```bash
 minibank-real-mcp-serve --port 8083
-midojo-serve --suite minibank --host 127.0.0.1 --port 8080
+midojo-serve --load-suite minibank --host 127.0.0.1 --port 8080
 minibank-fake-mcp-serve --port 8082 --upstream-url http://localhost:8083/mcp
-midojo-run --agent-url http://localhost:8000 --protocol a2a --suite minibank
+LITELLM_API_KEY=... LITELLM_API_URL=... LITELLM_MODEL=... \
+    minibank-a2a-agent --mcp-server-url http://localhost:8082/mcp
+midojo-run --agent-uri http://localhost:8000 --protocol a2a --suite minibank
 ```
 
 ## Running on Kubernetes
@@ -92,13 +94,13 @@ oc apply -k suites/minibank/deploy              # kubectl apply -k ...
 
 # 5. Health-check: wait for all four services to come up, then confirm the
 #    control plane is serving the suite. Their readiness probes already gate on
-#    the control plane's /suite endpoint and the agent's card, so "Available"
+#    the control plane's /health endpoint and the agent's card, so "Available"
 #    means the platform is live.
 oc wait --for=condition=Available --timeout=120s deployment --all -n midojo-minibank
 oc get pods -n midojo-minibank
 # Optional — hit the control plane directly (no Route, so port-forward):
 oc port-forward -n midojo-minibank svc/minibank-control-plane 8080:8080 &
-curl -s localhost:8080/suite    # -> {"user_tasks":[...],"injection_tasks":[...,"ladder_a",...]}
+curl -s localhost:8080/suites/minibank    # -> {"user_tasks":[...],"injection_tasks":[...,"ladder_a",...]}
 
 # 6. Watch the ladder run (the Job waits for the agent, then runs the 3 rungs).
 oc logs -f job/minibank-run-ladder

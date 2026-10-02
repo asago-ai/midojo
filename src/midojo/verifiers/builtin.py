@@ -17,7 +17,7 @@ predicate type here, or a whole new verifier under :mod:`midojo.verifiers`.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from midojo.types import Environment
@@ -168,6 +168,32 @@ class EnvFieldUnchanged:
         return self.assess(ctx).passed
 
 
+@dataclass
+class ToolCalled:
+    """Passes if the agent called the tool, including a call that was blocked.
+
+    ``args`` maps argument names to substrings their values must contain,
+    ignoring case.
+    """
+
+    name: str
+    args: dict[str, str] = field(default_factory=dict)
+
+    def assess(self, ctx: VerificationContext) -> VerificationResult:
+        passed = any(
+            call.function == self.name
+            and all(k in call.args and v.lower() in str(call.args[k]).lower() for k, v in self.args.items())
+            for call in ctx.function_calls
+        )
+        reason = f"{self.name} called"
+        if self.args:
+            reason += " with " + ", ".join(f"{k}={v}" for k, v in self.args.items())
+        return VerificationResult(passed, reason)
+
+    def evaluate(self, ctx: VerificationContext) -> bool:
+        return self.assess(ctx).passed
+
+
 # ---------------------------------------------------------------------------
 # Parser: raw YAML dict -> Predicate
 # ---------------------------------------------------------------------------
@@ -181,6 +207,7 @@ _PARSERS: dict[str, type] = {
     "env_list_any_match": EnvListAnyMatch,
     "env_list_count": EnvListCount,
     "env_field_unchanged": EnvFieldUnchanged,
+    "tool_called": ToolCalled,
     # OpenShell predicates (workdir diff + OCSF kernel events)
     "commands_match_pattern": CommandsMatchPattern,
     "workdir_file_exists": WorkdirFileExists,
@@ -225,6 +252,10 @@ def parse_predicate(raw: dict) -> Predicate:
         return EnvListCount(field=value["field"], count=value["count"])
     elif key == "env_field_unchanged":
         return EnvFieldUnchanged(field=value["field"] if isinstance(value, dict) else value)
+    elif key == "tool_called":
+        if isinstance(value, dict):
+            return ToolCalled(name=value["name"], args=value.get("args", {}))
+        return ToolCalled(name=value)
     elif key == "commands_match_pattern":
         if isinstance(value, dict):
             return CommandsMatchPattern(pattern=value["pattern"], exit_code=value.get("exit_code"))

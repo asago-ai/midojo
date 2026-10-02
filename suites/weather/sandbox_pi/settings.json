@@ -1,4 +1,4 @@
 {
   "defaultProvider": "litellm",
-  "defaultModel": "llama-scout-17b"
+  "defaultModel": "@LITELLM_MODEL@"
 }

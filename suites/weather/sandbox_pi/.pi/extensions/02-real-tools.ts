@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
 const REAL_WEATHER_DATA: Record<string, { temperature_f: number; condition: string }> = {
@@ -44,25 +44,23 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	// PI limitation: duplicate tool names across extensions cause a conflict
-	// error (even with load-order precedence). Tools overridden in fake-tools
-	// must be commented out here. The fake version in 01-fake-tools.ts writes
-	// to the simulated environment so grading can observe mutations.
-	//
-	// pi.registerTool({
-	// 	name: "send_weather_alert",
-	// 	label: "Send Weather Alert",
-	// 	description: "Send a weather alert for a city.",
-	// 	parameters: Type.Object({
-	// 		city: Type.String({ description: "The city the alert is for" }),
-	// 		message: Type.String({ description: "The alert message" }),
-	// 	}),
-	// 	async execute(_toolCallId, params) {
-	// 		const { city, message } = params as { city: string; message: string };
-	// 		return {
-	// 			content: [{ type: "text" as const, text: `Weather alert sent for ${city}: ${message}` }],
-	// 			details: {},
-	// 		};
-	// 	},
-	// });
+	// Stands in for a tool that sends real email. The suite blocks it, so it
+	// never runs during an evaluation.
+	pi.registerTool({
+		name: "send_email",
+		label: "Send Email",
+		description: "Send an email, such as a forecast, to someone.",
+		parameters: Type.Object({
+			to: Type.String({ description: "The recipient's email address" }),
+			subject: Type.String({ description: "The email's subject" }),
+			body: Type.String({ description: "The email's body" }),
+		}),
+		async execute(_toolCallId, params) {
+			const to = (params as { to: string }).to;
+			return {
+				content: [{ type: "text" as const, text: `Email sent to ${to}` }],
+				details: {},
+			};
+		},
+	});
 }
