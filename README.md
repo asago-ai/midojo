@@ -67,7 +67,7 @@ The API key is passed at runtime, not baked into the image. To change models, re
 
 </details>
 
-### 3. Start MiDojo
+### 3. Start the MiDojo server
 
 In terminal 1, load the suite and leave the server running:
 
@@ -77,7 +77,7 @@ uv run --env-file .env midojo-serve --load-suite weather --port 8090
 
 Use the `.env` from the one-time setup above. Port 8090 matches the sandbox's access policy. The server listens on all interfaces so the local sandbox can reach it; run this example on a trusted development machine.
 
-### 4. Run a suite
+### 4. Run a red-team test
 
 In terminal 2, from the repo root, replace `GATEWAY_NAME` with your registered gateway:
 
