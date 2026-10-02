@@ -36,15 +36,17 @@ jobs:
           import tomllib
           from pathlib import Path
 
-          version = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
-          expected = f"v{version}"
+          # midojo and midojo-sdk are released together, at the same version.
           tag = os.environ["RELEASE_TAG"]
-          if tag != expected:
-              raise SystemExit(f"Release tag {tag!r} must match package version: {expected!r}")
+          for path in ("pyproject.toml", "interception/python-sdk/pyproject.toml"):
+              project = tomllib.loads(Path(path).read_text())["project"]
+              expected = f"v{project['version']}"
+              if tag != expected:
+                  raise SystemExit(f"Release tag {tag!r} must match {project['name']} version: {expected!r}")
           PY
 
-      - name: Build wheel and source distribution
-        run: uv build
+      - name: Build wheels and source distributions
+        run: uv build --all-packages
 
       - name: Check package metadata
         run: uvx --python 3.12 twine check --strict dist/*
