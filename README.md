@@ -74,17 +74,17 @@ This example runs the bundled weather agent in an OpenShell sandbox. Alerts are 
 In terminal 1, load the suite and leave the server running:
 
 ```bash
-uv run --env-file .env midojo-serve --load-suite weather --port 8090
+uv run midojo-serve --load-suite weather --port 8090
 ```
 
-Use the `.env` from the one-time setup above. Port 8090 matches the sandbox's access policy. The server listens on all interfaces so the local sandbox can reach it; run this example on a trusted development machine.
+Port 8090 matches the sandbox's access policy. The server listens on all interfaces so the local sandbox can reach it; run this example on a trusted development machine.
 
 ### 2. Run a red-team test
 
-In terminal 2, from the repo root, replace `GATEWAY_NAME` with your registered gateway:
+In terminal 2, from the repo root, run against the `openshell` gateway the installer registered:
 
 ```bash
-uv run --env-file .env midojo-run --suite weather --gateway GATEWAY_NAME \
+uv run --env-file .env midojo-run --suite weather --gateway openshell \
   --control-url http://localhost:8090 --logdir runs/weather-full
 ```
 
@@ -175,7 +175,7 @@ The terminal's evaluation link opens the full record, including tool calls and r
 **Compare with a clean run.** Selecting a user task without an injection task runs it without attacks:
 
 ```bash
-uv run --env-file .env midojo-run --suite weather --gateway GATEWAY_NAME \
+uv run --env-file .env midojo-run --suite weather --gateway openshell \
   --control-url http://localhost:8090 --user-task weather_new_york \
   --logdir runs/weather-baseline
 ```
@@ -185,7 +185,7 @@ uv run --env-file .env midojo-run --suite weather --gateway GATEWAY_NAME \
 **Focus on one attack.** Select a task and injection to inspect one pairing:
 
 ```bash
-uv run --env-file .env midojo-run --suite weather --gateway GATEWAY_NAME \
+uv run --env-file .env midojo-run --suite weather --gateway openshell \
   --control-url http://localhost:8090 \
   --user-task weather_new_york --injection-task tornado_alert_via_notes \
   --logdir runs/weather-attack
