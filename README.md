@@ -206,12 +206,12 @@ MiDojo can test malicious prompts, poisoned data, and tampered tool responses. C
 | --- | --- |
 | An agent in an OpenShell sandbox | [Document assistant](suites/document_assistant/sandbox_pi/README.md): inject files; inspect file changes, processes, and network activity. |
 | An agent using MCP tools | [Minibank's MCP example](suites/minibank/a2a_agent/fake_mcp.py): put a MiDojo server in front of the agent's tools. |
-| A PI agent | [Weather's PI extension](suites/weather/sandbox_pi/.pi/extensions/01-fake-tools.ts): modify tool results, record actions, or block calls. |
+| A PI agent | [The weather suite's example agent](suites/weather/README.md#the-example-agent): modify tool results, record actions, block calls, or replace an MCP server. |
 
 A suite's `agent_runtime` chooses **OpenShell** (a sandbox per evaluation) or **unmanaged** (experimental; connect to an agent outside MiDojo's sandbox lifecycle). The [session-forwarding example](suites/minibank/a2a_agent/agent.py) shows how to connect an external agent.
 
 ### Write a suite
 
-Start with the weather suite's [task definitions](suites/weather/suite.yaml) and [Python loader](suites/weather/__init__.py). Define the legitimate tasks, where injections land, and what counts as task completion and attack success. Add tool interception where your scenario needs it.
+Start with the [weather suite](suites/weather/README.md), MiDojo's reference suite: its [task definitions](suites/weather/suite.yaml) and [Python loader](suites/weather/__init__.py). Define the legitimate tasks, where injections land, and what counts as task completion and attack success. Add tool interception where your scenario needs it.
 
 Licensed under [Apache 2.0](LICENSE).
