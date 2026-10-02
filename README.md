@@ -14,6 +14,8 @@ Plant prompt injections in your agent's prompts, files, or tool responses—then
 
 OpenShell gives this example a fresh, isolated sandbox for each evaluation. It also records file changes, processes, and network activity, so MiDojo can check what the agent actually did—not just what it said.
 
+The local gateway runs each sandbox as a container, so install and start [Podman](https://podman.io/docs/installation) or [Docker](https://docs.docker.com/get-started/get-docker/) first. This guide's commands use Podman.
+
 Install [OpenShell v0.1.2](https://github.com/NVIDIA/OpenShell/releases/tag/v0.1.2), compatible with MiDojo's pinned SDK (`openshell>=0.1.2`). The installer supports Linux and Apple Silicon macOS; macOS requires Homebrew. Skip installation if you already have a 0.1.x gateway running; MiDojo can't drive a 0.0.x gateway.
 
 If you have OpenShell 0.0.x installed, remove its sandboxes and gateway with the old CLI first (`openshell sandbox delete --all`, then `openshell gateway destroy`): 0.1.x can't use 0.0.x gateway state, and the installer stops until you do.
@@ -49,7 +51,7 @@ podman build --pull=always \
   -t localhost/weather-pi:latest -f suites/weather/sandbox_pi/Containerfile .
 ```
 
-On Apple Silicon, add `--platform linux/arm64` to avoid x86 emulation. Make the image available to the gateway's container runtime; the suite already references `localhost/weather-pi:latest`.
+With Docker, run `docker build --pull` with the same arguments. On Apple Silicon, add `--platform linux/arm64` to avoid x86 emulation. Make the image available to the gateway's container runtime; the suite already references `localhost/weather-pi:latest`.
 
 Create or update a gitignored `.env` in the repo root:
 
@@ -121,7 +123,7 @@ The weather answer is correct—but the user never asked for a hidden copy of th
 
 A useful answer can still come with an unsafe action. That's why MiDojo scores the two separately.
 
-The terminal's evaluation link opens the full record, including tool calls and runtime observations, while the server is running.
+Cmd/Ctrl-click the evaluation ID, in terminals that support links, to open its record on the server: the agent's input and output, the verdicts, and the recorded tool calls. Add `/observations` to that URL to see the sandbox evidence, such as files created and network calls. Both are available while the server is running.
 
 ## Going further
 
