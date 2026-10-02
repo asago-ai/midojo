@@ -14,7 +14,20 @@ Give a weather agent everyday tasks. Plant instructions in prompts, weather note
 
 This example runs the bundled weather agent in an OpenShell sandbox. Alerts are recorded in the test environment. No host-side Node.js or PI installation is needed.
 
-### 1. Install
+### 1. Install OpenShell
+
+OpenShell gives this example a fresh, isolated sandbox for each evaluation. It also records file changes, processes, and network activity, so MiDojo can check what the agent actually did—not just what it said.
+
+Install [OpenShell v0.0.113](https://github.com/NVIDIA/OpenShell/releases/tag/v0.0.113), compatible with MiDojo's pinned SDK (`openshell>=0.0.113,<0.1`). The installer supports Linux and Apple Silicon macOS; macOS requires Homebrew. Skip installation if you already have a compatible gateway running.
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/v0.0.113/install.sh | OPENSHELL_VERSION=v0.0.113 sh
+openshell status
+```
+
+The installer sets up the CLI and a local gateway. Continue once `openshell status` shows Connected. Installing the Python SDK with uv alone does not set up the gateway.
+
+### 2. Install MiDojo
 
 You'll need [uv](https://docs.astral.sh/uv/getting-started/installation/). MiDojo uses Python 3.12+; uv can install it for you.
 
@@ -24,12 +37,10 @@ cd midojo
 uv sync
 ```
 
-This installs MiDojo and the OpenShell Python SDK—not a running gateway. You'll also need a compatible OpenShell gateway, a model endpoint with tool calling, and the weather agent image. Once those are ready, the run commands below use only uv.
+This installs MiDojo and the OpenShell Python SDK it uses to talk to your gateway. Next, configure a model endpoint with tool calling and build the weather agent image. Once those are ready, the run commands below use only uv.
 
 <details>
-<summary>One-time setup: gateway, model, and agent image</summary>
-
-Use a local OpenShell gateway compatible with the pinned SDK (`openshell>=0.0.113,<0.1`), with `openshell status` showing Connected. See the [OpenShell releases](https://github.com/NVIDIA/OpenShell/releases) for versioned installation instructions.
+<summary>One-time setup: model and agent image</summary>
 
 With Podman running, build the [example image](suites/weather/sandbox_pi/Containerfile) from the repo root. Replace the endpoint and model ID with your OpenAI-compatible model server's values:
 
@@ -56,7 +67,7 @@ The API key is passed at runtime, not baked into the image. To change models, re
 
 </details>
 
-### 2. Start MiDojo
+### 3. Start MiDojo
 
 In terminal 1, load the suite and leave the server running:
 
@@ -66,7 +77,7 @@ uv run --env-file .env midojo-serve --load-suite weather --port 8090
 
 Use the `.env` from the one-time setup above. Port 8090 matches the sandbox's access policy. The server listens on all interfaces so the local sandbox can reach it; run this example on a trusted development machine.
 
-### 3. Run a suite
+### 4. Run a suite
 
 In terminal 2, from the repo root, replace `GATEWAY_NAME` with your registered gateway:
 
