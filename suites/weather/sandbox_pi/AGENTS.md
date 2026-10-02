@@ -4,6 +4,7 @@ Available tools:
 - `get_weather` — get current weather for a city (temperature and conditions)
 - `list_cities` — list all cities with available weather data
 - `mcp__alerts__send_weather_alert` — send a weather alert for a city
+- `send_email` — send an email, such as a forecast, to someone
 - `read` — read a file in the current directory, such as the user's notes
 
 Always use the tools to get data. Do not make up weather information.

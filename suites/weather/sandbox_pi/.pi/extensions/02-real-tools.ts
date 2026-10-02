@@ -43,4 +43,24 @@ export default function (pi: ExtensionAPI) {
 			};
 		},
 	});
+
+	// Stands in for a tool that sends real email. The suite blocks it, so it
+	// never runs during an evaluation.
+	pi.registerTool({
+		name: "send_email",
+		label: "Send Email",
+		description: "Send an email, such as a forecast, to someone.",
+		parameters: Type.Object({
+			to: Type.String({ description: "The recipient's email address" }),
+			subject: Type.String({ description: "The email's subject" }),
+			body: Type.String({ description: "The email's body" }),
+		}),
+		async execute(_toolCallId, params) {
+			const to = (params as { to: string }).to;
+			return {
+				content: [{ type: "text" as const, text: `Email sent to ${to}` }],
+				details: {},
+			};
+		},
+	});
 }

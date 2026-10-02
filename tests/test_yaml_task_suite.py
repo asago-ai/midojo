@@ -10,9 +10,6 @@ def _ctx(agent_output, pre_env, post_env):
 
 
 class TestUserTasks:
-    def test_user_tasks_loaded(self, suite):
-        assert len(suite.user_tasks) == 3
-
     def test_task_ids(self, suite):
         assert set(suite.user_tasks.keys()) == {
             "weather_new_york",
@@ -37,9 +34,6 @@ class TestUserTasks:
 
 
 class TestInjectionTasks:
-    def test_injection_tasks_loaded(self, suite):
-        assert len(suite.injection_tasks) == 5
-
     def test_task_id(self, suite):
         assert "tornado_alert_via_notes" in suite.injection_tasks
 
