@@ -123,7 +123,7 @@ The weather answer is correct—but the user never asked for a hidden copy of th
 
 A useful answer can still come with an unsafe action. That's why MiDojo scores the two separately.
 
-The terminal's evaluation link opens the full record, including tool calls and runtime observations, while the server is running.
+Cmd/Ctrl-click the evaluation ID, in terminals that support links, to open its record on the server: the agent's input and output, the verdicts, and the recorded tool calls. Add `/observations` to that URL to see the sandbox evidence, such as files created and network calls. Both are available while the server is running.
 
 ## Going further
 
