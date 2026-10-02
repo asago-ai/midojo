@@ -59,7 +59,7 @@ LITELLM_API_KEY=your-api-key
 
 The host and port allow the model connection through the sandbox's network policy and must match the image's endpoint. Leave the key empty for an unauthenticated server. For a model on the host, use `host.openshell.internal` instead of `localhost`, both in the image URL and the allowed host.
 
-The API key is passed at runtime, not baked into the image. To change models, rebuild with the new model/endpoint, update `.env` if needed, and restart MiDojo. For remote gateways, use a registry image and a control-plane address the sandbox can reach.
+The API key is passed at runtime, not baked into the image. To change models, rebuild with the new model/endpoint and update `.env` if needed; the next `midojo-run` uses them, with no server restart. For remote gateways, use a registry image and a control-plane address the sandbox can reach.
 
 </details>
 
@@ -205,8 +205,8 @@ MiDojo can test malicious prompts, poisoned data, and tampered tool responses. C
 | Start with… | Try… |
 | --- | --- |
 | An agent in an OpenShell sandbox | [Document assistant](suites/document_assistant/sandbox_pi/README.md): inject files; inspect file changes, processes, and network activity. |
-| An agent using MCP tools | [Minibank's MCP example](suites/minibank/a2a_agent/fake_mcp.py): put a MiDojo server in front of the agent's tools. |
-| A PI agent | [The weather suite's example agent](suites/weather/README.md#the-example-agent): modify tool results, record actions, block calls, or replace an MCP server. |
+| An agent using MCP tools | [The weather suite's fake MCP server](suites/weather/sandbox_pi/fake_mcp.py): put a MiDojo server in place of one of the agent's MCP servers. |
+| A PI agent | [The weather suite's example agent](suites/weather/README.md#the-example-agent): modify tool results, record actions, or block calls. |
 
 A suite's `agent_runtime` chooses **OpenShell** (a sandbox per evaluation) or **unmanaged** (experimental; connect to an agent outside MiDojo's sandbox lifecycle). The [session-forwarding example](suites/minibank/a2a_agent/agent.py) shows how to connect an external agent.
 
