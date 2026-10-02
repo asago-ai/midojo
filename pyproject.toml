@@ -2,6 +2,9 @@
 name = "midojo"
 version = "0.1.0"
 description = "Man-in-the-middle red teaming for AI agents"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">= 3.12"
 dependencies = [
     "pydantic>=2.7.1",
@@ -20,6 +23,11 @@ dependencies = [
     "protobuf>=6.31.1",
     "rich>=13.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/asago-ai/midojo"
+Repository = "https://github.com/asago-ai/midojo"
+Issues = "https://github.com/asago-ai/midojo/issues"
 
 [project.optional-dependencies]
 # Dependencies for running the bundled suites' example agents (a2a, ogx, ...).
@@ -47,11 +55,14 @@ minibank-real-mcp-serve = "suites.minibank.a2a_agent.real_mcp:main"
 minibank-a2a-agent = "suites.minibank.a2a_agent.agent:main"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/midojo", "suites"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src/midojo", "/suites", "/tests", "/pyproject.toml", "/README.md", "/LICENSE"]
 
 [tool.uv]
 managed = true
