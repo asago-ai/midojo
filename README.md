@@ -100,7 +100,7 @@ For [PI](https://pi.dev) coding agents. The agent already has its tools register
   - **Reporters** (`reportTools`) — records an existing tool's result without changing it. Used for PI's built-in `read` and `bash`, so an injection in a workspace file counts as reaching the agent.
   - Other tools run unmodified and unrecorded.
 
-The `Containerfile` builds the sandbox image on the [PI community sandbox](https://github.com/NVIDIA/OpenShell-Community/tree/main/sandboxes/pi), with the extensions, the PI SDK, the system prompt (`AGENTS.md`) and the model provider (`models.json`, `settings.json`) in PI's global agent directory. To red-team your own agent, replace `image` in `suite.yaml` with your agent's sandbox image.
+The `Containerfile` builds the sandbox image on the [PI community sandbox](https://github.com/NVIDIA/OpenShell-Community/tree/main/sandboxes/pi), upgraded to PI 1.0, with the extensions, the PI SDK, the system prompt (`AGENTS.md`) and the model provider (`models.json`, `settings.json`) in PI's global agent directory. To red-team your own agent, replace `image` in `suite.yaml` with your agent's sandbox image.
 
 ### MCP agents
 

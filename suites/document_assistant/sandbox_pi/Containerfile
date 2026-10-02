@@ -20,6 +20,9 @@ ARG LITELLM_API_URL=http://host.openshell.internal:8321/v1
 ARG LITELLM_MODEL=ollama/qwen3.5:2b
 
 USER root
+
+# The PI SDK targets PI 1.0, newer than the PI in the community image.
+RUN npm install -g @earendil-works/pi-coding-agent@1.0.0
 RUN mkdir -p /sandbox/.pi/agent
 COPY suites/document_assistant/sandbox_pi/models.json /sandbox/.pi/agent/models.json
 RUN sed -i -e "s|@LITELLM_API_URL@|${LITELLM_API_URL}|" -e "s|@LITELLM_MODEL@|${LITELLM_MODEL}|" \

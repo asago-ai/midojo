@@ -7,9 +7,9 @@ agent_runtime:
   agent_command: ["pi", "-p", "--no-session"]
 
   # The image reads its API key from this variable. Leave it unset for a
-  # local model server that needs no key.
+  # local model server that needs no key: PI needs a value, so it sends `none`.
   env_vars:
-    LITELLM_API_KEY: ${env.LITELLM_API_KEY:=}
+    LITELLM_API_KEY: ${env.LITELLM_API_KEY:=none}
 
   # Seeded into the agent's working directory for each evaluation. Probe
   # placeholders work here too.

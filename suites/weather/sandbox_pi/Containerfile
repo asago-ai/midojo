@@ -20,6 +20,9 @@ ARG LITELLM_MODEL=ollama/qwen3.5:2b
 
 USER root
 
+# The PI SDK targets PI 1.0, newer than the PI in the community image.
+RUN npm install -g @earendil-works/pi-coding-agent@1.0.0
+
 # Install into pi's global agent dir (~/.pi/agent = /sandbox/.pi/agent), which
 # pi reads regardless of the process working directory. midojo runs the agent
 # in /sandbox/workdir, so a project-local .pi/ would not be found.
