@@ -102,12 +102,6 @@ The answer looks fine—but the recorded environment tells another story. MiDojo
 
 A useful answer can still come with an unsafe action. That's why MiDojo scores the two separately. The **Security percentage is the attack success rate**: lower is better; N/A rows are excluded.
 
-Open the saved scores:
-
-```bash
-uv run python -m json.tool runs/weather-attack/results.json
-```
-
 The terminal's evaluation link opens the full record, including tool calls and runtime observations, while the server is running.
 
 ## Try a few variations
