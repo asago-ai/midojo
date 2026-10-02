@@ -16,6 +16,10 @@ class CreateFunctionCallRecord(BaseModel):
     args: dict
     result: str
     error: str | None = None
+    blocked: bool = Field(
+        default=False,
+        description="The tool never ran: the agent's call was blocked, and `result` is what the agent was told instead.",
+    )
 
 
 class FunctionCallResponse(CreateFunctionCallRecord):

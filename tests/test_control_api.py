@@ -230,14 +230,17 @@ def test_agent_function_calls_post_and_list(client):
         json={"function": "get_weather", "args": {"city": "New York"}, "result": "72°F"},
     )
     assert resp.status_code == 201
+    client.post(
+        "/agent/function-calls",
+        json={"function": "send_email", "args": {}, "result": "Tool execution was blocked", "blocked": True},
+    )
 
     listed = client.get("/agent/function-calls").json()
-    assert len(listed) == 1
-    assert listed[0]["function"] == "get_weather"
+    assert [(c["function"], c["blocked"]) for c in listed] == [("get_weather", False), ("send_email", True)]
 
-    # Same record should be visible via the nested URL.
+    # Same records should be visible via the nested URL.
     nested = client.get(f"/runs/{run_id}/evaluations/{eval_id}/function-calls").json()
-    assert len(nested) == 1
+    assert len(nested) == 2
 
 
 def test_create_evaluation_substitutes_prompt_probe_placeholder(client):
