@@ -1,6 +1,6 @@
 # MiDojo
 
-*Bring your agent. Put it to the test.*
+*Bring your agent. Put it to the test.* Inspired by [AgentDojo](https://github.com/ethz-spylab/agentdojo).
 
 Plant prompt injections in your agent’s prompts, files, or tool responses—then check what it actually does. MiDojo measures both **task completion** and **attack success** using answers, recorded tool calls, environment changes, and sandbox evidence.
 
@@ -197,4 +197,4 @@ A suite's `agent_runtime` chooses **OpenShell** (a sandbox per evaluation) or **
 - [Architecture](docs/architecture.svg) — the components behind a run.
 - [Contribute](AGENTS.md) — setup, tests, and project conventions.
 
-Inspired by [AgentDojo](https://github.com/ethz-spylab/agentdojo). Licensed under [Apache 2.0](LICENSE).
+Licensed under [Apache 2.0](LICENSE).
