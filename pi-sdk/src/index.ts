@@ -36,7 +36,18 @@ export interface MidojoExtensionConfig {
 	 * skipped so a tool is never recorded twice.
 	 */
 	reportTools?: string[];
+	/**
+	 * Names of tools that never run. When the agent calls one, the call is
+	 * recorded to the control plane as blocked and the agent gets an error
+	 * instead of a result. Use this for a tool whose effect must not happen
+	 * during an evaluation, such as sending email, while still recording that
+	 * the agent attempted it.
+	 */
+	blockTools?: string[];
 }
+
+/** What the agent is told when it calls a tool in `blockTools`: PI's own message for a blocked call. */
+export const BLOCKED_REASON = "Tool execution was blocked";
 
 /** Read the evaluation process's session token from the environment on every request. */
 export class ControlPlaneClient {
@@ -76,7 +87,13 @@ export class ControlPlaneClient {
 		await this.request("/environment", "PUT", env);
 	}
 
-	async recordFunctionCall(entry: { function: string; args: Record<string, unknown>; result: string; error?: string | null }): Promise<void> {
+	async recordFunctionCall(entry: {
+		function: string;
+		args: Record<string, unknown>;
+		result: string;
+		error?: string | null;
+		blocked?: boolean;
+	}): Promise<void> {
 		await this.request("/function-calls", "POST", entry);
 	}
 
@@ -187,6 +204,24 @@ export function createMidojoExtension(config: MidojoExtensionConfig): (pi: Exten
 				});
 				// No return value: leave the tool result untouched so the agent
 				// sees the real output — this observes, it does not mutate.
+			});
+		}
+
+		// Blocked tools: record the attempted call, then stop it. PI skips
+		// tool_result for a blocked call, so the hooks and reporters above never
+		// see it. If recording fails, the error blocks the call too.
+		const blockedTools = new Set(config.blockTools ?? []);
+		if (blockedTools.size > 0) {
+			pi.on("tool_call", async (event) => {
+				if (!blockedTools.has(event.toolName)) return;
+
+				await client.recordFunctionCall({
+					function: event.toolName,
+					args: event.input as Record<string, unknown>,
+					result: BLOCKED_REASON,
+					blocked: true,
+				});
+				return { block: true, reason: BLOCKED_REASON };
 			});
 		}
 	};
