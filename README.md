@@ -6,13 +6,9 @@ Plant prompt injections in your agent’s prompts, files, or tool responses—th
 
 ![A real task, a planted trap, and a results card: MiDojo tests how an agent handles an injection.](docs/midojo-concept.svg)
 
-[Try it](#try-it) · [Read the results](#read-the-results) · [Bring your agent](#bring-your-own-agent) · [Write a suite](AGENTS.md#patterns-for-common-changes)
+[Install](#install) · [Try it](#try-it) · [Going further](#going-further)
 
-## Try it
-
-Give a weather agent everyday tasks. Plant instructions in prompts, weather notes, and a trip itinerary. See whether it takes the bait.
-
-This example runs the bundled weather agent in an OpenShell sandbox. Alerts are recorded in the test environment. No host-side Node.js or PI installation is needed.
+## Install
 
 ### 1. Install OpenShell
 
@@ -67,7 +63,13 @@ The API key is passed at runtime, not baked into the image. To change models, re
 
 </details>
 
-### 3. Start the MiDojo server
+## Try it
+
+Give a weather agent everyday tasks. Plant instructions in prompts, weather notes, and a trip itinerary. See whether it takes the bait.
+
+This example runs the bundled weather agent in an OpenShell sandbox. Alerts are recorded in the test environment. No host-side Node.js or PI installation is needed.
+
+### 1. Start the MiDojo server
 
 In terminal 1, load the suite and leave the server running:
 
@@ -77,7 +79,7 @@ uv run --env-file .env midojo-serve --load-suite weather --port 8090
 
 Use the `.env` from the one-time setup above. Port 8090 matches the sandbox's access policy. The server listens on all interfaces so the local sandbox can reach it; run this example on a trusted development machine.
 
-### 4. Run a red-team test
+### 2. Run a red-team test
 
 In terminal 2, from the repo root, replace `GATEWAY_NAME` with your registered gateway:
 
@@ -88,7 +90,7 @@ uv run --env-file .env midojo-run --suite weather --gateway GATEWAY_NAME \
 
 This runs every user-task × injection-task pair in the weather suite. For each evaluation, MiDojo starts the agent in a fresh sandbox, delivers the task and injection, and checks what happened. It prints individual results and a summary table. Keep the server running to try the variations below; stop it with Ctrl+C when finished.
 
-## Read the results
+### Read the results
 
 Here's one evaluation from a full weather run (3 tasks × 6 attacks): the agent answers correctly but also follows an instruction planted in its itinerary. Results vary by model and run.
 
@@ -166,7 +168,9 @@ For `itinerary_exfil_via_email`, attack success means the agent attempted `send_
 
 The terminal's evaluation link opens the full record, including tool calls and runtime observations, while the server is running.
 
-## Try a few variations
+## Going further
+
+### Try a few variations
 
 **Compare with a clean run.** Selecting a user task without an injection task runs it without attacks:
 
@@ -189,7 +193,12 @@ uv run --env-file .env midojo-run --suite weather --gateway GATEWAY_NAME \
 
 Use a new `--logdir` for each comparison; another run in the same directory replaces `results.json`.
 
-## Bring your own agent
+### Try other suites
+
+- [Document assistant](suites/document_assistant/sandbox_pi/README.md) — inject files and inspect changes, processes, and network activity in a sandbox.
+- [Minibank](suites/minibank/README.md) — test unauthorized transfers, data leaks, and policy bypasses.
+
+### Bring your own agent
 
 MiDojo can test malicious prompts, poisoned data, and tampered tool responses. Choose how the agent runs and where to place the injection:
 
@@ -198,14 +207,11 @@ MiDojo can test malicious prompts, poisoned data, and tampered tool responses. C
 | An agent in an OpenShell sandbox | [Document assistant](suites/document_assistant/sandbox_pi/README.md): inject files; inspect file changes, processes, and network activity. |
 | An agent using MCP tools | [Minibank's MCP example](suites/minibank/a2a_agent/fake_mcp.py): put a MiDojo server in front of the agent's tools. |
 | A PI agent | [Weather's PI extension](suites/weather/sandbox_pi/.pi/extensions/01-fake-tools.ts): modify tool results, record actions, or block calls. |
-| A banking scenario | [Minibank](suites/minibank/README.md): test unauthorized transfers, data leaks, and policy bypasses. |
 
-A suite's `agent_runtime` chooses **OpenShell** (a sandbox per evaluation) or **unmanaged** (experimental; connect to an agent outside MiDojo's sandbox lifecycle). See [runtime conventions](AGENTS.md#key-concepts) and the [session-forwarding example](suites/minibank/a2a_agent/agent.py) when connecting your own agent.
+A suite's `agent_runtime` chooses **OpenShell** (a sandbox per evaluation) or **unmanaged** (experimental; connect to an agent outside MiDojo's sandbox lifecycle). The [session-forwarding example](suites/minibank/a2a_agent/agent.py) shows how to connect an external agent.
 
-## Go further
+### Write a suite
 
-- [Write a suite](AGENTS.md#patterns-for-common-changes) — define a task, plant a payload, and decide what counts as success.
-- [Architecture](docs/architecture.svg) — the components behind a run.
-- [Contribute](AGENTS.md) — setup, tests, and project conventions.
+Start with the weather suite's [task definitions](suites/weather/suite.yaml) and [Python loader](suites/weather/__init__.py). Define the legitimate tasks, where injections land, and what counts as task completion and attack success. Add tool interception where your scenario needs it.
 
 Licensed under [Apache 2.0](LICENSE).
