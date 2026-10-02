@@ -38,7 +38,7 @@ RUN sed -i -e "s|@LITELLM_API_URL@|${LITELLM_API_URL}|" -e "s|@LITELLM_MODEL@|${
 
 # The midojo pi-sdk's only imports are type-only, so pi's bundled jiti loads it
 # with no install step or runtime deps.
-COPY pi-sdk/ /sandbox/.pi/agent/pi-sdk/
+COPY interception/pi-sdk/ /sandbox/.pi/agent/pi-sdk/
 COPY suites/weather/sandbox_pi/.pi/extensions/ /sandbox/.pi/agent/extensions/
 
 # The fake alerts MCP server, built on midojo's MCP SDK. The suite's
