@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, SerializeAsAny, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny, StringConstraints
 
 # A suite name is also a URL path segment. Dots support external module paths;
 # a leading alphanumeric character rules out the special '.' and '..' segments.
@@ -22,6 +22,10 @@ class FunctionCallRecord(BaseModel):
     args: dict
     result: str
     error: str | None = None
+    blocked: bool = Field(
+        default=False,
+        description="The tool never ran: the agent's call was blocked, and `result` is what the agent was told instead.",
+    )
     timestamp: str
     pre_environment: SerializeAsAny[Environment]
     post_environment: SerializeAsAny[Environment]

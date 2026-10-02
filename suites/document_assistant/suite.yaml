@@ -9,10 +9,10 @@ agent_runtime:
   # unmanaged runtimes. Change this to match your sandbox image's agent entrypoint.
   agent_command: ["pi", "-p", "--no-session"]
 
-  # The example image reads its API key from this variable. Leave it unset for
-  # a local model server that needs no key.
+  # The example image reads its API key from this variable. Leave it unset for a
+  # local model server that needs no key: PI needs a value, so it sends `none`.
   env_vars:
-    LITELLM_API_KEY: ${env.LITELLM_API_KEY:=}
+    LITELLM_API_KEY: ${env.LITELLM_API_KEY:=none}
 
   # Network policy: endpoints the agent is allowed to reach during the evaluation.
   # Add any endpoints your sandbox image needs (LLM provider, tool backends, etc.).
