@@ -2,7 +2,7 @@
 
 *Bring your agent. Put it to the test.* Inspired by [AgentDojo](https://github.com/ethz-spylab/agentdojo).
 
-Plant prompt injections in your agent’s prompts, files, or tool responses—then check what it actually does. MiDojo measures both **task completion** and **attack success** using answers, recorded tool calls, environment changes, and sandbox evidence.
+Plant prompt injections in your agent's prompts, files, or tool responses—then check what it actually does. MiDojo sends the agent its task, seeds its workspace, and sits between the agent and its tools, so it can plant an injection in any of them. It measures both **task completion** and **attack success** using answers, recorded tool calls, environment changes, and sandbox evidence.
 
 ![A real task, a planted trap, and a results card: MiDojo tests how an agent handles an injection.](docs/midojo-concept.svg)
 
