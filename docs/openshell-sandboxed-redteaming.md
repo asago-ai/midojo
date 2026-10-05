@@ -1,6 +1,6 @@
 # MiDojo on OpenShell: Sandboxed Red-Teaming Design
 
-Last updated: 2026-10-01
+Last updated: 2026-10-05
 
 OpenShell is MiDojo's default agent runtime and the way we red-team agents, including customer agents in production-like settings. This doc covers the target design (grading, agent types, interception, evidence, scenarios) and the execution plan that gets us there through a stack of focused PRs. The [execution plan](#execution-plan) is the section to read first when picking up the work.
 
@@ -202,17 +202,18 @@ Containment regression is the cheapest high-value mode: it needs no model, runs 
 
 What `main` has today (after #147, #148, #151):
 
-- OpenShell is a required dependency, pinned to `openshell>=0.0.113,<0.1` because the team's OpenShift gateway runs 0.0.116.
-- `OpenShellRuntime` creates a workspace per run and a sandbox per evaluation, seeds `files`, runs the agent with `exec`, and records the workdir diff and parsed OCSF events as runtime observations.
-- The OpenShell predicates (`process_ran`, `commands_match_pattern`, `network_call_to`, `network_call_blocked_to`, `security_finding_raised`, workdir predicates) read `observations["openshell"]`.
+- OpenShell is a required dependency, pinned to `openshell>=0.1.2` since #157. MiDojo can't drive a 0.0.x gateway, so the team's OpenShift gateway (0.0.116) needs a 0.1.x upgrade before it can run MiDojo.
+- `OpenShellRuntime` creates a workspace per run and a sandbox per evaluation, addresses each sandbox by name within the workspace, seeds `files`, runs the agent with `exec`, and records the workdir diff and parsed OCSF events as runtime observations. It reads the logs behind a DNS-marker sync barrier.
+- The OpenShell predicates (`process_ran`, `commands_match_pattern`, `network_call_to`, `network_call_blocked_to`, `security_finding_raised`, workdir predicates) read `observations["openshell"]`. `process_ran` also counts network callers, because 0.1 emits no process events for `exec`.
 - Two SDK internals are used: `openshell._proto` (to build the `SandboxSpec`) and `client._stub.GetSandboxLogs` (the Python SDK has no logs API).
+- Both bundled `openshell` suites (weather, document_assistant) build their images on the OpenShell-Community pi image, which is now retired and unsupported.
 
-What the 0.1 migration spike found (branch `feat/openshell-0.1.0`, parked as a reference; its code is re-applied in the stack below, not merged):
+What the 0.1 migration spike found (branch `feat/openshell-0.1.0`, superseded by #157, which landed its fixes):
 
 - `main`'s runtime breaks on 0.1.x: `exec` requires a sandbox name and `workspace`, and the old logs request fields are removed. The logs failure is swallowed, so every OpenShell predicate would silently grade False.
 - The event and timing findings listed under Evidence.
 - With those fixed, the spike ran a scripted agent and a real pi agent end to end on 0.1.2: the attempted exfiltration was captured as blocked at the DNS and connect stage, attributed to `/usr/bin/bash`, and graded as an attack.
-- The published document_assistant image predates its reporting extension, and the bundled SDKs still call routes #135 removed (fixed by #138), so real-agent security rows show N/A until both land.
+- Real-agent security rows showed N/A until the session SDK (#138) and rebuilt images (#139) landed. On 0.1.2, #157's validation found injections reaching the agent in 9 of 18 weather and 4 of 4 document_assistant evaluations, matching #139's 0.0.x runs.
 
 ## Execution plan
 
@@ -235,12 +236,9 @@ What the 0.1 migration spike found (branch `feat/openshell-0.1.0`, parked as a r
 ### Milestones and the PR stack
 
 ```
-main ──► PR1 API upgrade ──► PR2 evidence correct ──┬─► M1 ═══► unblocks Claude Code hooks (#145) on OpenShell
-                                                    │
-#138 ──► #139 (suites) ─────────────────────────────┤   (document_assistant end to end)
-                                                    │
-                                                    ├─► M2: hardening PRs, in parallel with hooks and modes
-                                                    └─► M3: red-team modes
+main ──► #157: upgrade + evidence correct ──► M1 ✓ ═══► unblocks Claude Code hooks (#145) on OpenShell
+#138 ──► #139 (suites, session SDK) ──┘
+                                          └─► M2: hardening and red-team modes, in parallel, order flexible
 ```
 
 **M1: the OpenShell runtime works correctly on 0.1.2.** This is the only gate for other streams, and it is deliberately small.
@@ -250,20 +248,21 @@ main ──► PR1 API upgrade ──► PR2 evidence correct ──┬─► M1
 | 1. Upgrade to OpenShell 0.1.2 | Pin `openshell>=0.1.2`; `exec` by sandbox name and workspace; new logs request fields (`sandbox`, `workspace_scope`, `since_time`) | Scripted suite runs end to end on a 0.1.2 gateway |
 | 2. Evidence correct on 0.1.2 | Parser for 0.1 event formats (DNS refusals, caller-less HTTP); process evidence from network callers, so `process_ran` works without process events; log sync barrier; policy-generation interruptions kept separate from blocks; parser tests from captured 0.1.2 lines | Captured fixtures, plus scripted and real-agent runs with correct observations |
 
-M1 exit criterion: the scripted suite and one real agent run on a 0.1.2 gateway with correct runtime observations.
+M1 exit criterion: the scripted suite and one real agent run on a 0.1.2 gateway with correct runtime observations. **Done in #157**, which combined PR 1 and PR 2 so the examples worked at every merge. It validated the full weather and document_assistant suites on 0.1.2, and also updated the README install steps and dropped community-image name expansion.
 
-**M2: hardening.** Independent PRs, in parallel with stream C. Order is flexible; pull an item forward if stream C starts depending on it.
+**M2: hardening and red-team modes (#154).** Independent PRs, in parallel with stream C. Order is flexible; pull an item forward if stream C starts depending on it.
 
 - Snapshot integrity: no login shell for MiDojo's own commands, content hashes instead of the mtime baseline.
 - Four-outcome grading with Inconclusive; reachability exposure labels instead of N/A.
 - Session token delivered as an OpenShell provider credential; in-sandbox callbacks append-only (no `PUT /agent/environment`).
 - L7 predicates (request method and path to a host); sandbox readiness failures surfaced with their reason (e.g. `ConfigurationInvalid`).
 - Confine SDK internals to one module (`private_api.py`) with a guard test.
-- Drop community-image name expansion; rebuild the document_assistant image on the `node:24-bookworm-slim` pattern with a provider for model access (coordinated with #139, which owns the suite).
+- Move the example images off the retired OpenShell-Community pi base, following the `node:24-bookworm-slim` pattern of OpenShell's PI tutorial; the weather image also needs its own Python for the fake MCP server. Community-name expansion was dropped in #157.
 - Policy supplied as a YAML file in `openshell policy set` format; suite linting (providers only, `enforcement: enforce`, no broad binary globs, harness delta recorded).
-- Wait for the sandbox's policy generation to settle before launching the agent.
+- Wait for the sandbox's policy generation to settle before launching the agent (on 0.1.2, up to 7 connections per evaluation were cut early).
+- Unrecognized OCSF lines make an evaluation Inconclusive rather than a silent pass; switch to structured OCSF once [NVIDIA/OpenShell#4080](https://github.com/NVIDIA/OpenShell/issues/4080) lands.
 
-**M3: red-team modes.** Each mode is its own design-and-PR cycle, on top of M1 and the M2 pieces it needs.
+**Red-team modes** (tracked under M2 in #154). Each mode is its own design-and-PR cycle, on top of M1 and the hardening pieces it needs.
 
 - Service agents in a sandbox, with tier B (fake MCP) interception.
 - Claude Code harness hooks on OpenShell (stream C).
@@ -307,7 +306,7 @@ These go to the internal teams that work with upstream OpenShell. Each is phrase
 | --- | --- |
 | A public Python logs API: the equivalent of the Rust SDK's `watch_logs`, or a `SandboxClient.logs(...)` | The Python SDK (0.1.2) has no logs or watch method, so MiDojo reads sandbox security events through the client's private gRPC stub |
 | Public Python spec types, or policy and provider arguments on `SandboxClient.create` | `create` takes an `openshell_pb2.SandboxSpec` that is only importable from the private `openshell._proto` package; the Rust and Go SDKs expose the spec publicly |
-| Structured OCSF fields in `GetSandboxLogs` (or a JSONL retrieval API) | Pushed events arrive as shorthand text only, forcing regex parsing that drifts between releases |
+| Structured OCSF fields in `GetSandboxLogs`, filed as [NVIDIA/OpenShell#4080](https://github.com/NVIDIA/OpenShell/issues/4080) | Pushed events arrive as shorthand text only, forcing regex parsing that drifts between releases |
 | Sandbox identity (and labels) in the middleware request context | Needed to route injections and records to the right evaluation, and to run evaluations in parallel |
 | Middleware stage able to return a synthetic response, not only deny | Lets production-like runs intercept real writes safely |
 | Process events for commands launched through `exec` | Today only the main process emits them, and only to sandbox-side logs |
@@ -317,7 +316,7 @@ These go to the internal teams that work with upstream OpenShell. Each is phrase
 
 ## Open questions and spikes
 
-Spikes to run before the M3 modes that depend on them:
+Spikes to run before the red-team modes that depend on them:
 
 1. **Service agents in a sandbox.** An in-cluster orchestrator reaches an A2A agent inside a sandbox through service exposure, on a plain Kubernetes cluster (kind). Service routing may need wildcard DNS SANs or an ingress path; `ForwardTcp` is the fallback.
 2. **Middleware interception.** On a local gateway, starting from OpenShell's content-guard example: can a stage rewrite an MCP-over-HTTP tool result, and what request context (sandbox identity) does it receive?
@@ -325,7 +324,7 @@ Spikes to run before the M3 modes that depend on them:
 
 Open questions:
 
-- [x] Resolved: dev mini-agent images follow OpenShell's Pi tutorial pattern (`node:24-bookworm-slim`, agent from npm, model access through a provider) instead of the deprecated community `pi` image.
+- [x] Decided: dev mini-agent images follow OpenShell's Pi tutorial pattern (`node:24-bookworm-slim`, agent from npm, model access through a provider). The bundled images still use the retired community `pi` image until the M2 move.
 - [x] Resolved: `host.openshell.internal` works on Podman Machine for both the model endpoint and the control plane, despite the supervisor's non-link-local warning.
 - [ ] For the Claude Code plugin: headless loading, settings precedence, and which hook outputs can replace built-in tool results.
 - [ ] Should production-like runs block real writes in middleware, or require test backends for every tool?
