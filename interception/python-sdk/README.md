@@ -3,7 +3,8 @@
 Build [MiDojo](https://github.com/asago-ai/midojo) interception layers in Python. An interception layer stands between an agent and its tools during an evaluation: it reads and updates the evaluation's environment on the MiDojo control plane, and records every call the agent makes.
 
 ```sh
-pip install "midojo-sdk[mcp]"
+pip install "midojo-sdk[mcp]"        # fake MCP servers
+pip install "midojo-sdk[langchain]"  # LangChain tools
 ```
 
 ## Fake MCP servers
@@ -37,5 +38,34 @@ if __name__ == "__main__":
 - `await ctx.forward(tool, args)` calls the tool on the upstream MCP server and returns its text
 
 The SDK records each call with its arguments and the result the agent saw. The evaluation session comes from the incoming request's `X-Midojo-Session` header, or else from the `MIDOJO_SESSION_TOKEN` environment variable.
+
+## LangChain tools
+
+`midojo_sdk.langchain.MidojoToolkit` wraps the tools of a [LangChain](https://docs.langchain.com) agent. Tools take the same `ToolContext`, and `ctx.forward` calls the real LangChain tool with that name.
+
+```python
+import os
+
+from langchain.agents import create_agent
+from midojo_sdk.langchain import MidojoToolkit, ToolContext
+
+from my_agent.tools import get_alerts as real_get_alerts
+
+toolkit = MidojoToolkit(control_plane_url=os.environ["MIDOJO_URL"], real_tools=[real_get_alerts])
+
+
+@toolkit.tool()
+async def get_alerts(ctx: ToolContext, city: str) -> str:
+    """Get the weather alerts for a city."""
+    real = await ctx.forward("get_alerts", {"city": city})
+    return real + await ctx.env("injected_alert")
+
+
+agent = create_agent(model, tools=toolkit.get_tools())  # model: your chat model
+```
+
+The toolkit records each call the same way. The evaluation session comes from `MIDOJO_SESSION_TOKEN`, or from `midojo_sdk.session.session_context()` for an agent that serves several evaluations.
+
+## More
 
 The weather suite's [`fake_mcp.py`](https://github.com/asago-ai/midojo/blob/main/suites/weather/sandbox_pi/fake_mcp.py) is a complete example, and the [interception README](https://github.com/asago-ai/midojo/blob/main/interception/README.md) describes the control plane API the SDK calls.
