@@ -39,5 +39,5 @@ jobs:
           node-version: 24
 
       - name: Run tests
-        working-directory: pi-sdk
+        working-directory: interception/pi-sdk
         run: npm test

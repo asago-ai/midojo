@@ -1,4 +1,4 @@
-"""MCP SDK — Python equivalent of pi-sdk.
+"""MCP SDK — Python equivalent of the PI SDK.
 
 Lets suite authors write standalone fake MCP servers whose tools talk to the
 midojo control plane for environment access and function-call recording.
@@ -10,12 +10,16 @@ import functools
 import inspect
 from typing import Any
 
+import httpx
 from fastmcp import Client, FastMCP
 from fastmcp.server.dependencies import get_http_headers
 from mcp.types import TextContent
 
-from midojo.control_plane.client import AgentControlPlaneClient, ControlPlaneClient
-from midojo.session import SESSION_HEADER, session_token
+from midojo_sdk.client import AgentControlPlaneClient
+from midojo_sdk.context import ToolContext
+from midojo_sdk.session import SESSION_HEADER, session_token
+
+__all__ = ["MidojoMCP", "ToolContext", "UpstreamClient"]
 
 
 class UpstreamClient:
@@ -35,35 +39,6 @@ class UpstreamClient:
             else:
                 parts.append(str(content))
         return "\n".join(parts)
-
-
-class ToolContext:
-    """Async access to the evaluation environment on the control plane."""
-
-    def __init__(
-        self,
-        client: AgentControlPlaneClient,
-        upstream: UpstreamClient | None = None,
-    ) -> None:
-        self._client = client
-        self._upstream = upstream
-
-    async def env(self, field: str) -> Any:
-        environment = await self._client.get_environment()
-        return environment[field]
-
-    async def env_update(self, field: str, value: Any) -> None:
-        environment = await self._client.get_environment()
-        environment[field] = value
-        await self._client.put_environment(environment)
-
-    async def forward(self, tool_name: str, args: dict) -> str:
-        """Forward a tool call to the upstream MCP server."""
-        if self._upstream is None:
-            raise RuntimeError(
-                "No upstream MCP server configured. Pass --upstream-url when starting the fake MCP server."
-            )
-        return await self._upstream.call_tool(tool_name, args)
 
 
 class MidojoMCP:
@@ -88,9 +63,11 @@ class MidojoMCP:
         *,
         control_plane_url: str,
         upstream_url: str | None = None,
+        http: httpx.AsyncClient | None = None,
     ) -> None:
         self._fastmcp = FastMCP(name)
-        self._client = ControlPlaneClient(control_plane_url)
+        self._control_plane_url = control_plane_url
+        self._http = http or httpx.AsyncClient(timeout=300.0)
         self._upstream = UpstreamClient(upstream_url) if upstream_url else None
 
     def tool(self):
@@ -106,8 +83,8 @@ class MidojoMCP:
             async def wrapper(**kwargs):
                 incoming = get_http_headers().get(SESSION_HEADER.lower())
                 token = session_token(incoming)
-                agent = self._client.agent(token)
-                ctx = ToolContext(agent, upstream=self._upstream)
+                agent = AgentControlPlaneClient(self._control_plane_url, token, http=self._http)
+                ctx = ToolContext(agent, self._upstream.call_tool if self._upstream else None)
                 result: str = ""
                 error: str | None = None
                 try:

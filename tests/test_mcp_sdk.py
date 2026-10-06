@@ -2,10 +2,10 @@
 
 import asyncio
 
+import httpx
 import pytest
-
-from midojo.control_plane.client import ControlPlaneClient
-from midojo.mcp_sdk import MidojoMCP, ToolContext
+from midojo_sdk.client import AgentControlPlaneClient
+from midojo_sdk.mcp import MidojoMCP, ToolContext
 
 
 def test_midojo_mcp_tool_registration():
@@ -37,6 +37,7 @@ def test_midojo_mcp_tool_requires_ctx():
 
 @pytest.mark.asyncio
 async def test_tool_context_forward_raises_without_upstream():
-    ctx = ToolContext(ControlPlaneClient("http://localhost:9999").agent("unused"))
-    with pytest.raises(RuntimeError, match="No upstream MCP server configured"):
-        await ctx.forward("get_weather", {"city": "New York"})
+    async with httpx.AsyncClient() as http:
+        ctx = ToolContext(AgentControlPlaneClient("http://localhost:9999", "unused", http=http))
+        with pytest.raises(RuntimeError, match="no upstream is configured"):
+            await ctx.forward("get_weather", {"city": "New York"})

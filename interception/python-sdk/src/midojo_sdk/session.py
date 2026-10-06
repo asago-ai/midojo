@@ -6,8 +6,10 @@ import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
+from typing import TYPE_CHECKING
 
-from starlette.types import ASGIApp, Receive, Scope, Send
+if TYPE_CHECKING:
+    from starlette.types import ASGIApp, Receive, Scope, Send
 
 SESSION_HEADER = "X-Midojo-Session"
 _session_token: ContextVar[str | None] = ContextVar("midojo_session_token", default=None)

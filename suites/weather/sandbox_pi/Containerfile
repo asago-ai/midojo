@@ -38,14 +38,13 @@ RUN sed -i -e "s|@LITELLM_API_URL@|${LITELLM_API_URL}|" -e "s|@LITELLM_MODEL@|${
 
 # The midojo pi-sdk's only imports are type-only, so pi's bundled jiti loads it
 # with no install step or runtime deps.
-COPY pi-sdk/ /sandbox/.pi/agent/pi-sdk/
+COPY interception/pi-sdk/ /sandbox/.pi/agent/pi-sdk/
 COPY suites/weather/sandbox_pi/.pi/extensions/ /sandbox/.pi/agent/extensions/
 
 # The fake alerts MCP server, built on midojo's MCP SDK. The suite's
 # agent_command starts it with with-fake-mcp.sh before running PI.
-COPY pyproject.toml README.md /tmp/midojo/
-COPY src/ /tmp/midojo/src/
-RUN uv pip install --no-cache --python /sandbox/.venv/bin/python3 /tmp/midojo && rm -rf /tmp/midojo
+COPY interception/python-sdk/ /tmp/midojo-sdk/
+RUN uv pip install --no-cache --python /sandbox/.venv/bin/python3 "/tmp/midojo-sdk[mcp]" && rm -rf /tmp/midojo-sdk
 COPY suites/weather/sandbox_pi/fake_mcp.py suites/weather/sandbox_pi/with-fake-mcp.sh /sandbox/midojo/
 
 RUN chown -R sandbox:sandbox /sandbox/.pi /sandbox/midojo

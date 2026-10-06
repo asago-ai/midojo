@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import httpx
 from pydantic import BaseModel
 
@@ -11,7 +9,7 @@ from midojo.control_plane.models import CreateEvaluationResponse, CreateRunRespo
 
 
 class ControlPlaneClient:
-    """Access orchestrator and interception endpoints on one control plane."""
+    """Access orchestrator endpoints on one control plane."""
 
     def __init__(self, base_url: str, *, http: httpx.AsyncClient | None = None) -> None:
         self._base_url = base_url.rstrip("/")
@@ -76,34 +74,4 @@ class ControlPlaneClient:
 
     async def revoke_session(self, run_id: str, eval_id: str) -> None:
         response = await self._http.delete(f"{self._base_url}/runs/{run_id}/evaluations/{eval_id}/session")
-        response.raise_for_status()
-
-    def agent(self, session_token: str) -> AgentControlPlaneClient:
-        """Access interception endpoints for one evaluation session."""
-        return AgentControlPlaneClient(self._base_url, self._http, session_token)
-
-
-class AgentControlPlaneClient:
-    """Access interception endpoints for one evaluation session."""
-
-    def __init__(self, base_url: str, http: httpx.AsyncClient, session_token: str) -> None:
-        self._base_url = base_url
-        self._http = http
-        self._headers = {"Authorization": f"Bearer {session_token}"}
-
-    async def get_environment(self) -> dict[str, Any]:
-        response = await self._http.get(f"{self._base_url}/agent/environment", headers=self._headers)
-        response.raise_for_status()
-        return response.json()
-
-    async def put_environment(self, environment: dict[str, Any]) -> None:
-        response = await self._http.put(f"{self._base_url}/agent/environment", json=environment, headers=self._headers)
-        response.raise_for_status()
-
-    async def record_function_call(self, *, function: str, args: dict, result: str, error: str | None = None) -> None:
-        response = await self._http.post(
-            f"{self._base_url}/agent/function-calls",
-            headers=self._headers,
-            json={"function": function, "args": args, "result": result, "error": error},
-        )
         response.raise_for_status()

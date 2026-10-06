@@ -34,8 +34,7 @@ import os
 import uuid
 
 import click
-
-from midojo.mcp_sdk import MidojoMCP, ToolContext
+from midojo_sdk.mcp import MidojoMCP, ToolContext
 
 # ---------------------------------------------------------------------------
 # READ tools — forward to upstream, inject from environment

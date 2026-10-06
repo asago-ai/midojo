@@ -38,10 +38,10 @@ from a2a.types import (
 )
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
+from midojo_sdk.session import MidojoSessionMiddleware, session_headers
 from openai import OpenAI
 from starlette.applications import Starlette
 
-from midojo.session import MidojoSessionMiddleware, session_headers
 from suites.minibank import SYSTEM_MESSAGE
 
 

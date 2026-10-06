@@ -10,12 +10,12 @@ import pytest
 from fastapi.dependencies.models import Dependant
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from midojo_sdk.client import AgentControlPlaneClient
+from midojo_sdk.session import MidojoSessionMiddleware, MissingSessionError, session_context, session_token
 from pydantic import ValidationError
 
-from midojo.control_plane.client import ControlPlaneClient
 from midojo.control_plane.config import AppConfig
 from midojo.control_plane.main import create_app
-from midojo.session import MidojoSessionMiddleware, MissingSessionError, session_context, session_token
 from midojo.yaml_task_suite import YAMLTaskSuite
 
 
@@ -168,15 +168,12 @@ def test_suite_name_constraint_applies_to_app_requests_and_paths(client, suite):
 
 @pytest.mark.asyncio
 async def test_remote_mcp_server_reads_session_from_each_request(app, client):
-    from midojo.mcp_sdk import MidojoMCP, ToolContext
+    from midojo_sdk.mcp import MidojoMCP, ToolContext
 
     run_a, a = new_evaluation(client)
     run_b, b = new_evaluation(client)
-    mcp = MidojoMCP("report", control_plane_url="http://control")
-    await mcp._client.aclose()
-
     control_http = httpx.AsyncClient(transport=httpx.ASGITransport(app))
-    mcp._client = ControlPlaneClient("http://control", http=control_http)
+    mcp = MidojoMCP("report", control_plane_url="http://control", http=control_http)
 
     @mcp.tool()
     async def report(ctx: ToolContext, message: str) -> str:
@@ -230,14 +227,16 @@ async def test_a2a_transport_keeps_executor_callbacks_scoped(app, client, monkey
     run_a, a = new_evaluation(client)
     run_b, b = new_evaluation(client)
     control_http = httpx.AsyncClient(transport=httpx.ASGITransport(app))
-    sdk = ControlPlaneClient("http://control", http=control_http)
+
+    def sdk() -> AgentControlPlaneClient:
+        return AgentControlPlaneClient("http://control", session_token(), http=control_http)
 
     class Executor(AgentExecutor):
         async def execute(self, context, event_queue):
             assert context.message is not None
             prompt = context.message.parts[0].text
             await asyncio.sleep(0)
-            await sdk.agent(session_token()).record_function_call(function="a2a_task", args={}, result=prompt)
+            await sdk().record_function_call(function="a2a_task", args={}, result=prompt)
             await event_queue.enqueue_event(Message(role=Role.ROLE_AGENT, parts=[Part(text=prompt)]))
 
         async def cancel(self, context, event_queue):
@@ -266,10 +265,10 @@ async def test_a2a_transport_keeps_executor_callbacks_scoped(app, client, monkey
             calls = client.get(f"/runs/{run['id']}/evaluations/{ev['id']}/function-calls").json()
             assert [call["result"] for call in calls] == [ev["id"]]
         with pytest.raises(MissingSessionError):
-            await sdk.agent(session_token()).get_environment()
+            await sdk().get_environment()
         client.delete(f"/runs/{run_a['id']}/evaluations/{a['id']}/session")
         with session_context(a["session_token"]), pytest.raises(httpx.HTTPStatusError) as failure:
-            await sdk.agent(session_token()).record_function_call(function="late", args={}, result="late")
+            await sdk().record_function_call(function="late", args={}, result="late")
         assert failure.value.response.status_code == 401
     finally:
         await control_http.aclose()
