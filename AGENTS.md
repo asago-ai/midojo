@@ -22,7 +22,7 @@ uv run pyright src/midojo/serve.py                    # type check single file
 
 ## Architecture
 
-The control plane (`src/midojo/app/`) is a FastAPI server. The orchestrator (`src/midojo/orchestrator.py`) drives benchmark runs via CLI. Suites define the scenarios; the attack library wraps payloads; verifiers check outcomes.
+The control plane (`src/midojo/control_plane/`) is a FastAPI server. The orchestrator (`src/midojo/orchestrator.py`) drives benchmark runs via CLI. Suites define the scenarios; the attack library wraps payloads; verifiers check outcomes.
 
 ```mermaid
 graph LR

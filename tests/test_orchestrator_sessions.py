@@ -11,7 +11,7 @@ from openshell import SandboxClient, WorkspaceClient
 from pydantic import BaseModel
 
 from midojo.agent_client import AgentClient, PIAgentClient, SimpleHTTPAgentClient
-from midojo.control_plane_client import ControlPlaneClient
+from midojo.control_plane.client import ControlPlaneClient
 from midojo.orchestrator import run_benchmark, run_task
 from midojo.runtimes import UnmanagedRuntime
 from midojo.runtimes.openshell import OpenShellObservations, OpenShellRuntime

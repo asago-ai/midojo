@@ -2,7 +2,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from midojo.app.state import Evaluation
+from midojo.control_plane.state import Evaluation
 from midojo.runtimes.openshell import OpenShellObservations
 
 

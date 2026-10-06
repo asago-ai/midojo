@@ -2,7 +2,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from midojo.app.main import create_app
+from midojo.control_plane.main import create_app
 from midojo.suites import get_suite
 
 task_suite = get_suite("weather")

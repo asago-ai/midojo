@@ -3,8 +3,8 @@ from __future__ import annotations
 import click
 import uvicorn
 
-from midojo.app.config import AppConfig
-from midojo.app.main import create_app
+from midojo.control_plane.config import AppConfig
+from midojo.control_plane.main import create_app
 from midojo.suites import get_suite
 
 

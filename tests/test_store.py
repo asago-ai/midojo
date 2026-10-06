@@ -6,8 +6,8 @@ import re
 
 import pytest
 
-from midojo.app.models import CreateFunctionCallRecord
-from midojo.app.store import InMemoryStore
+from midojo.control_plane.models import CreateFunctionCallRecord
+from midojo.control_plane.store import InMemoryStore
 from midojo.types import Environment
 
 
@@ -86,7 +86,7 @@ def test_evaluation_id_collision_preserves_existing_records_and_sessions(store, 
     next_run = store.create_run("other_suite")
     new_id = "0000000000" if first.id != "0000000000" else "1111111111"
     candidates = iter([first.id, first.id, new_id])
-    monkeypatch.setattr("midojo.app.store.secrets.token_hex", lambda n: next(candidates))
+    monkeypatch.setattr("midojo.control_plane.store.secrets.token_hex", lambda n: next(candidates))
 
     second = _make_eval(store, next_run.id, agent_input="second")
 
