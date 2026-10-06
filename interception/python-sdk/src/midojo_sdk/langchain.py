@@ -1,235 +1,168 @@
-"""LangChain SDK — intercepts the tools of a LangChain agent.
+"""LangChain SDK — intercepts the tool calls of a LangChain agent.
 
-Lets suite authors wrap a LangChain agent's tools so they talk to the midojo
-control plane for environment access and function-call recording, the same way
-``midojo_sdk.mcp`` does for an MCP server.
+Lets suite authors hook, block and report the tools of a LangChain agent, with
+access to the midojo control plane, the same way ``@midojo/pi-sdk`` does for a
+PI agent.
 """
 
 from __future__ import annotations
 
-import functools
-import inspect
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import httpx
-from langchain_core.messages import ToolCall, ToolMessage
-from langchain_core.runnables import RunnableConfig
-from langchain_core.tools import BaseTool, StructuredTool, ToolException
+from langchain.agents.middleware import AgentMiddleware, ToolCallRequest
+from langchain_core.messages import ToolMessage
+from langgraph.errors import GraphBubbleUp
+from langgraph.types import Command
 
 from midojo_sdk.client import AgentControlPlaneClient
 from midojo_sdk.context import ToolContext
 from midojo_sdk.session import session_token
 
-__all__ = ["BLOCKED_REASON", "MidojoToolkit", "ToolContext"]
+__all__ = ["BLOCKED_REASON", "MidojoMiddleware", "ToolContext"]
 
 BLOCKED_REASON = "Tool execution was blocked"
 """What the agent is told when it calls a blocked tool, the same as with the PI SDK."""
 
+Hook = Callable[[ToolContext, dict[str, Any], str], Awaitable[str]]
+Handler = Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]]
+_Intercept = Callable[[ToolCallRequest, Handler], Awaitable[ToolMessage | Command]]
 
-class MidojoToolkit:
-    """Builds LangChain tools with control plane wiring.
+
+class MidojoMiddleware(AgentMiddleware):
+    """Intercepts an agent's tool calls by tool name, with control plane wiring.
 
     Usage::
 
-        toolkit = MidojoToolkit(control_plane_url=...)
+        midojo = MidojoMiddleware(control_plane_url=...)
 
-        @toolkit.hook(get_weather)
+        @midojo.hook("get_weather")
         async def inject_note(ctx: ToolContext, args: dict[str, Any], real_result: str) -> str:
             return real_result + await ctx.env("injected_note")
 
-        toolkit.block(send_email)
-        toolkit.report(read_file)
+        midojo.block("send_email")
+        midojo.report("read_file")
 
-        agent = create_agent(model, tools=toolkit.get_tools())
+        agent = create_agent(model, tools=[get_weather, send_email, read_file], middleware=[midojo])
 
-    ``hook``, ``block`` and ``report`` keep a real tool's name, description and
-    arguments, so the agent sees the same tool as without midojo. ``tool``
-    defines a tool from its function instead, for a tool with no real
-    counterpart: its ``ctx: ToolContext`` first parameter is injected by the
-    SDK and stripped from the arguments the agent sees, and ``ctx.forward``
-    calls the real tool of that name from ``real_tools``. When a tool raises,
-    the call is recorded with its error and the agent gets the error message
-    as the tool's result, so the agent run goes on.
+    The agent keeps its real tools, so it sees the same tool names,
+    descriptions and arguments as without midojo. Tools that aren't hooked,
+    blocked or reported run as usual and aren't recorded. For a LangGraph
+    ``ToolNode``, pass ``awrap_tool_call=midojo.awrap_tool_call`` instead.
+
+    Interception is asynchronous, so run the agent with ``ainvoke`` or
+    ``astream``.
     """
 
-    def __init__(
-        self,
-        *,
-        control_plane_url: str,
-        real_tools: Sequence[BaseTool] = (),
-        http: httpx.AsyncClient | None = None,
-    ) -> None:
+    def __init__(self, *, control_plane_url: str, http: httpx.AsyncClient | None = None) -> None:
+        super().__init__()
         self._control_plane_url = control_plane_url
         self._http = http or httpx.AsyncClient(timeout=300.0)
-        self._real_tools = {tool.name: tool for tool in real_tools}
-        self._tools: list[BaseTool] = []
+        self._intercepts: dict[str, _Intercept] = {}
 
-    def _agent(self) -> AgentControlPlaneClient:
-        return AgentControlPlaneClient(self._control_plane_url, session_token(), http=self._http)
-
-    def _add(self, tool: BaseTool) -> None:
-        if any(existing.name == tool.name for existing in self._tools):
-            raise ValueError(f"The toolkit already has a tool named {tool.name}.")
-        self._tools.append(tool)
-
-    async def _forward(self, tool_name: str, args: dict[str, Any]) -> str:
-        real_tool = self._real_tools.get(tool_name)
-        if real_tool is None:
-            raise RuntimeError(f"Cannot forward {tool_name}: no real tool has that name.")
-        return str(await real_tool.ainvoke(args))
-
-    def tool(self):
-        def decorator(fn):
-            sig = inspect.signature(fn, eval_str=True)
-            params = list(sig.parameters.values())
-            if not params or params[0].annotation is not ToolContext:
-                raise TypeError(f"First parameter of {fn.__name__} must be annotated as ToolContext")
-            user_params = params[1:]
-            user_sig = sig.replace(parameters=user_params)
-
-            @functools.wraps(fn)
-            async def wrapper(**kwargs):
-                agent = self._agent()
-                ctx = ToolContext(agent, self._forward if self._real_tools else None)
-                result: str = ""
-                error: str | None = None
-                try:
-                    result = await fn(ctx, **kwargs)
-                except Exception as e:
-                    error = str(e)
-                    result = error
-                    raise ToolException(error) from e
-                finally:
-                    await agent.record_function_call(
-                        function=fn.__name__,
-                        args=kwargs,
-                        result=result,
-                        error=error,
-                    )
-                return result
-
-            setattr(wrapper, "__signature__", user_sig)
-            wrapper.__annotations__ = {
-                p.name: p.annotation for p in user_params if p.annotation is not inspect.Parameter.empty
-            }
-
-            self._add(StructuredTool.from_function(coroutine=wrapper, name=fn.__name__, handle_tool_error=True))
-            return fn
-
-        return decorator
-
-    def hook(self, real_tool: BaseTool):
-        """Rewrite what ``real_tool`` returns to the agent.
+    def hook(self, tool_name: str) -> Callable[[Hook], Hook]:
+        """Rewrite what the tool named ``tool_name`` returns to the agent.
 
         The decorated function takes ``(ctx, args, real_result)``: the real tool
         runs first, and the function's return value is what the agent gets. The
-        agent sees ``real_tool``'s name, description and arguments, and the call
-        is recorded with the rewritten result.
+        call is recorded with the rewritten result. When the function raises,
+        the call is recorded with its error and the agent gets the error message
+        as an error result, so the agent run goes on.
         """
 
-        def decorator(fn: Callable[[ToolContext, dict[str, Any], str], Awaitable[str]]):
-            async def hooked(**kwargs: Any) -> str:
+        def decorator(fn: Hook) -> Hook:
+            async def intercept(request: ToolCallRequest, handler: Handler) -> ToolMessage | Command:
                 agent = self._agent()
-                ctx = ToolContext(agent, self._forward if self._real_tools else None)
-                result = ""
-                error: str | None = None
+                args = request.tool_call["args"]
+                output = await _run(agent, request, handler)
+                if not isinstance(output, ToolMessage):
+                    raise TypeError(f"Cannot hook {tool_name}: it returned a {type(output).__name__}, not a message.")
                 try:
-                    real_result = str(await real_tool.ainvoke(kwargs))
-                    result = await fn(ctx, kwargs, real_result)
+                    result = await fn(ToolContext(agent), args, output.text)
                 except Exception as e:
-                    error = str(e)
-                    result = error
-                    raise ToolException(error) from e
-                finally:
-                    await agent.record_function_call(function=real_tool.name, args=kwargs, result=result, error=error)
-                return result
+                    await agent.record_function_call(function=tool_name, args=args, result=str(e), error=str(e))
+                    return _error(request, str(e))
+                await agent.record_function_call(function=tool_name, args=args, result=result)
+                return output.model_copy(update={"content": result})
 
-            self._add(_like(real_tool, hooked, handle_tool_error=True))
+            self._add(tool_name, intercept)
             return fn
 
         return decorator
 
-    def block(self, *tools: BaseTool) -> None:
-        """Block ``tools``: the agent still sees them, but they never run.
+    def block(self, *tool_names: str) -> None:
+        """Block the tools named ``tool_names``: the agent still sees them, but they never run.
 
         When the agent calls a blocked tool, the call is recorded as blocked and
         the agent gets ``BLOCKED_REASON`` as an error result. Use this for a
         tool whose effect must not happen during an evaluation, such as sending
         email, while still recording that the agent attempted it.
         """
-        for real_tool in tools:
-            self._add(self._blocked(real_tool))
 
-    def _blocked(self, real_tool: BaseTool) -> BaseTool:
-        async def blocked(**kwargs: Any) -> str:
+        async def intercept(request: ToolCallRequest, handler: Handler) -> ToolMessage:
             await self._agent().record_function_call(
-                function=real_tool.name, args=kwargs, result=BLOCKED_REASON, blocked=True
+                function=request.tool_call["name"],
+                args=request.tool_call["args"],
+                result=BLOCKED_REASON,
+                blocked=True,
             )
-            raise ToolException(BLOCKED_REASON)
+            return _error(request, BLOCKED_REASON)
 
-        return _like(real_tool, blocked, handle_tool_error=True)
+        for tool_name in tool_names:
+            self._add(tool_name, intercept)
 
-    def report(self, *tools: BaseTool) -> None:
-        """Record every call to ``tools`` without changing what the agent sees.
+    def report(self, *tool_names: str) -> None:
+        """Record every call to the tools named ``tool_names`` without changing what the agent sees.
 
         Each tool runs as before and the agent gets its real output, while the
         call and its result are recorded on the control plane. Use this to make
         a tool's result, such as a file read, visible to midojo without
         perturbing the agent.
         """
-        for real_tool in tools:
-            self._add(_ReportedTool(real_tool, self._agent))
 
-    def get_tools(self) -> list[BaseTool]:
-        """Return the intercepted tools, to pass to a LangChain agent."""
-        return list(self._tools)
+        async def intercept(request: ToolCallRequest, handler: Handler) -> ToolMessage | Command:
+            agent = self._agent()
+            output = await _run(agent, request, handler)
+            result = output.text if isinstance(output, ToolMessage) else str(output)
+            error = result if isinstance(output, ToolMessage) and output.status == "error" else None
+            await agent.record_function_call(
+                function=request.tool_call["name"], args=request.tool_call["args"], result=result, error=error
+            )
+            return output
+
+        for tool_name in tool_names:
+            self._add(tool_name, intercept)
+
+    async def awrap_tool_call(self, request: ToolCallRequest, handler: Handler) -> ToolMessage | Command:
+        intercept = self._intercepts.get(request.tool_call["name"])
+        if intercept is None:
+            return await handler(request)
+        return await intercept(request, handler)
+
+    def _add(self, tool_name: str, intercept: _Intercept) -> None:
+        if tool_name in self._intercepts:
+            raise ValueError(f"{tool_name} is already intercepted.")
+        self._intercepts[tool_name] = intercept
+
+    def _agent(self) -> AgentControlPlaneClient:
+        return AgentControlPlaneClient(self._control_plane_url, session_token(), http=self._http)
 
 
-def _like(real_tool: BaseTool, coroutine: Any, **kwargs: Any) -> StructuredTool:
-    """Build a tool that the agent sees as ``real_tool``, running ``coroutine`` instead."""
-    args_schema = real_tool.args_schema if real_tool.args_schema is not None else real_tool.get_input_schema()
-    return StructuredTool(
-        name=real_tool.name,
-        description=real_tool.description,
-        args_schema=args_schema,
-        coroutine=coroutine,
-        return_direct=real_tool.return_direct,
-        **kwargs,
-    )
-
-
-class _ReportedTool(BaseTool):
-    """Runs a real tool unchanged and records each call with its result."""
-
-    _real_tool: BaseTool
-    _new_agent: Callable[[], AgentControlPlaneClient]
-
-    def __init__(self, real_tool: BaseTool, new_agent: Callable[[], AgentControlPlaneClient]) -> None:
-        super().__init__(
-            name=real_tool.name,
-            description=real_tool.description,
-            args_schema=real_tool.args_schema,
-            return_direct=real_tool.return_direct,
+async def _run(agent: AgentControlPlaneClient, request: ToolCallRequest, handler: Handler) -> ToolMessage | Command:
+    """Run the real tool, recording the call if it raises."""
+    try:
+        return await handler(request)
+    except GraphBubbleUp:
+        raise
+    except Exception as e:
+        await agent.record_function_call(
+            function=request.tool_call["name"], args=request.tool_call["args"], result=str(e), error=str(e)
         )
-        self._real_tool = real_tool
-        self._new_agent = new_agent
+        raise
 
-    def _run(self, *args: Any, **kwargs: Any) -> Any:
-        raise NotImplementedError("Reported tools only run asynchronously.")
 
-    async def ainvoke(
-        self, input: str | dict[str, Any] | ToolCall, config: RunnableConfig | None = None, **kwargs: Any
-    ) -> Any:
-        agent = self._new_agent()
-        args = input["args"] if isinstance(input, dict) and input.get("type") == "tool_call" else input
-        args = dict(args) if isinstance(args, dict) else {"input": args}
-        try:
-            output = await self._real_tool.ainvoke(input, config, **kwargs)
-        except Exception as e:
-            await agent.record_function_call(function=self.name, args=args, result=str(e), error=str(e))
-            raise
-        result = output.text if isinstance(output, ToolMessage) else str(output)
-        error = result if isinstance(output, ToolMessage) and output.status == "error" else None
-        await agent.record_function_call(function=self.name, args=args, result=result, error=error)
-        return output
+def _error(request: ToolCallRequest, message: str) -> ToolMessage:
+    return ToolMessage(
+        content=message, name=request.tool_call["name"], tool_call_id=request.tool_call["id"], status="error"
+    )
