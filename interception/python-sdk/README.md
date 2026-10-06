@@ -64,7 +64,7 @@ async def get_alerts(ctx: ToolContext, city: str) -> str:
 agent = create_agent(model, tools=toolkit.get_tools())  # model: your chat model
 ```
 
-The toolkit records each call the same way. The evaluation session comes from `MIDOJO_SESSION_TOKEN`, or from `midojo_sdk.session.session_context()` for an agent that serves several evaluations.
+The toolkit records each call the same way. When a tool raises, the agent gets the error message as the tool's result, and the run goes on. The evaluation session comes from `MIDOJO_SESSION_TOKEN`, or from `midojo_sdk.session.session_context()` for an agent that serves several evaluations.
 
 ## More
 

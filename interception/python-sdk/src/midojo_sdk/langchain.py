@@ -13,7 +13,7 @@ from collections.abc import Sequence
 from typing import Any
 
 import httpx
-from langchain_core.tools import BaseTool, StructuredTool
+from langchain_core.tools import BaseTool, StructuredTool, ToolException
 
 from midojo_sdk.client import AgentControlPlaneClient
 from midojo_sdk.context import ToolContext
@@ -39,7 +39,9 @@ class MidojoToolkit:
 
     The ``ctx: ToolContext`` first parameter is injected by the SDK and
     stripped from the tool schema exposed to agents. ``ctx.forward`` calls the
-    real tool of the same name from ``real_tools``.
+    real tool of the same name from ``real_tools``. When a tool raises, the
+    call is recorded with its error and the agent gets the error message as
+    the tool's result, so the agent run goes on.
     """
 
     def __init__(
@@ -80,7 +82,7 @@ class MidojoToolkit:
                 except Exception as e:
                     error = str(e)
                     result = error
-                    raise
+                    raise ToolException(error) from e
                 finally:
                     await agent.record_function_call(
                         function=fn.__name__,
@@ -95,7 +97,9 @@ class MidojoToolkit:
                 p.name: p.annotation for p in user_params if p.annotation is not inspect.Parameter.empty
             }
 
-            self._tools.append(StructuredTool.from_function(coroutine=wrapper, name=fn.__name__))
+            self._tools.append(
+                StructuredTool.from_function(coroutine=wrapper, name=fn.__name__, handle_tool_error=True)
+            )
             return fn
 
         return decorator

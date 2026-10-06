@@ -107,7 +107,7 @@ async def test_concurrent_sessions_record_to_their_own_evaluation(client, contro
 
 
 @pytest.mark.asyncio
-async def test_tool_errors_are_recorded_and_raised(client, control_http, monkeypatch):
+async def test_tool_errors_are_recorded_and_returned_to_the_agent(client, control_http, monkeypatch):
     run, evaluation = new_evaluation(client)
     monkeypatch.setenv("MIDOJO_SESSION_TOKEN", evaluation["session_token"])
     toolkit = MidojoToolkit(control_plane_url="http://control", http=control_http)
@@ -118,12 +118,15 @@ async def test_tool_errors_are_recorded_and_raised(client, control_http, monkeyp
         return await ctx.forward("get_weather", {"city": city})
 
     [lc_tool] = toolkit.get_tools()
-    with pytest.raises(RuntimeError, match="no upstream is configured"):
-        await lc_tool.ainvoke({"city": "New York"})
+    message = await lc_tool.ainvoke(
+        {"type": "tool_call", "id": "call-1", "name": "forward_without_real_tools", "args": {"city": "New York"}}
+    )
 
+    assert message.status == "error"
+    assert message.content == "Cannot forward get_weather: no upstream is configured."
     [call] = function_calls(client, run, evaluation)
     assert call["function"] == "forward_without_real_tools"
-    assert "no upstream is configured" in call["error"]
+    assert call["error"] == "Cannot forward get_weather: no upstream is configured."
 
 
 @pytest.mark.asyncio
@@ -138,8 +141,7 @@ async def test_forward_rejects_unknown_real_tool(client, control_http, monkeypat
         return await ctx.forward("get_forecast", {"city": city})
 
     [lc_tool] = toolkit.get_tools()
-    with pytest.raises(RuntimeError, match="Cannot forward get_forecast: no real tool has that name"):
-        await lc_tool.ainvoke({"city": "New York"})
+    assert await lc_tool.ainvoke({"city": "New York"}) == "Cannot forward get_forecast: no real tool has that name."
 
 
 @pytest.mark.asyncio
