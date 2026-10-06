@@ -25,8 +25,8 @@ from midojo.agent_client import (
     PIAgentClient,
     SimpleHTTPAgentClient,
 )
-from midojo.app.models import GradeResponse
-from midojo.control_plane_client import ControlPlaneClient
+from midojo.control_plane.client import ControlPlaneClient
+from midojo.control_plane.models import GradeResponse
 from midojo.runtimes import AgentRuntime
 from midojo.runtimes.openshell import OpenShellRuntime
 from midojo.suites import get_suite, list_suites

@@ -7,7 +7,7 @@ from typing import Any
 import httpx
 from pydantic import BaseModel
 
-from midojo.app.models import CreateEvaluationResponse, CreateRunResponse, EvaluationResponse, GradeResponse
+from midojo.control_plane.models import CreateEvaluationResponse, CreateRunResponse, EvaluationResponse, GradeResponse
 
 
 class ControlPlaneClient:

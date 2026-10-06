@@ -14,7 +14,7 @@ from fastmcp import Client, FastMCP
 from fastmcp.server.dependencies import get_http_headers
 from mcp.types import TextContent
 
-from midojo.control_plane_client import AgentControlPlaneClient, ControlPlaneClient
+from midojo.control_plane.client import AgentControlPlaneClient, ControlPlaneClient
 from midojo.session import SESSION_HEADER, session_token
 
 

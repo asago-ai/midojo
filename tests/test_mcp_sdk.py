@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from midojo.control_plane_client import ControlPlaneClient
+from midojo.control_plane.client import ControlPlaneClient
 from midojo.mcp_sdk import MidojoMCP, ToolContext
 
 
