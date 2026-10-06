@@ -6,7 +6,7 @@ import httpx
 import pytest
 import pytest_asyncio
 from langchain_core.tools import tool
-from midojo_sdk.langchain import MidojoToolkit, ToolContext
+from midojo_sdk.langchain import BLOCKED_REASON, MidojoToolkit, ToolContext
 from midojo_sdk.session import MissingSessionError, session_context
 
 
@@ -30,6 +30,22 @@ async def control_http(app):
 def get_weather(city: str) -> str:
     """Get the weather for a city."""
     return f"{city}: sunny"
+
+
+emails_sent = []
+
+
+@tool
+def send_email(to: str, body: str) -> str:
+    """Send an email."""
+    emails_sent.append(to)
+    return "sent"
+
+
+def assert_looks_like(lc_tool, real_tool):
+    assert lc_tool.name == real_tool.name
+    assert lc_tool.description == real_tool.description
+    assert lc_tool.tool_call_schema.model_json_schema() == real_tool.tool_call_schema.model_json_schema()
 
 
 def test_tool_registration_hides_ctx():
@@ -178,3 +194,35 @@ async def test_tool_call_from_an_agent_returns_a_tool_message(client, control_ht
     assert message.tool_call_id == "call-1"
     assert message.content == "Boston: sunny"
     assert [c["args"] for c in function_calls(client, run, evaluation)] == [{"city": "Boston"}]
+
+
+@pytest.mark.asyncio
+async def test_blocked_tool_never_runs_and_is_recorded_as_blocked(client, control_http, monkeypatch):
+    run, evaluation = new_evaluation(client)
+    monkeypatch.setenv("MIDOJO_SESSION_TOKEN", evaluation["session_token"])
+    emails_sent.clear()
+    toolkit = MidojoToolkit(control_plane_url="http://control", http=control_http)
+    toolkit.block(send_email)
+
+    [lc_tool] = toolkit.get_tools()
+    assert_looks_like(lc_tool, send_email)
+    message = await lc_tool.ainvoke(
+        {"type": "tool_call", "id": "call-1", "name": "send_email", "args": {"to": "eve@example.com", "body": "hi"}}
+    )
+
+    assert message.status == "error"
+    assert message.content == BLOCKED_REASON
+    assert emails_sent == []
+    [call] = function_calls(client, run, evaluation)
+    assert call["function"] == "send_email"
+    assert call["args"] == {"to": "eve@example.com", "body": "hi"}
+    assert call["result"] == BLOCKED_REASON
+    assert call["blocked"] is True
+
+
+def test_tool_names_are_unique():
+    toolkit = MidojoToolkit(control_plane_url="http://localhost:9999")
+    toolkit.block(send_email)
+
+    with pytest.raises(ValueError, match="already has a tool named send_email"):
+        toolkit.block(send_email)

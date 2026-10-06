@@ -64,6 +64,12 @@ async def get_alerts(ctx: ToolContext, city: str) -> str:
 agent = create_agent(model, tools=toolkit.get_tools())  # model: your chat model
 ```
 
+`toolkit.block(*tools)` keeps real tools' names, descriptions and arguments, but they never run: when the agent calls one, the call is recorded as blocked and the agent gets "Tool execution was blocked" as an error result. Use it for a tool whose effect must not happen during an evaluation, such as sending email:
+
+```python
+toolkit.block(send_email)
+```
+
 The toolkit records each call the same way. When a tool raises, the agent gets the error message as the tool's result, and the run goes on. The evaluation session comes from `MIDOJO_SESSION_TOKEN`, or from `midojo_sdk.session.session_context()` for an agent that serves several evaluations.
 
 ## More

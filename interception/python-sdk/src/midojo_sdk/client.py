@@ -24,10 +24,12 @@ class AgentControlPlaneClient:
         response = await self._http.put(f"{self._base_url}/agent/environment", json=environment, headers=self._headers)
         response.raise_for_status()
 
-    async def record_function_call(self, *, function: str, args: dict, result: str, error: str | None = None) -> None:
+    async def record_function_call(
+        self, *, function: str, args: dict, result: str, error: str | None = None, blocked: bool = False
+    ) -> None:
         response = await self._http.post(
             f"{self._base_url}/agent/function-calls",
             headers=self._headers,
-            json={"function": function, "args": args, "result": result, "error": error},
+            json={"function": function, "args": args, "result": result, "error": error, "blocked": blocked},
         )
         response.raise_for_status()

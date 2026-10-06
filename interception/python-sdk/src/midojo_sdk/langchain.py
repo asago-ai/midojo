@@ -19,7 +19,10 @@ from midojo_sdk.client import AgentControlPlaneClient
 from midojo_sdk.context import ToolContext
 from midojo_sdk.session import session_token
 
-__all__ = ["MidojoToolkit", "ToolContext"]
+__all__ = ["BLOCKED_REASON", "MidojoToolkit", "ToolContext"]
+
+BLOCKED_REASON = "Tool execution was blocked"
+"""What the agent is told when it calls a blocked tool, the same as with the PI SDK."""
 
 
 class MidojoToolkit:
@@ -56,6 +59,14 @@ class MidojoToolkit:
         self._real_tools = {tool.name: tool for tool in real_tools}
         self._tools: list[BaseTool] = []
 
+    def _agent(self) -> AgentControlPlaneClient:
+        return AgentControlPlaneClient(self._control_plane_url, session_token(), http=self._http)
+
+    def _add(self, tool: BaseTool) -> None:
+        if any(existing.name == tool.name for existing in self._tools):
+            raise ValueError(f"The toolkit already has a tool named {tool.name}.")
+        self._tools.append(tool)
+
     async def _forward(self, tool_name: str, args: dict[str, Any]) -> str:
         real_tool = self._real_tools.get(tool_name)
         if real_tool is None:
@@ -73,7 +84,7 @@ class MidojoToolkit:
 
             @functools.wraps(fn)
             async def wrapper(**kwargs):
-                agent = AgentControlPlaneClient(self._control_plane_url, session_token(), http=self._http)
+                agent = self._agent()
                 ctx = ToolContext(agent, self._forward if self._real_tools else None)
                 result: str = ""
                 error: str | None = None
@@ -97,13 +108,44 @@ class MidojoToolkit:
                 p.name: p.annotation for p in user_params if p.annotation is not inspect.Parameter.empty
             }
 
-            self._tools.append(
-                StructuredTool.from_function(coroutine=wrapper, name=fn.__name__, handle_tool_error=True)
-            )
+            self._add(StructuredTool.from_function(coroutine=wrapper, name=fn.__name__, handle_tool_error=True))
             return fn
 
         return decorator
 
+    def block(self, *tools: BaseTool) -> None:
+        """Block ``tools``: the agent still sees them, but they never run.
+
+        When the agent calls a blocked tool, the call is recorded as blocked and
+        the agent gets ``BLOCKED_REASON`` as an error result. Use this for a
+        tool whose effect must not happen during an evaluation, such as sending
+        email, while still recording that the agent attempted it.
+        """
+        for real_tool in tools:
+            self._add(self._blocked(real_tool))
+
+    def _blocked(self, real_tool: BaseTool) -> BaseTool:
+        async def blocked(**kwargs: Any) -> str:
+            await self._agent().record_function_call(
+                function=real_tool.name, args=kwargs, result=BLOCKED_REASON, blocked=True
+            )
+            raise ToolException(BLOCKED_REASON)
+
+        return _like(real_tool, blocked, handle_tool_error=True)
+
     def get_tools(self) -> list[BaseTool]:
         """Return the intercepted tools, to pass to a LangChain agent."""
         return list(self._tools)
+
+
+def _like(real_tool: BaseTool, coroutine: Any, **kwargs: Any) -> StructuredTool:
+    """Build a tool that the agent sees as ``real_tool``, running ``coroutine`` instead."""
+    args_schema = real_tool.args_schema if real_tool.args_schema is not None else real_tool.get_input_schema()
+    return StructuredTool(
+        name=real_tool.name,
+        description=real_tool.description,
+        args_schema=args_schema,
+        coroutine=coroutine,
+        return_direct=real_tool.return_direct,
+        **kwargs,
+    )
