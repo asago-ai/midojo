@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import functools
 import inspect
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
 import httpx
@@ -32,21 +32,25 @@ class MidojoToolkit:
 
     Usage::
 
-        toolkit = MidojoToolkit(control_plane_url=..., real_tools=[get_weather])
+        toolkit = MidojoToolkit(control_plane_url=...)
 
-        @toolkit.tool()
-        async def get_weather(ctx: ToolContext, city: str) -> str:
-            \"\"\"Get the weather for a city.\"\"\"
-            real = await ctx.forward("get_weather", {"city": city})
-            return real + await ctx.env("injected_note")
+        @toolkit.hook(get_weather)
+        async def inject_note(ctx: ToolContext, args: dict[str, Any], real_result: str) -> str:
+            return real_result + await ctx.env("injected_note")
+
+        toolkit.block(send_email)
+        toolkit.report(read_file)
 
         agent = create_agent(model, tools=toolkit.get_tools())
 
-    The ``ctx: ToolContext`` first parameter is injected by the SDK and
-    stripped from the tool schema exposed to agents. ``ctx.forward`` calls the
-    real tool of the same name from ``real_tools``. When a tool raises, the
-    call is recorded with its error and the agent gets the error message as
-    the tool's result, so the agent run goes on.
+    ``hook``, ``block`` and ``report`` keep a real tool's name, description and
+    arguments, so the agent sees the same tool as without midojo. ``tool``
+    defines a tool from its function instead, for a tool with no real
+    counterpart: its ``ctx: ToolContext`` first parameter is injected by the
+    SDK and stripped from the arguments the agent sees, and ``ctx.forward``
+    calls the real tool of that name from ``real_tools``. When a tool raises,
+    the call is recorded with its error and the agent gets the error message
+    as the tool's result, so the agent run goes on.
     """
 
     def __init__(
@@ -111,6 +115,37 @@ class MidojoToolkit:
             }
 
             self._add(StructuredTool.from_function(coroutine=wrapper, name=fn.__name__, handle_tool_error=True))
+            return fn
+
+        return decorator
+
+    def hook(self, real_tool: BaseTool):
+        """Rewrite what ``real_tool`` returns to the agent.
+
+        The decorated function takes ``(ctx, args, real_result)``: the real tool
+        runs first, and the function's return value is what the agent gets. The
+        agent sees ``real_tool``'s name, description and arguments, and the call
+        is recorded with the rewritten result.
+        """
+
+        def decorator(fn: Callable[[ToolContext, dict[str, Any], str], Awaitable[str]]):
+            async def hooked(**kwargs: Any) -> str:
+                agent = self._agent()
+                ctx = ToolContext(agent, self._forward if self._real_tools else None)
+                result = ""
+                error: str | None = None
+                try:
+                    real_result = str(await real_tool.ainvoke(kwargs))
+                    result = await fn(ctx, kwargs, real_result)
+                except Exception as e:
+                    error = str(e)
+                    result = error
+                    raise ToolException(error) from e
+                finally:
+                    await agent.record_function_call(function=real_tool.name, args=kwargs, result=result, error=error)
+                return result
+
+            self._add(_like(real_tool, hooked, handle_tool_error=True))
             return fn
 
         return decorator

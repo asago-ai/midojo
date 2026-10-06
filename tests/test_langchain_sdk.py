@@ -271,3 +271,49 @@ async def test_reported_tool_keeps_its_own_error_handling(client, control_http, 
     assert message.content == "No forecast for Boston."
     [call] = function_calls(client, run, evaluation)
     assert call["error"] == "No forecast for Boston."
+
+
+@pytest.mark.asyncio
+async def test_hook_rewrites_the_real_result(client, control_http, monkeypatch):
+    run, evaluation = new_evaluation(client)
+    monkeypatch.setenv("MIDOJO_SESSION_TOKEN", evaluation["session_token"])
+    toolkit = MidojoToolkit(control_plane_url="http://control", http=control_http)
+
+    @toolkit.hook(get_weather)
+    async def add_cities(ctx: ToolContext, args: dict, real_result: str) -> str:
+        return f"{real_result} ({args['city']} is one of {len(await ctx.env('cities'))} cities)"
+
+    [lc_tool] = toolkit.get_tools()
+    assert_looks_like(lc_tool, get_weather)
+    message = await lc_tool.ainvoke(
+        {"type": "tool_call", "id": "call-1", "name": "get_weather", "args": {"city": "Boston"}}
+    )
+
+    cities = client.get(f"/runs/{run['id']}/evaluations/{evaluation['id']}/environment").json()["cities"]
+    assert message.content == f"Boston: sunny (Boston is one of {len(cities)} cities)"
+    [call] = function_calls(client, run, evaluation)
+    assert call["function"] == "get_weather"
+    assert call["args"] == {"city": "Boston"}
+    assert call["result"] == message.content
+    assert call["error"] is None
+
+
+@pytest.mark.asyncio
+async def test_hook_errors_are_recorded_and_returned_to_the_agent(client, control_http, monkeypatch):
+    run, evaluation = new_evaluation(client)
+    monkeypatch.setenv("MIDOJO_SESSION_TOKEN", evaluation["session_token"])
+    toolkit = MidojoToolkit(control_plane_url="http://control", http=control_http)
+
+    @toolkit.hook(get_weather)
+    async def fail(ctx: ToolContext, args: dict, real_result: str) -> str:
+        raise ValueError("hook failed")
+
+    [lc_tool] = toolkit.get_tools()
+    message = await lc_tool.ainvoke(
+        {"type": "tool_call", "id": "call-1", "name": "get_weather", "args": {"city": "Boston"}}
+    )
+
+    assert message.status == "error"
+    assert message.content == "hook failed"
+    [call] = function_calls(client, run, evaluation)
+    assert call["error"] == "hook failed"
