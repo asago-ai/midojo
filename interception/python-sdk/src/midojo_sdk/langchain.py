@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import functools
 import inspect
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import httpx
+from langchain_core.messages import ToolCall, ToolMessage
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool, StructuredTool, ToolException
 
 from midojo_sdk.client import AgentControlPlaneClient
@@ -133,6 +135,17 @@ class MidojoToolkit:
 
         return _like(real_tool, blocked, handle_tool_error=True)
 
+    def report(self, *tools: BaseTool) -> None:
+        """Record every call to ``tools`` without changing what the agent sees.
+
+        Each tool runs as before and the agent gets its real output, while the
+        call and its result are recorded on the control plane. Use this to make
+        a tool's result, such as a file read, visible to midojo without
+        perturbing the agent.
+        """
+        for real_tool in tools:
+            self._add(_ReportedTool(real_tool, self._agent))
+
     def get_tools(self) -> list[BaseTool]:
         """Return the intercepted tools, to pass to a LangChain agent."""
         return list(self._tools)
@@ -149,3 +162,39 @@ def _like(real_tool: BaseTool, coroutine: Any, **kwargs: Any) -> StructuredTool:
         return_direct=real_tool.return_direct,
         **kwargs,
     )
+
+
+class _ReportedTool(BaseTool):
+    """Runs a real tool unchanged and records each call with its result."""
+
+    _real_tool: BaseTool
+    _new_agent: Callable[[], AgentControlPlaneClient]
+
+    def __init__(self, real_tool: BaseTool, new_agent: Callable[[], AgentControlPlaneClient]) -> None:
+        super().__init__(
+            name=real_tool.name,
+            description=real_tool.description,
+            args_schema=real_tool.args_schema,
+            return_direct=real_tool.return_direct,
+        )
+        self._real_tool = real_tool
+        self._new_agent = new_agent
+
+    def _run(self, *args: Any, **kwargs: Any) -> Any:
+        raise NotImplementedError("Reported tools only run asynchronously.")
+
+    async def ainvoke(
+        self, input: str | dict[str, Any] | ToolCall, config: RunnableConfig | None = None, **kwargs: Any
+    ) -> Any:
+        agent = self._new_agent()
+        args = input["args"] if isinstance(input, dict) and input.get("type") == "tool_call" else input
+        args = dict(args) if isinstance(args, dict) else {"input": args}
+        try:
+            output = await self._real_tool.ainvoke(input, config, **kwargs)
+        except Exception as e:
+            await agent.record_function_call(function=self.name, args=args, result=str(e), error=str(e))
+            raise
+        result = output.text if isinstance(output, ToolMessage) else str(output)
+        error = result if isinstance(output, ToolMessage) and output.status == "error" else None
+        await agent.record_function_call(function=self.name, args=args, result=result, error=error)
+        return output

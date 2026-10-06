@@ -5,7 +5,7 @@ import asyncio
 import httpx
 import pytest
 import pytest_asyncio
-from langchain_core.tools import tool
+from langchain_core.tools import ToolException, tool
 from midojo_sdk.langchain import BLOCKED_REASON, MidojoToolkit, ToolContext
 from midojo_sdk.session import MissingSessionError, session_context
 
@@ -226,3 +226,48 @@ def test_tool_names_are_unique():
 
     with pytest.raises(ValueError, match="already has a tool named send_email"):
         toolkit.block(send_email)
+
+
+@pytest.mark.asyncio
+async def test_reported_tool_runs_unchanged_and_is_recorded(client, control_http, monkeypatch):
+    run, evaluation = new_evaluation(client)
+    monkeypatch.setenv("MIDOJO_SESSION_TOKEN", evaluation["session_token"])
+    toolkit = MidojoToolkit(control_plane_url="http://control", http=control_http)
+    toolkit.report(get_weather)
+
+    [lc_tool] = toolkit.get_tools()
+    assert_looks_like(lc_tool, get_weather)
+    tool_call = {"type": "tool_call", "id": "call-1", "name": "get_weather", "args": {"city": "Boston"}}
+    assert await lc_tool.ainvoke(tool_call) == await get_weather.ainvoke(tool_call)
+
+    [call] = function_calls(client, run, evaluation)
+    assert call["function"] == "get_weather"
+    assert call["args"] == {"city": "Boston"}
+    assert call["result"] == "Boston: sunny"
+    assert call["error"] is None
+    assert call["blocked"] is False
+
+
+@pytest.mark.asyncio
+async def test_reported_tool_keeps_its_own_error_handling(client, control_http, monkeypatch):
+    run, evaluation = new_evaluation(client)
+    monkeypatch.setenv("MIDOJO_SESSION_TOKEN", evaluation["session_token"])
+
+    @tool
+    def get_forecast(city: str) -> str:
+        """Get the forecast for a city."""
+        raise ToolException(f"No forecast for {city}.")
+
+    get_forecast.handle_tool_error = True
+    toolkit = MidojoToolkit(control_plane_url="http://control", http=control_http)
+    toolkit.report(get_forecast)
+
+    [lc_tool] = toolkit.get_tools()
+    message = await lc_tool.ainvoke(
+        {"type": "tool_call", "id": "call-1", "name": "get_forecast", "args": {"city": "Boston"}}
+    )
+
+    assert message.status == "error"
+    assert message.content == "No forecast for Boston."
+    [call] = function_calls(client, run, evaluation)
+    assert call["error"] == "No forecast for Boston."

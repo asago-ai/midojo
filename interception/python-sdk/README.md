@@ -70,6 +70,12 @@ agent = create_agent(model, tools=toolkit.get_tools())  # model: your chat model
 toolkit.block(send_email)
 ```
 
+`toolkit.report(*tools)` runs real tools unchanged and records every call with its result, so midojo can see what a tool returned, such as a file read, without perturbing the agent:
+
+```python
+toolkit.report(read_file)
+```
+
 The toolkit records each call the same way. When a tool raises, the agent gets the error message as the tool's result, and the run goes on. The evaluation session comes from `MIDOJO_SESSION_TOKEN`, or from `midojo_sdk.session.session_context()` for an agent that serves several evaluations.
 
 ## More
