@@ -343,7 +343,12 @@ async def run_benchmark(
 
 
 @click.command()
-@click.option("--control-url", default="http://localhost:8080", help="URL of the benchmark MCP server control plane.")
+@click.option(
+    "--control-url",
+    default="http://localhost:8080",
+    help="URL of the control plane started with midojo-serve. "
+    "OpenShell sandboxes get this URL too, with localhost rewritten to reach the host.",
+)
 @click.option(
     "--gateway",
     default=None,
