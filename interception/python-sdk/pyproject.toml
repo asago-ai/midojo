@@ -13,6 +13,9 @@ dependencies = [
 mcp = [
     "fastmcp",
 ]
+langchain = [
+    "langchain>=1.4",
+]
 
 [project.urls]
 Homepage = "https://github.com/asago-ai/midojo"
