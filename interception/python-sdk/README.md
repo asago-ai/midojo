@@ -65,7 +65,7 @@ midojo.report("read_file")
 agent = create_agent(model, tools=[get_alerts, read_file, send_email], middleware=[midojo])  # model: your chat model
 ```
 
-- `hook(name)`: the real tool runs, and the hook's return value is what the agent gets. When the hook raises, the agent gets the error message as an error result, and the run goes on.
+- `hook(name)`: the real tool runs, and the hook's return value is what the agent gets. When the hook raises, the agent gets the error message as an error result, and the run goes on. The tool must return a message: hooking a tool that returns a LangGraph `Command` stops the run with a `TypeError`.
 - `block(*names)`: the tools never run. The call is recorded as blocked, and the agent gets "Tool execution was blocked" as an error result. Use it for a tool whose effect must not happen during an evaluation, such as sending email.
 - `report(*names)`: the tools run unchanged, and each call is recorded with its result, so midojo can see what a tool returned, such as a file read, without perturbing the agent.
 

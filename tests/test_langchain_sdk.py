@@ -1,17 +1,22 @@
 """Tests for intercepting a LangChain agent's tool calls with MidojoMiddleware."""
 
 import asyncio
-from typing import Any
+import socket
+import threading
+import time
+from typing import Annotated, Any
 
 import httpx
 import pytest
 import pytest_asyncio
+import uvicorn
 from langchain.agents import create_agent
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from langchain_core.tools import BaseTool, ToolException, tool
+from langchain_core.tools import BaseTool, InjectedToolCallId, ToolException, tool
 from langgraph.graph import MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode
+from langgraph.types import Command
 from midojo_sdk.langchain import BLOCKED_REASON, MidojoMiddleware, ToolContext
 from midojo_sdk.session import MissingSessionError, session_context
 from pydantic import Field
@@ -43,6 +48,21 @@ async def session(client, monkeypatch):
 @pytest.fixture
 def midojo(control_http):
     return MidojoMiddleware(control_plane_url="http://control", http=control_http)
+
+
+@pytest.fixture
+def control_url(app):
+    """Serve the control plane over HTTP, from its own thread and event loop."""
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    server = uvicorn.Server(uvicorn.Config(app, ws="none", log_level="error"))
+    thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
+    thread.start()
+    while not server.started:
+        time.sleep(0.01)
+    yield f"http://127.0.0.1:{sock.getsockname()[1]}"
+    server.should_exit = True
+    thread.join()
 
 
 @tool
@@ -117,6 +137,50 @@ async def test_hook_errors_are_recorded_and_returned_to_the_agent(client, sessio
     assert message.content == "hook failed"
     [call] = function_calls(client, run, evaluation)
     assert call["error"] == "hook failed"
+
+
+@pytest.mark.asyncio
+async def test_hook_records_the_real_tool_error(client, session, midojo):
+    run, evaluation = session
+
+    @tool
+    def get_forecast(city: str) -> str:
+        """Get the forecast for a city."""
+        raise ToolException(f"No forecast for {city}.")
+
+    get_forecast.handle_tool_error = True
+
+    @midojo.hook("get_forecast")
+    async def add_note(ctx: ToolContext, args: dict, real_result: str) -> str:
+        return f"{real_result} Try again later."
+
+    message, _ = await call_tool(midojo, [get_forecast], "get_forecast", {"city": "Boston"})
+
+    assert message.status == "error"
+    assert message.content == "No forecast for Boston. Try again later."
+    [call] = function_calls(client, run, evaluation)
+    assert call["result"] == "No forecast for Boston. Try again later."
+    assert call["error"] == "No forecast for Boston."
+
+
+@pytest.mark.asyncio
+async def test_hooked_tool_that_returns_a_command_is_recorded_before_the_run_stops(client, session, midojo):
+    run, evaluation = session
+
+    @tool
+    def remember(city: str, tool_call_id: Annotated[str, InjectedToolCallId]) -> Command:
+        """Remember a city."""
+        return Command(update={"messages": [ToolMessage(f"Remembered {city}.", tool_call_id=tool_call_id)]})
+
+    @midojo.hook("remember")
+    async def add_note(ctx: ToolContext, args: dict, real_result: str) -> str:
+        return real_result
+
+    with pytest.raises(TypeError, match="Cannot hook remember: it returned a Command"):
+        await call_tool(midojo, [remember], "remember", {"city": "Boston"})
+    [call] = function_calls(client, run, evaluation)
+    assert call["function"] == "remember"
+    assert "Remembered Boston." in call["result"]
 
 
 @pytest.mark.asyncio
@@ -212,6 +276,20 @@ async def test_concurrent_sessions_record_to_their_own_evaluation(client, midojo
 
     for run, evaluation in evaluations:
         assert [c["args"] for c in function_calls(client, run, evaluation)] == [{"city": evaluation["id"]}]
+
+
+def test_one_middleware_records_across_event_loops(client, control_url):
+    """A harness can run each evaluation with its own ``asyncio.run``."""
+    midojo = MidojoMiddleware(control_plane_url=control_url)
+    midojo.report("get_weather")
+    evaluations = [new_evaluation(client) for _ in range(2)]
+
+    for _, evaluation in evaluations:
+        with session_context(evaluation["session_token"]):
+            asyncio.run(call_tool(midojo, [get_weather], "get_weather", {"city": "Boston"}))
+
+    for run, evaluation in evaluations:
+        assert len(function_calls(client, run, evaluation)) == 1
 
 
 @pytest.mark.asyncio
