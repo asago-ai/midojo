@@ -1,0 +1,12 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": "/sandbox/.venv/bin/python3", "args": ["/sandbox/midojo/midojo_hook.py"], "timeout": 15 }
+        ]
+      }
+    ]
+  }
+}
