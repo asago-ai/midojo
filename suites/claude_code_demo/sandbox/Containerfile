@@ -1,0 +1,41 @@
+# Example Claude Code sandbox for the claude_code_demo suite.
+#
+# Extends an OpenShell community sandbox with Claude Code, the MiDojo
+# interception hook, and midojo-sdk (which the hook uses to reach the control
+# plane). The hook is wired via Claude Code's user settings so it loads
+# headlessly under `claude -p`; the shareable plugin form lives at
+# interception/claude-code/.
+#
+# Claude Code needs an Anthropic-compatible model endpoint. Point ANTHROPIC_BASE_URL
+# at your server (a LiteLLM proxy with Anthropic passthrough, a local gateway, etc.).
+# The auth token is not baked in: the suite passes ANTHROPIC_AUTH_TOKEN at run time.
+#
+# Build (from repo root):
+#   podman build --pull=always --platform linux/arm64 \
+#     --build-arg ANTHROPIC_BASE_URL=http://host.openshell.internal:8321 \
+#     -t localhost/claude-code-demo:latest -f suites/claude_code_demo/sandbox/Containerfile .
+
+FROM ghcr.io/nvidia/openshell-community/sandboxes/pi:latest
+
+ARG ANTHROPIC_BASE_URL=http://host.openshell.internal:8321
+
+USER root
+
+# Claude Code.
+RUN npm install -g @anthropic-ai/claude-code
+
+# The interception hook and the SDK it talks to the control plane with.
+RUN mkdir -p /sandbox/midojo /sandbox/.claude
+COPY interception/claude-code/midojo_hook.py /sandbox/midojo/
+COPY interception/python-sdk/ /tmp/midojo-sdk/
+RUN uv pip install --no-cache --python /sandbox/.venv/bin/python3 /tmp/midojo-sdk && rm -rf /tmp/midojo-sdk
+
+# Load the hook headlessly: Claude Code reads ~/.claude/settings.json regardless
+# of the working directory (the agent runs in /sandbox/workdir).
+COPY suites/claude_code_demo/sandbox/settings.json /sandbox/.claude/settings.json
+
+ENV ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL}
+
+RUN chown -R sandbox:sandbox /sandbox/midojo /sandbox/.claude
+
+USER sandbox
