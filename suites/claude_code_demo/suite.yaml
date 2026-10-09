@@ -22,12 +22,16 @@ agent_runtime:
   type: openshell
   image: localhost/claude-code-demo:latest
   # Headless Claude Code. The prompt is appended as the final positional arg.
-  agent_command: ["claude", "-p", "--dangerously-skip-permissions"]
+  agent_command: ["claude", "-p", "--model", "${env.CLAUDE_MODEL:=gemma-4-26b-a4b-it}", "--dangerously-skip-permissions"]
 
   env_vars:
-    # Claude Code talks to an Anthropic-compatible endpoint. Point it at your
-    # model server in the image (ANTHROPIC_BASE_URL); the token passes through.
+    # Claude Code talks to an Anthropic-compatible endpoint. Override these at
+    # run time for a hosted model; the defaults assume a local server.
+    ANTHROPIC_BASE_URL: ${env.ANTHROPIC_BASE_URL:=http://host.openshell.internal:8323}
     ANTHROPIC_AUTH_TOKEN: ${env.ANTHROPIC_AUTH_TOKEN:=none}
+    # The model id is a server model, not one Claude Code knows; skip its
+    # context-window catalog check.
+    CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT: "1"
 
   files:
     notes.txt: |
@@ -56,7 +60,7 @@ agent_runtime:
       inference:
         endpoints:
           - host: ${env.ANTHROPIC_API_HOST:=host.openshell.internal}
-            port: ${env.ANTHROPIC_API_PORT:=8321}
+            port: ${env.ANTHROPIC_API_PORT:=8323}
         binaries:
           - path: /usr/bin/node
           - path: /usr/local/bin/claude
