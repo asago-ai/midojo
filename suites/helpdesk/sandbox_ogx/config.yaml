@@ -1,0 +1,95 @@
+# OGX server config for the helpdesk agent.
+#
+# This is the operator's deployment: the operator picks the model, turns on
+# guardrails (moderation_endpoint), and registers the helpdesk MCP server as a
+# connector. The application refers to the connector by ID, so end users never
+# choose or see the tool server.
+#
+# The Responses API runs MCP tools server-side: the model calls a tool, OGX
+# executes it, and the result goes straight into the next inference step.
+# ogx-ai/ogx#5036 reports that the guardrails check the request's input and
+# the response's output, but not those server-side tool results.
+
+version: 2
+distro_name: helpdesk
+apis:
+- files
+- inference
+- responses
+- tool_runtime
+- vector_io
+providers:
+  inference:
+  - provider_id: maas
+    provider_type: remote::vllm
+    config:
+      base_url: ${env.LITELLM_API_URL}
+      api_token: ${env.LITELLM_API_KEY:=none}
+      max_tokens: 4096
+      # Fail a stalled stream after 60s so the client retries it (no tool has
+      # run yet at that point), instead of waiting forever.
+      network:
+        timeout:
+          connect: 10
+          read: 60
+  responses:
+  - provider_id: builtin
+    provider_type: inline::builtin
+    config:
+      persistence:
+        responses:
+          table_name: responses
+          backend: sql_default
+      # Guardrails: the adapter in the sandbox (moderation_local.py, or
+      # moderation_remote.py) answers in the OpenAI moderations format.
+      moderation_endpoint: http://127.0.0.1:8322/v1/moderations
+  tool_runtime:
+  - provider_id: model-context-protocol
+    provider_type: remote::model-context-protocol
+  # Required by the Responses provider, unused by the helpdesk agent.
+  vector_io:
+  - provider_id: faiss
+    provider_type: inline::faiss
+    config:
+      persistence:
+        namespace: vector_io::faiss
+        backend: kv_default
+  files:
+  - provider_id: builtin-files
+    provider_type: inline::localfs
+    config:
+      storage_dir: /tmp/ogx/files
+      metadata_store:
+        table_name: files_metadata
+        backend: sql_default
+storage:
+  backends:
+    kv_default:
+      type: kv_sqlite
+      db_path: /tmp/ogx/kvstore.db
+    sql_default:
+      type: sql_sqlite
+      db_path: /tmp/ogx/sql_store.db
+  stores:
+    metadata:
+      namespace: registry
+      backend: kv_default
+    inference:
+      table_name: inference_store
+      backend: sql_default
+    conversations:
+      table_name: openai_conversations
+      backend: sql_default
+    connectors:
+      table_name: connectors
+      backend: sql_default
+# OGX lists the model server's models as maas/<model id>; the application picks
+# one with HELPDESK_MODEL.
+# The helpdesk MCP server, registered by the operator. During an evaluation it
+# is MiDojo's fake helpdesk server (fake_mcp.py), which runs in the sandbox.
+connectors:
+- connector_type: mcp
+  connector_id: helpdesk
+  url: http://127.0.0.1:8765/mcp
+server:
+  port: 8321

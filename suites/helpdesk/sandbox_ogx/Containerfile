@@ -1,0 +1,55 @@
+# Sandbox image for the helpdesk suite: an OGX deployment and the operator's
+# helpdesk application, plus MiDojo's fake helpdesk MCP server.
+#
+# Build (from repo root):
+#   podman build --platform linux/arm64 \
+#     -t localhost/helpdesk-ogx:latest -f suites/helpdesk/sandbox_ogx/Containerfile .
+#
+# Nothing model-specific is baked in: the suite passes the model server URL,
+# API key and model names into the sandbox at run time.
+
+FROM ghcr.io/nvidia/openshell-community/sandboxes/base:latest
+
+ARG OGX_VERSION=1.5.0
+
+USER root
+
+# OGX needs Python 3.12; the base image's default venv is newer. uv picks the
+# image's system Python 3.12 (/usr/bin/python3.12), the binary the suite's
+# network policy allows.
+RUN uv venv -p 3.12 /sandbox/helpdesk/.venv \
+ && uv pip install --no-cache --python /sandbox/helpdesk/.venv/bin/python \
+      "ogx==${OGX_VERSION}" \
+      pillow "sqlalchemy[asyncio]" chardet "pypdf>=6.13.0" "fonttools>=4.60.2" \
+      redis matplotlib pandas pymongo aiosqlite asyncpg faiss-cpu fastapi fire httpx uvicorn \
+      opentelemetry-sdk opentelemetry-exporter-otlp-proto-http opentelemetry-exporter-otlp-proto-grpc
+
+# The fake MCP server gets its own venv: midojo-sdk[mcp] needs fastmcp 3, which
+# needs mcp<2, and OGX needs mcp>=2.
+COPY interception/python-sdk/ /tmp/midojo-sdk/
+RUN uv venv -p 3.12 /sandbox/helpdesk/mcp-venv \
+ && uv pip install --no-cache --python /sandbox/helpdesk/mcp-venv/bin/python "/tmp/midojo-sdk[mcp]" \
+ && rm -rf /tmp/midojo-sdk
+
+# The local guardrail (moderation_local.py): ProtectAI's prompt injection
+# classifier on CPU torch, cached in the image because the sandbox blocks
+# downloads (start.sh sets HF_HOME and offline mode).
+RUN uv pip install --no-cache --python /sandbox/helpdesk/.venv/bin/python \
+      torch --index-url https://download.pytorch.org/whl/cpu \
+ && uv pip install --no-cache --python /sandbox/helpdesk/.venv/bin/python \
+      "transformers>=4.44,<5" sentencepiece protobuf \
+ && HF_HOME=/sandbox/helpdesk/hf /sandbox/helpdesk/.venv/bin/python -c \
+      "from transformers import pipeline; pipeline('text-classification', model='protectai/deberta-v3-base-prompt-injection-v2')"
+
+# OGX's vector store provider loads a tiktoken encoding at startup. The sandbox
+# blocks the download, so cache it in the image (start.sh sets the cache dir).
+RUN TIKTOKEN_CACHE_DIR=/sandbox/helpdesk/tiktoken /sandbox/helpdesk/.venv/bin/python \
+      -c "import tiktoken; tiktoken.get_encoding('cl100k_base')"
+
+COPY suites/helpdesk/sandbox_ogx/config.yaml suites/helpdesk/sandbox_ogx/moderation_local.py \
+     suites/helpdesk/sandbox_ogx/moderation_remote.py \
+     suites/helpdesk/sandbox_ogx/fake_mcp.py suites/helpdesk/sandbox_ogx/helpdesk_app.py \
+     suites/helpdesk/sandbox_ogx/start.sh /sandbox/helpdesk/
+RUN chmod +x /sandbox/helpdesk/start.sh && chown -R sandbox:sandbox /sandbox/helpdesk
+
+USER sandbox
