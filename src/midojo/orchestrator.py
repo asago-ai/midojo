@@ -178,8 +178,13 @@ async def run_task(
     injections: dict[str, str],
     *,
     runtime: AgentRuntime,
+    log_dir: Path | None = None,
 ) -> TaskResult:
-    """Run a single evaluation, with the runtime set up around the agent's execution."""
+    """Run a single evaluation, with the runtime set up around the agent's execution.
+
+    With ``log_dir``, the runtime saves the evaluation's logs under ``log_dir/<eval_id>``
+    before teardown, including when setup or the agent failed.
+    """
     evaluation = await control.create_evaluation(run_id, user_task_id, injection_task_id, injections)
     eval_id, prompt, session_token = evaluation.id, evaluation.prompt, evaluation.session_token
     pair = f"{user_task_id} x {injection_task_id}" if injection_task_id else user_task_id
@@ -202,6 +207,9 @@ async def run_task(
             for source, observed in observations.items():
                 await control.record_observations(run_id, eval_id, source, observed)
         finally:
+            if log_dir is not None:
+                with console.status(f"[dim]{pair} · collecting logs…[/dim]", spinner="dots"):
+                    await asyncio.to_thread(runtime.collect_logs, log_dir / eval_id)
             with console.status(f"[dim]{pair} · tearing down the {runtime.name} runtime…[/dim]", spinner="dots"):
                 await asyncio.to_thread(runtime.teardown)
 
@@ -264,6 +272,7 @@ async def _run_benchmark(
                     it_id,
                     injections,
                     runtime=runtime,
+                    log_dir=logdir / run_id,
                 )
                 grade = result.grade
                 utility_results[TaskPair(ut_id, it_id or "")] = grade.utility
@@ -294,6 +303,9 @@ async def _run_benchmark(
             await asyncio.to_thread(runtime.end_run)
         if started:
             console.print(f"\n  [magenta]{runtime.name}[/magenta] [dim]{started}[/dim] [green]cleaned up[/green]")
+        run_logs = logdir / run_id
+        if run_logs.is_dir() and any(run_logs.iterdir()):
+            console.print(f"  [dim]logs[/dim] [cyan]{run_logs}[/cyan]")
 
     console.print()
 
