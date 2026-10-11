@@ -130,6 +130,40 @@ async def test_partial_sandbox_setup_is_cleaned_and_session_revoked(local_http, 
 
 
 @pytest.mark.asyncio
+async def test_logs_are_collected_before_teardown_when_the_agent_fails(local_http, client, tmp_path):
+    calls = []
+
+    class Runtime(OpenShellRuntime):
+        def setup(self, injections, *, session_token, eval_id, user_task_id, injection_task_id):
+            pass
+
+        def collect_logs(self, dest):
+            calls.append(("collect_logs", dest))
+
+        def teardown(self):
+            calls.append(("teardown", None))
+
+    run = client.post("/runs", json={"suite_name": "weather"}).json()
+    control = ControlPlaneClient("http://control")
+    try:
+        with pytest.raises(RuntimeError, match="Agent failed"):
+            await run_task(
+                control,
+                ReportingAgent(fail=True),
+                run["id"],
+                "weather_new_york",
+                None,
+                {},
+                runtime=Runtime("test", image="base"),
+                log_dir=tmp_path,
+            )
+    finally:
+        await control.aclose()
+    eval_id = client.get(f"/runs/{run['id']}").json()["evaluations"][0]["id"]
+    assert calls == [("collect_logs", tmp_path / eval_id), ("teardown", None)]
+
+
+@pytest.mark.asyncio
 async def test_runner_records_sandbox_observations(local_http, client):
     observed = OpenShellObservations(network_calls_blocked=["evil.com:443"])
 

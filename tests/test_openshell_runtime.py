@@ -132,3 +132,85 @@ class TestLogSync:
         allowed = "NET:OPEN [INFO] ALLOWED /usr/bin/curl(0) -> ok.test:443"
         runtime = self._runtime(lambda: [allowed])
         assert runtime._sync_ocsf_messages() == [allowed]
+
+
+def test_build_runtime_passes_the_log_globs_through():
+    definition = OpenShellRuntimeDefinition(image="pi", logs=["/tmp/*.log", "notes.txt"])
+    runtime = build_runtime("shell_suite", definition)
+    assert isinstance(runtime, OpenShellRuntime)
+    assert runtime._logs == ["/tmp/*.log", "notes.txt"]
+
+
+class _LoggingSandbox:
+    """A sandbox whose exec answers the log collector's commands from a fake filesystem."""
+
+    def __init__(self, files, log_lines=(), fail_logs=False):
+        self.files = files
+        self.log_lines = log_lines
+        self.fail_logs = fail_logs
+        self.logs_requests = []
+        self._stub = self
+
+    def exec(self, sandbox_name, command, **kwargs):
+        if command[:2] == ["sh", "-c"]:
+            listed = [p for p in self.files if any(p.startswith(g.rstrip("*")) for g in command[4:])]
+            return SimpleNamespace(stdout="\n".join(listed), stderr="", exit_code=0)
+        if command[0] == "cat":
+            return SimpleNamespace(stdout=self.files[command[1]], stderr="", exit_code=0)
+        return SimpleNamespace(stdout="agent answer", stderr="Traceback: boom", exit_code=1)
+
+    def GetSandboxLogs(self, request, timeout):  # noqa: N802 - mirrors the gRPC stub
+        if self.fail_logs:
+            raise RuntimeError("gateway unavailable")
+        self.logs_requests.append(request)
+        response = openshell_pb2.GetSandboxLogsResponse()
+        for source, level, message in self.log_lines:
+            line = response.logs.add(source=source, level=level, target="openshell_supervisor", message=message)
+            line.event_time.FromMilliseconds(1_790_000_000_500)
+        return response
+
+
+def _collecting_runtime(sandbox, logs):
+    runtime = OpenShellRuntime("shell_suite", image="pi", logs=logs)
+    runtime._client = sandbox
+    runtime._workspace_name = "midojo-shell-abc123"
+    runtime._ref = SimpleNamespace(name="eval-1")
+    runtime._created_ms = 1_790_000_000_000
+    return runtime
+
+
+class TestCollectLogs:
+    def test_saves_agent_output_openshell_log_and_declared_files(self, tmp_path):
+        sandbox = _LoggingSandbox(
+            files={"/tmp/server.log": "server started\n", "/sandbox/workdir/notes.txt": "a note\n"},
+            log_lines=[("sandbox", "OCSF", "NET:OPEN [MED] DENIED /usr/bin/python3(0) -> example.com:443")],
+        )
+        runtime = _collecting_runtime(sandbox, logs=["/tmp/*", "/sandbox/workdir/notes.txt"])
+        runtime.exec_agent("hello", timeout_seconds=30)
+
+        runtime.collect_logs(tmp_path / "eval-1")
+
+        out = tmp_path / "eval-1"
+        assert (out / "agent.stdout").read_text() == "agent answer"
+        assert (out / "agent.stderr").read_text() == "Traceback: boom"
+        assert (out / "sandbox/tmp/server.log").read_text() == "server started\n"
+        assert (out / "sandbox/sandbox/workdir/notes.txt").read_text() == "a note\n"
+        assert "[sandbox] [OCSF] [openshell_supervisor] NET:OPEN [MED] DENIED" in (out / "openshell.log").read_text()
+
+    def test_openshell_log_starts_at_sandbox_creation_from_all_sources(self, tmp_path):
+        sandbox = _LoggingSandbox(files={})
+        _collecting_runtime(sandbox, logs=[]).collect_logs(tmp_path)
+        request = sandbox.logs_requests[0]
+        assert (request.sandbox, request.workspace_scope.workspace) == ("eval-1", "midojo-shell-abc123")
+        assert request.since_time.ToMilliseconds() == 1_790_000_000_000
+        assert list(request.sources) == []
+
+    def test_one_failing_part_does_not_stop_the_others(self, tmp_path):
+        sandbox = _LoggingSandbox(files={"/tmp/server.log": "still here\n"}, fail_logs=True)
+        _collecting_runtime(sandbox, logs=["/tmp/server.log"]).collect_logs(tmp_path)
+        assert not (tmp_path / "openshell.log").exists()
+        assert (tmp_path / "sandbox/tmp/server.log").read_text() == "still here\n"
+
+    def test_without_a_sandbox_saves_nothing(self, tmp_path):
+        OpenShellRuntime("shell_suite", image="pi").collect_logs(tmp_path / "eval-1")
+        assert not (tmp_path / "eval-1").exists()

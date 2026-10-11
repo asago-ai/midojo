@@ -15,6 +15,7 @@ lifecycle. The world state the agent's tools read and write is the suite's
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Protocol
 
 from pydantic import BaseModel
@@ -46,6 +47,13 @@ class AgentRuntime(Protocol):
 
     def observe(self) -> dict[str, BaseModel]:
         """The evaluation's runtime observations, keyed by source."""
+        ...
+
+    def collect_logs(self, dest: Path) -> None:
+        """Save what the runtime can see of the evaluation under ``dest``, before ``teardown``.
+
+        Best effort: also called after a failed ``setup`` or agent run, and never raises.
+        """
         ...
 
     def teardown(self) -> None:
@@ -84,6 +92,9 @@ class UnmanagedRuntime:
     def observe(self) -> dict[str, BaseModel]:
         return {}
 
+    def collect_logs(self, dest: Path) -> None:
+        pass
+
     def teardown(self) -> None:
         pass
 
@@ -102,5 +113,6 @@ def build_runtime(suite_name: str, definition: AgentRuntimeDefinition) -> AgentR
             env_vars=definition.env_vars,
             agent_command=definition.agent_command,
             files=definition.files,
+            logs=definition.logs,
         )
     return UnmanagedRuntime()
