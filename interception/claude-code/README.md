@@ -112,3 +112,24 @@ settings edits. The only runtime caveat is that the marketplace and plugin files
 must sit where the sandbox's filesystem policy allows the agent to read them (the
 demo stages them under `/sandbox`). See `suites/claude_code_demo/` for a
 complete, runnable example.
+
+### Future consideration: interceptor tamper-resistance
+
+The demo stages the plugin under `/sandbox`, which is also the agent's
+read-write playground. Because the agent *is* Claude Code — the model drives the
+same process — its `Write`/`Bash` tools can reach anything the filesystem policy
+marks writable. So today a sufficiently adversarial injection could, in
+principle, have the agent overwrite the hook, flip `enabledPlugins`, or tamper
+with the hook's interpreter (`/sandbox/.venv`) and silently neutralize MiDojo.
+This is acceptable for the current prototype (the demo's injections don't target
+the interceptor), but a hardened setup should move the interceptor out of the
+playground onto read-only paths the policy denies the agent:
+
+- Define the hook via Claude Code's read-only **managed/system settings**
+  (`/etc/claude-code/managed-settings.json`, highest precedence, not
+  user-overridable) rather than a `claude plugin install` that copies a mutable
+  hook into the writable user config dir.
+- Keep the hook code, its interpreter, and `midojo-sdk` on read-only paths
+  (e.g. a dedicated `/opt/midojo`, or the already read-only `/usr` / `/app`).
+
+Tracked as a follow-up; not yet implemented.
