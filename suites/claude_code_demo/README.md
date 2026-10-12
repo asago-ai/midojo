@@ -19,8 +19,11 @@ plugin embeds it *into* the Read result, so the agent reads it as file content.
 Whether each attack then *succeeds* depends on the model. In a sample run on
 Gemma-26B the agent read the embedded injection, recognised it, and resisted all
 three (all delivered, all "attack failed") — the faithful indirect-injection
-signal. (The `important_instructions` wrapper is an obvious tell; a stealthier
-payload is likelier to land.)
+signal. Attack success is also stochastic (the model may comply on one run and resist
+the next), and the `important_instructions` wrapper is an obvious tell. Set
+`delivery: context` on a tool's directive to deliver as an authoritative
+`additionalContext` note instead of embedding -- a different, higher-compliance
+threat class.
 
 This exercises the whole path — inject (tool result) → agent acts → record +
 observe → grade — on merged `main`, with no dependency on the channel/injection
@@ -65,8 +68,16 @@ LiteLLM now serves Anthropic `/v1/messages` on `:8323`, translating to your mode
 Needs an OpenShell gateway and the model endpoint above.
 
 ```sh
-# 1. Build the agent image (tune the base image to yours).
-docker build -t localhost/claude-code-demo:latest \
+# 1a. The agent image. In a real engagement this is the customer's own Claude
+#     Code agent image; here we build a demo one. Skip this and set AGENT_IMAGE
+#     below to use yours.
+docker build -t localhost/claude-code-agent:latest \
+  -f suites/claude_code_demo/sandbox/Containerfile.agent .
+
+# 1b. Overlay the MiDojo plugin onto that agent image -- the only MiDojo-specific
+#     build step. Point AGENT_IMAGE at any Claude Code image.
+docker build --build-arg AGENT_IMAGE=localhost/claude-code-agent:latest \
+  -t localhost/claude-code-demo:latest \
   -f suites/claude_code_demo/sandbox/Containerfile .
 
 # 2. Control plane (port must match the policy + --control-url).

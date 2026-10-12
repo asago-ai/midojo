@@ -1,0 +1,19 @@
+# Demo Claude Code *agent* image — stands in for the customer's agent image.
+#
+# In a real engagement the customer brings this (their Claude Code agent, their
+# model config, their tools). Here we build a minimal one on an OpenShell
+# community sandbox so the demo is self-contained. MiDojo adds nothing in this
+# file; the MiDojo plugin is a separate overlay (see Containerfile).
+#
+# Build (from repo root):
+#   podman build --build-arg ANTHROPIC_BASE_URL=http://host.openshell.internal:8323 \
+#     -t localhost/claude-code-agent:latest -f suites/claude_code_demo/sandbox/Containerfile.agent .
+
+FROM ghcr.io/nvidia/openshell-community/sandboxes/pi:latest
+
+ARG ANTHROPIC_BASE_URL=http://host.openshell.internal:8323
+
+USER root
+RUN npm install -g @anthropic-ai/claude-code
+ENV ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL}
+USER sandbox
