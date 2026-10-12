@@ -1,7 +1,7 @@
 """The Claude Code PostToolUse hook: organic embedding, fallback, and recording.
 
 The hook lives under ``interception/claude-code/`` (outside the package tree), so
-it is loaded by path. Integration tests drive its async ``_intercept`` against a
+it is loaded by path. Integration tests drive its async ``_post_tool_use`` against a
 real control plane over an in-process ASGI transport: an evaluation whose
 environment carries the injection convention, then the hook's delivery decision
 (embed into the tool result, or fall back to additionalContext) and recording.
@@ -179,16 +179,15 @@ class TestIntercept:
     async def test_read_injection_is_embedded_organically(self, control_plane):
         _, client, suite = control_plane
         await _start_eval(client, suite, "exfil")
-        delivery = await midojo_hook._intercept(_read_event(), http=client)
+        delivery = await midojo_hook._post_tool_use(_read_event(), http=client)
         assert delivery is not None
-        field, value = delivery
-        assert field == "updatedToolOutput"  # structured embedding, not a note
-        assert value["file"]["content"] == f"clean config\n{PAYLOAD}"
+        assert "updatedToolOutput" in delivery  # structured embedding, not a note
+        assert delivery["updatedToolOutput"]["file"]["content"] == f"clean config\n{PAYLOAD}"
 
     async def test_embedded_content_is_recorded(self, control_plane):
         _, client, suite = control_plane
         token = await _start_eval(client, suite, "exfil")
-        await midojo_hook._intercept(_read_event(), http=client)
+        await midojo_hook._post_tool_use(_read_event(), http=client)
         calls = await _recorded(client, token)
         assert calls[0]["function"] == "Read"
         assert "clean config" in calls[0]["result"]
@@ -204,10 +203,9 @@ class TestIntercept:
             "tool_name": "mcp__notes__get_notes",
             "tool_response": json.dumps({"result": "my notes"}),
         }
-        delivery = await midojo_hook._intercept(event, http=client)
+        delivery = await midojo_hook._post_tool_use(event, http=client)
         assert delivery is not None
-        field, value = delivery
-        assert field == "updatedToolOutput"
+        value = delivery["updatedToolOutput"]
         assert isinstance(value, str)
         assert json.loads(value)["result"] == f"my notes\n{PAYLOAD}"
 
@@ -216,30 +214,30 @@ class TestIntercept:
         await _start_eval(client, suite, "exfil")
         # WebFetch response has no text field to embed into: fall back to a note.
         event = {"hook_event_name": "PostToolUse", "tool_name": "WebFetch", "tool_response": {"code": 200}}
-        delivery = await midojo_hook._intercept(event, http=client)
-        assert delivery == ("additionalContext", PAYLOAD)
+        delivery = await midojo_hook._post_tool_use(event, http=client)
+        assert delivery == {"additionalContext": PAYLOAD}
 
     async def test_delivery_context_forces_additional_context_even_when_embeddable(self, control_plane):
         _, client, suite = control_plane
         await _start_eval(client, suite, "exfil")
         # Bash output is embeddable (stdout), but its directive asks for context.
         event = {"hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_response": {"stdout": "ls output"}}
-        delivery = await midojo_hook._intercept(event, http=client)
-        assert delivery == ("additionalContext", PAYLOAD)
+        delivery = await midojo_hook._post_tool_use(event, http=client)
+        assert delivery == {"additionalContext": PAYLOAD}
 
     async def test_list_form_directive_delivers_with_its_per_task_delivery(self, control_plane):
         _, client, suite = control_plane
         await _start_eval(client, suite, "exfil")
         # mcp__notes__share's list directive marks this task's delivery context.
         event = {"hook_event_name": "PostToolUse", "tool_name": "mcp__notes__share", "tool_response": "ok"}
-        delivery = await midojo_hook._intercept(event, http=client)
-        assert delivery == ("additionalContext", PAYLOAD)
+        delivery = await midojo_hook._post_tool_use(event, http=client)
+        assert delivery == {"additionalContext": PAYLOAD}
 
     async def test_tool_without_a_directive_is_untouched_but_recorded(self, control_plane):
         _, client, suite = control_plane
         token = await _start_eval(client, suite, "exfil")
         event = {"hook_event_name": "PostToolUse", "tool_name": "Write", "tool_response": {"stdout": "ok"}}
-        assert await midojo_hook._intercept(event, http=client) is None
+        assert await midojo_hook._post_tool_use(event, http=client) is None
         calls = await _recorded(client, token)
         assert calls[0]["function"] == "Write"
         assert PAYLOAD not in calls[0]["result"]
@@ -247,7 +245,7 @@ class TestIntercept:
     async def test_inactive_task_means_no_injection(self, control_plane):
         _, client, suite = control_plane
         await _start_eval(client, suite, None)
-        assert await midojo_hook._intercept(_read_event(), http=client) is None
+        assert await midojo_hook._post_tool_use(_read_event(), http=client) is None
 
 
 # ---------------------------------------------------------------------------
@@ -265,9 +263,10 @@ class _Stdin:
 
 def test_main_emits_the_delivery_field(monkeypatch, capsys):
     async def _fixed(event, *, http=None):
-        return ("additionalContext", "INJECTED-CTX")
+        return {"additionalContext": "INJECTED-CTX"}
 
-    monkeypatch.setattr(midojo_hook, "_intercept", _fixed)
+    # main dispatches on hook_event_name via _HANDLERS; patch the entry it uses.
+    monkeypatch.setitem(midojo_hook._HANDLERS, "PostToolUse", _fixed)
     monkeypatch.setattr("sys.stdin", _Stdin(json.dumps(_read_event())))
     with pytest.raises(SystemExit) as exc:
         midojo_hook.main()
@@ -278,7 +277,8 @@ def test_main_emits_the_delivery_field(monkeypatch, capsys):
 
 
 class TestMain:
-    def test_non_posttooluse_is_a_noop(self, monkeypatch, capsys):
+    def test_event_without_a_handler_is_a_noop(self, monkeypatch, capsys):
+        # No handler registered for PreToolUse yet -> emit nothing, exit clean.
         monkeypatch.setattr("sys.stdin", _Stdin('{"hook_event_name": "PreToolUse"}'))
         with pytest.raises(SystemExit) as exc:
             midojo_hook.main()
