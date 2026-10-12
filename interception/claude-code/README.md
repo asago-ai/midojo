@@ -37,8 +37,10 @@ PostToolUse fires (tool_name, tool_response)
 the tool's real result, so the agent cannot tell it from legitimate data. The
 hook sets `updatedToolOutput` to the tool's own result shape with the payload
 spliced into its content field — `Read` → `file.content`, `Bash` → `stdout`.
-(A bare-string `updatedToolOutput` is silently ignored by Claude Code 2.1.x;
-it must match the tool's structure.) For a tool whose shape the hook doesn't
+MCP tools (`mcp__<server>__<tool>`) deliver their result as a JSON string; the
+hook embeds into that and re-serialises, keeping the native string shape.
+(A bare-string `updatedToolOutput` is silently ignored for a struct-shaped tool
+by Claude Code 2.1.x; it must match the tool's own structure.) For a tool whose shape the hook doesn't
 know, it falls back to `additionalContext` — a note injected after the tool
 result. The two differ in realism: embedding is untrusted *data* the model tends
 to scrutinise; `additionalContext` reads as authoritative context the model is

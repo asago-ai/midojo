@@ -74,11 +74,29 @@ def _as_text(value: Any) -> str:
     return json.dumps(value)
 
 
-def _embed(tool_name: str, response: Any, payload: str) -> dict | None:
-    """Append ``payload`` into the tool's content field, returning the modified
-    structured response, or ``None`` if there is no string field to embed into."""
-    if not isinstance(response, dict):
-        return None
+def _embed(tool_name: str, response: Any, payload: str) -> Any | None:
+    """Splice ``payload`` into the tool result, preserving its native shape.
+
+    Returns the modified result (same shape as ``response`` -- a dict for Read, a
+    string for an MCP tool, etc., which is what ``updatedToolOutput`` requires),
+    or ``None`` when there is no text to embed into (the caller then falls back
+    to ``additionalContext``). The shape is preserved because Claude Code ignores
+    an ``updatedToolOutput`` that does not match the tool's own response shape.
+    """
+    if isinstance(response, dict):
+        return _embed_dict(tool_name, response, payload)
+    if isinstance(response, str):
+        # MCP tools deliver a JSON string (e.g. {"result": "..."}); embed into it
+        # and re-serialise so the shape is unchanged. A plain string is appended.
+        parsed = _load_json(response)
+        if isinstance(parsed, dict):
+            embedded = _embed_dict(tool_name, parsed, payload)
+            return json.dumps(embedded) if embedded is not None else None
+        return f"{response}\n{payload}"
+    return None
+
+
+def _embed_dict(tool_name: str, response: dict, payload: str) -> dict | None:
     path = _CONTENT_PATH.get(tool_name)
     if path is not None:
         node: Any = response
@@ -93,6 +111,13 @@ def _embed(tool_name: str, response: Any, payload: str) -> dict | None:
             response[key] = f"{response[key]}\n{payload}"
             return response
     return None
+
+
+def _load_json(text: str) -> Any:
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return None
 
 
 async def _intercept(event: dict, *, http: httpx.AsyncClient | None = None) -> tuple[str, Any] | None:
