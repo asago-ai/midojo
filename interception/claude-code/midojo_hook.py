@@ -25,14 +25,19 @@ Prototype targeting lives in the suite's environment, by convention::
         tool_output:
           Read: { payload: "{exfil:main}" }           # organic (default)
           Bash: { payload: "{exfil:main}", delivery: context }
+          # A list gives each task its own delivery through one tool:
+          mcp__notes__get_notes:
+            - { payload: "{action:main}" }                       # organic
+            - { payload: "{action_note:main}", delivery: context }
 
 ``delivery`` chooses the vector: ``organic`` (default) embeds the payload into
 the tool result; ``context`` sends it as an authoritative additionalContext note,
 the higher-compliance / lower-realism class. The ``{task:probe}`` placeholder is
-filled with the active injection task's
-payload at evaluation creation, reusing the existing injection-task machinery.
-This env convention is a deliberate stand-in for a future injection plan; when
-that lands, only the lookup changes.
+filled with the active injection task's payload at evaluation creation, reusing
+the existing injection-task machinery. Because that substitution empties every
+inactive task's placeholder, the list form has at most one non-empty entry per
+tool, and its ``delivery`` is used. This env convention is a deliberate stand-in
+for a future injection plan; when that lands, only the lookup changes.
 
 The hook authenticates with the evaluation's session token (``MIDOJO_SESSION_TOKEN``,
 with ``MIDOJO_URL``), which MiDojo places in the sandbox. Every control-plane
@@ -173,7 +178,32 @@ async def _lookup_directive(client: AgentControlPlaneClient, tool_name: str) -> 
     ``context`` (deliver as an authoritative additionalContext note).
     """
     environment = await client.get_environment()
-    directive = environment.get("injections", {}).get("tool_output", {}).get(tool_name, {})
+    directive = environment.get("injections", {}).get("tool_output", {}).get(tool_name)
+    return _resolve_directive(directive)
+
+
+def _resolve_directive(directive: Any) -> tuple[str, str]:
+    """Resolve an env directive to ``(payload, delivery)``.
+
+    A directive is one of:
+
+    * a ``dict`` with ``payload`` and optional ``delivery`` (the common case,
+      one payload per tool);
+    * a ``list`` of such dicts, one per injection task, giving each its own
+      ``delivery`` -- used to deliver, say, one task organically and another as
+      a context note *through the same tool*. Probe substitution empties every
+      inactive task's payload, so at most one entry has a payload and its
+      ``delivery`` wins; the first non-empty entry is chosen;
+    * a bare ``str`` shorthand (payload, delivered organically).
+
+    Anything else (or an all-empty list) means no injection for this tool.
+    """
+    if isinstance(directive, list):
+        for entry in directive:
+            payload, delivery = _resolve_directive(entry)
+            if payload:
+                return payload, delivery
+        return "", "organic"
     if isinstance(directive, dict):
         return directive.get("payload") or "", directive.get("delivery") or "organic"
     if isinstance(directive, str):  # a bare "Tool: payload" shorthand

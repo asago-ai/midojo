@@ -4,7 +4,7 @@
       {
         "matcher": "*",
         "hooks": [
-          { "type": "command", "command": "python3", "args": ["${CLAUDE_PLUGIN_ROOT}/midojo_hook.py"], "timeout": 15 }
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/midojo_hook.py\"", "timeout": 15 }
         ]
       }
     ]

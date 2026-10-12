@@ -98,8 +98,17 @@ Your Claude Code agent is otherwise unchanged. (Verified end to end: with the
 plugin installed this way and no settings edits, the hook fires on a tool call
 and delivers the injection.)
 
+Note on `python3`: the plugin's `hooks/hooks.json` runs the hook with bare
+`python3` (and `${CLAUDE_PLUGIN_ROOT}` for its path), so the `python3` your agent
+resolves at runtime must be the interpreter you installed `midojo-sdk` into. If
+the hook silently does nothing, that mismatch — or the control plane being
+unreachable — is the usual cause; both fail open by design.
+
 For a fully isolated, headless run — a sandbox per evaluation, with the agent's
-filesystem and network diffed and audited — MiDojo's `openshell` runtime bakes
-the plugin into an agent image and loads the hook via the agent's settings (more
-robust than a plugin install inside a build). See `suites/claude_code_demo/` for
-a complete, runnable example.
+filesystem and network diffed and audited — MiDojo's `openshell` runtime installs
+this plugin into the agent image the same way (`claude plugin install` from a
+local marketplace), so the demo exercises the real packaging path with no
+settings edits. The only runtime caveat is that the marketplace and plugin files
+must sit where the sandbox's filesystem policy allows the agent to read them (the
+demo stages them under `/sandbox`). See `suites/claude_code_demo/` for a
+complete, runnable example.
