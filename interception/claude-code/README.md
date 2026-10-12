@@ -75,12 +75,29 @@ built-in tools); pin or re-verify against the version your agent runs.
 
 ## Install into your own agent
 
-This directory is a Claude Code plugin (`.claude-plugin/plugin.json` +
-`hooks/hooks.json`). Install and enable it in your Claude Code setup, then set
-`MIDOJO_URL` (and `MIDOJO_SESSION_TOKEN`, which MiDojo provides per evaluation).
-The hook's only dependency is `midojo-sdk` (httpx under the hood).
+This directory is a Claude Code plugin, published through a marketplace manifest
+at the repo root (`.claude-plugin/marketplace.json`). Install it the normal way:
 
-For a fully isolated run — a sandbox per evaluation, with the agent's filesystem
-and network diffed and audited — MiDojo's `openshell` runtime bakes the plugin
-into an agent image and runs it on a gateway. See `suites/claude_code_demo/` for
+```sh
+# 1. The hook runs via `python3`; that interpreter needs the SDK.
+pip install midojo-sdk            # or: uv pip install midojo-sdk
+
+# 2. Add this repo as a marketplace and install the plugin.
+claude plugin marketplace add asago-ai/midojo      # or a local path to the repo
+claude plugin install midojo-interceptor@midojo
+
+# 3. Point the hook at a running MiDojo control plane.
+export MIDOJO_URL=http://localhost:8080
+#    MIDOJO_SESSION_TOKEN is supplied per evaluation by midojo-run.
+```
+
+`claude plugin details midojo-interceptor` should list one `PostToolUse` hook.
+Your Claude Code agent is otherwise unchanged. (Verified end to end: with the
+plugin installed this way and no settings edits, the hook fires on a tool call
+and delivers the injection.)
+
+For a fully isolated, headless run — a sandbox per evaluation, with the agent's
+filesystem and network diffed and audited — MiDojo's `openshell` runtime bakes
+the plugin into an agent image and loads the hook via the agent's settings (more
+robust than a plugin install inside a build). See `suites/claude_code_demo/` for
 a complete, runnable example.

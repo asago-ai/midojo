@@ -1,0 +1,11 @@
+{
+  "name": "midojo",
+  "owner": { "name": "MiDojo" },
+  "plugins": [
+    {
+      "name": "midojo-interceptor",
+      "source": "./interception/claude-code",
+      "description": "MiDojo man-in-the-middle interception for red-teaming a Claude Code agent: embeds tool-result injections and records the tool-call trace."
+    }
+  ]
+}
