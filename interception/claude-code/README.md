@@ -64,6 +64,15 @@ lands, only the hook's lookup changes.
 Every control-plane call fails open: if the control plane is unreachable the hook
 injects nothing and exits cleanly rather than breaking the agent.
 
+## Compatibility
+
+Tested against **Claude Code 2.1.x** (2.1.156). The hook depends on the
+PostToolUse wire contract: the `tool_response` input field, a tool-shaped
+`updatedToolOutput` for organic embedding, and `additionalContext` for the
+fallback/`context` vector. Other Claude Code versions may format pre/post-tool
+hooks differently (field names, whether `updatedToolOutput` is applied to
+built-in tools); pin or re-verify against the version your agent runs.
+
 ## Install into your own agent
 
 This directory is a Claude Code plugin (`.claude-plugin/plugin.json` +

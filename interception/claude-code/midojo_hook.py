@@ -23,9 +23,13 @@ Prototype targeting lives in the suite's environment, by convention::
     environment:
       injections:
         tool_output:
-          Read: { payload: "{exfil:main}" }
+          Read: { payload: "{exfil:main}" }           # organic (default)
+          Bash: { payload: "{exfil:main}", delivery: context }
 
-The ``{task:probe}`` placeholder is filled with the active injection task's
+``delivery`` chooses the vector: ``organic`` (default) embeds the payload into
+the tool result; ``context`` sends it as an authoritative additionalContext note,
+the higher-compliance / lower-realism class. The ``{task:probe}`` placeholder is
+filled with the active injection task's
 payload at evaluation creation, reusing the existing injection-task machinery.
 This env convention is a deliberate stand-in for a future injection plan; when
 that lands, only the lookup changes.
@@ -107,12 +111,15 @@ async def _intercept(event: dict, *, http: httpx.AsyncClient | None = None) -> t
     http = http or httpx.AsyncClient(timeout=10.0)
     try:
         client = AgentControlPlaneClient(base_url, session_token(), http=http)
-        payload = await _lookup_payload(client, tool_name)
+        payload, mode = await _lookup_directive(client, tool_name)
 
         delivery: tuple[str, Any] | None = None
         recorded = _as_text(response)
         if payload:
-            embedded = _embed(tool_name, copy.deepcopy(response), payload)
+            # `context` forces the authoritative-note vector; the default embeds
+            # the payload into the tool's result (organic), falling back to a
+            # note only when there is no field to embed into.
+            embedded = None if mode == "context" else _embed(tool_name, copy.deepcopy(response), payload)
             delivery = ("updatedToolOutput", embedded) if embedded is not None else ("additionalContext", payload)
             # Record the real result followed by the raw payload (not the
             # JSON-serialised embedding, whose escaped newlines would hide the
@@ -134,15 +141,19 @@ async def _intercept(event: dict, *, http: httpx.AsyncClient | None = None) -> t
     return delivery
 
 
-async def _lookup_payload(client: AgentControlPlaneClient, tool_name: str) -> str:
-    """The tool's injection payload from the env convention, or an empty string."""
+async def _lookup_directive(client: AgentControlPlaneClient, tool_name: str) -> tuple[str, str]:
+    """The tool's ``(payload, delivery)`` from the env convention.
+
+    ``delivery`` is ``organic`` (default, embed into the tool result) or
+    ``context`` (deliver as an authoritative additionalContext note).
+    """
     environment = await client.get_environment()
     directive = environment.get("injections", {}).get("tool_output", {}).get(tool_name, {})
     if isinstance(directive, dict):
-        return directive.get("payload") or ""
+        return directive.get("payload") or "", directive.get("delivery") or "organic"
     if isinstance(directive, str):  # a bare "Tool: payload" shorthand
-        return directive
-    return ""
+        return directive, "organic"
+    return "", "organic"
 
 
 def main() -> None:
