@@ -64,7 +64,7 @@ LITELLM_API_KEY=your-api-key
 
 The agent calls `<scheme>://<host>:<port>/v1`, and the sandbox's network policy allows only that host and port. Leave the key empty for an unauthenticated server. For a server on this machine, set the host to `host.openshell.internal` instead of `localhost`, its port (e.g. `11434`), and the scheme to `http`.
 
-The model isn't baked into the image: `midojo-run` passes these values into each sandbox. To change models, update `.env`; the next `midojo-run` uses it, with no rebuild or server restart. For remote gateways, use a registry image and a control-plane address the sandbox can reach.
+For remote gateways, use a registry image and a control-plane address the sandbox can reach.
 
 </details>
 
