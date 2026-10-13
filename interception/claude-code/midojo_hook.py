@@ -1,13 +1,17 @@
-"""MiDojo PostToolUse hook for a Claude Code agent under test.
+"""MiDojo hook for a Claude Code agent under test.
 
 Claude Code runs the agent's own tools -- ``Read``, ``Bash``, ``Write``, any
-connected MCP tool -- and this hook is the man-in-the-middle for all of them at
-once, from inside the agent's own loop. On every ``PostToolUse`` event it:
+connected MCP tool -- and this one hook is the man-in-the-middle for all of them,
+from inside the agent's own loop. ``main`` dispatches on ``hook_event_name``:
 
-  1. reads the evaluation's environment from the control plane,
-  2. looks up an injection payload for the tool that just ran, and
-  3. delivers that payload to the model, recording the delivered content so
-     grading and the reachability check see it.
+* On ``PostToolUse`` (after a tool runs) it reads the evaluation's environment,
+  looks up an injection payload for the tool that just ran, delivers it to the
+  model, and records the delivered content so grading and the reachability check
+  see it.
+* On ``PreToolUse`` (before a tool runs) it enforces the ``tool_policies``
+  surface: a ``deny`` policy blocks the call and records the *attempt*
+  (``blocked=True``), so a dangerous tool can be neutralized without ever
+  executing while the hijack attempt still shows up in the trace.
 
 **Delivery -- organic where possible.** The faithful injection embeds the
 payload *inside* the tool's real result, so the agent cannot tell it from
@@ -38,6 +42,15 @@ the existing injection-task machinery. Because that substitution empties every
 inactive task's placeholder, the list form has at most one non-empty entry per
 tool, and its ``delivery`` is used. This env convention is a deliberate stand-in
 for a future injection plan; when that lands, only the lookup changes.
+
+The ``PreToolUse`` policy surface is a sibling of ``injections``::
+
+    environment:
+      tool_policies:
+        mcp__notes__delete_notes: { action: deny, reason: "destructive; blocked by policy" }
+
+``action: deny`` neutralizes the tool before it runs; any tool with no policy is
+left alone.
 
 The hook authenticates with the evaluation's session token (``MIDOJO_SESSION_TOKEN``,
 with ``MIDOJO_URL``), which MiDojo places in the sandbox. Every control-plane
@@ -178,6 +191,60 @@ async def _post_tool_use(event: dict, *, http: httpx.AsyncClient | None = None) 
     return delivery
 
 
+async def _pre_tool_use(event: dict, *, http: httpx.AsyncClient | None = None) -> dict[str, Any] | None:
+    """Handle a ``PreToolUse`` event: enforce the tool-policy surface.
+
+    Looks up ``environment.tool_policies[tool_name]``. On a ``deny`` policy it
+    records the *attempt* (``blocked=True`` -- the tool never runs) and returns a
+    ``deny`` permission decision so Claude Code blocks the call and tells the
+    model why. Any other tool is left alone (``None``): the default permission
+    flow proceeds and ``_post_tool_use`` records the completed call, so no call is
+    recorded twice (record-only-on-deny here; record-on-completion there).
+    """
+    tool_name = event.get("tool_name", "")
+    tool_input = event.get("tool_input")
+
+    base_url = os.environ.get("MIDOJO_URL", "http://localhost:8080")
+    owned = http is None
+    http = http or httpx.AsyncClient(timeout=10.0)
+    try:
+        client = AgentControlPlaneClient(base_url, session_token(), http=http)
+        action, reason = await _lookup_policy(client, tool_name)
+        if action != "deny":
+            return None
+
+        note = reason or "blocked by MiDojo tool policy"
+        # Record the blocked attempt so the trace and `tool_called` (which counts
+        # blocked calls) see that the agent tried the tool, even though it never ran.
+        await client.record_function_call(
+            function=tool_name,
+            args=tool_input if isinstance(tool_input, dict) else {},
+            result=f"(blocked by MiDojo tool policy: {note})",
+            blocked=True,
+        )
+    finally:
+        if owned:
+            await http.aclose()
+
+    return {"permissionDecision": "deny", "permissionDecisionReason": note}
+
+
+async def _lookup_policy(client: AgentControlPlaneClient, tool_name: str) -> tuple[str, str]:
+    """The tool's ``(action, reason)`` from the ``tool_policies`` env surface.
+
+    ``action`` is ``deny`` (block the call before it runs) or ``allow`` (the
+    default -- no policy, leave the call alone). This surface is a sibling of
+    ``injections``; it names a *control* on the call, not an injected payload.
+    """
+    environment = await client.get_environment()
+    policy = environment.get("tool_policies", {}).get(tool_name)
+    if isinstance(policy, dict):
+        return (policy.get("action") or "allow"), (policy.get("reason") or "")
+    if isinstance(policy, str):  # a bare "Tool: deny" shorthand
+        return policy, ""
+    return "allow", ""
+
+
 async def _lookup_directive(client: AgentControlPlaneClient, tool_name: str) -> tuple[str, str]:
     """The tool's ``(payload, delivery)`` from the env convention.
 
@@ -229,6 +296,7 @@ def _resolve_directive(directive: Any) -> tuple[str, str]:
 # etc. slot in as additional entries here (each with its own matcher in
 # ``hooks/hooks.json``) without reshaping ``main``.
 _HANDLERS: dict[str, Callable[..., Coroutine[Any, Any, dict[str, Any] | None]]] = {
+    "PreToolUse": _pre_tool_use,
     "PostToolUse": _post_tool_use,
 }
 

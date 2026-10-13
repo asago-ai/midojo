@@ -1,5 +1,13 @@
 {
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/midojo_hook.py\"", "timeout": 15 }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "*",
