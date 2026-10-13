@@ -42,6 +42,7 @@ import time
 import uuid
 from collections.abc import Callable
 from dataclasses import asdict
+from pathlib import Path
 from typing import Any
 
 import grpc
@@ -79,6 +80,13 @@ _CLIENT_TIMEOUT_SECONDS = 120.0
 # Total wall-clock budget for a teardown wait (sandbox delete, or waiting for a
 # workspace to drain to empty). Polled in ~1s steps.
 _TEARDOWN_BUDGET_SECONDS = 120.0
+
+# Log collection (see OpenShellRuntime.collect_logs). Expands the suite's `logs`
+# globs in the sandbox and prints the regular files they match, one per line.
+_LIST_LOG_FILES_SCRIPT = 'for p in "$@"; do for f in $p; do [ -f "$f" ] && printf "%s\\n" "$f"; done; done'
+# The most log lines to ask the gateway for; it keeps a bounded buffer anyway.
+_MAX_LOG_LINES = 100_000
+_COLLECT_EXEC_TIMEOUT_SECONDS = 60
 
 # Log sync barrier (see OpenShellRuntime._sync_ocsf_messages). The marker lives
 # under the reserved .test TLD so it can never be policy-eligible or resolve.
@@ -270,6 +278,8 @@ class OpenShellRuntime:
           policy: {...}            # inline policy; omit for the image's built-in policy
           files:                   # seeded workdir files (probe placeholders allowed)
             customer_report.txt: "Q4 report ... {injection_task_0:main}"
+          logs:                    # files the agent writes, copied out after each evaluation
+            - /tmp/agent.log
 
     Lifecycle (driven by the orchestrator):
       1. ``configure(cluster=..., control_url=...)`` — inject deployment config (once)
@@ -277,8 +287,9 @@ class OpenShellRuntime:
       3. ``setup(injections, ...)`` — create sandbox with evaluation labels, seed files (per evaluation)
       4. agent executes (via ``exec_agent``)
       5. ``observe()`` — workdir diff + OCSF events → ``OpenShellObservations``
-      6. ``teardown()`` — delete the sandbox (per evaluation)
-      7. ``end_run()`` — delete the run's workspace, close the client (once)
+      6. ``collect_logs(dest)`` — agent output, sandbox logs, the suite's ``logs`` files (per evaluation)
+      7. ``teardown()`` — delete the sandbox (per evaluation)
+      8. ``end_run()`` — delete the run's workspace, close the client (once)
     """
 
     name = "openshell"
@@ -293,6 +304,7 @@ class OpenShellRuntime:
         env_vars: dict[str, str] | None = None,
         agent_command: list[str] | None = None,
         files: dict[str, str] | None = None,
+        logs: list[str] | None = None,
     ) -> None:
         self._suite_name = suite_name
         self._image: str = image
@@ -313,6 +325,8 @@ class OpenShellRuntime:
         self._agent_command: list[str] | None = agent_command
         # Seed-file templates (probe placeholders intact), rendered in setup().
         self._files: dict[str, str] = files or {}
+        # Globs of files the agent writes in the sandbox, copied out by collect_logs().
+        self._logs: list[str] = logs or []
 
         # Deployment config — set by configure() before start_run()
         self._cluster: str = ""
@@ -330,8 +344,10 @@ class OpenShellRuntime:
 
         # Per-evaluation sandbox state — set by setup(), cleared by teardown()
         self._ref: Any = None
+        self._created_ms: int = 0
         self._start_ms: int = 0
         self._cached_ocsf: OCSFEvents | None = None
+        self._agent_result: Any = None
 
     # --- Public read-only accessors (avoid direct private attribute access) ---
 
@@ -430,6 +446,7 @@ class OpenShellRuntime:
         }
         if injection_task_id is not None:
             labels["midojo.injection-task"] = injection_task_id
+        self._created_ms = int(time.time() * 1000)
         self._ref = self._client.create(
             workspace=self._workspace_name, spec=spec, name=f"eval-{eval_id}", labels=labels
         )
@@ -474,7 +491,8 @@ class OpenShellRuntime:
         leading slash to drop, so it resolves correctly regardless of the model.
         """
         cmd = [*self._agent_command, prompt] if self._agent_command else [prompt]
-        return self._exec(cmd, workdir=_WORKDIR, timeout_seconds=int(timeout_seconds))
+        self._agent_result = self._exec(cmd, workdir=_WORKDIR, timeout_seconds=int(timeout_seconds))
+        return self._agent_result
 
     def _read_ocsf_messages(self) -> list[str]:
         """Return the OCSF messages the supervisor has pushed since the evaluation began.
@@ -580,6 +598,71 @@ class OpenShellRuntime:
         )
         return {OBSERVATIONS_SOURCE: observed}
 
+    def collect_logs(self, dest: Path) -> None:
+        """Save the evaluation's logs under ``dest`` before the sandbox is deleted.
+
+        - ``agent.stdout``, ``agent.stderr``: the agent command's output, whatever its exit code
+        - ``openshell.log``: the sandbox's gateway and supervisor log lines, including
+          every network decision, from the sandbox's creation on
+        - ``sandbox/<path>``: each file matching the suite's ``logs`` globs
+
+        Best effort: each part is attempted independently and failures are logged,
+        never raised, so a broken sandbox still yields whatever can be read.
+        """
+        if self._ref is None or self._client is None:
+            return
+        dest.mkdir(parents=True, exist_ok=True)
+        for part, save in (
+            ("agent output", self._save_agent_output),
+            ("OpenShell log", self._save_openshell_log),
+            ("sandbox log files", self._save_log_files),
+        ):
+            try:
+                save(dest)
+            except Exception as exc:
+                logging.getLogger(__name__).warning("Collecting the %s of %s failed: %s", part, self._ref.name, exc)
+
+    def _save_agent_output(self, dest: Path) -> None:
+        if self._agent_result is None:
+            return
+        (dest / "agent.stdout").write_text(self._agent_result.stdout or "")
+        (dest / "agent.stderr").write_text(self._agent_result.stderr or "")
+
+    def _save_openshell_log(self, dest: Path) -> None:
+        since = Timestamp()
+        since.FromMilliseconds(self._created_ms or self._start_ms)
+        response = self._client._stub.GetSandboxLogs(
+            openshell_pb2.GetSandboxLogsRequest(
+                sandbox=self._ref.name,
+                workspace_scope=datamodel_pb2.WorkspaceSelector(workspace=self._workspace_name),
+                since_time=since,
+                lines=_MAX_LOG_LINES,
+            ),
+            timeout=30.0,
+        )
+        lines = []
+        for entry in response.logs:
+            when = entry.event_time.ToDatetime().isoformat(timespec="milliseconds")
+            lines.append(f"{when} [{entry.source}] [{entry.level}] [{entry.target}] {entry.message}")
+        (dest / "openshell.log").write_text("\n".join(lines) + ("\n" if lines else ""))
+
+    def _save_log_files(self, dest: Path) -> None:
+        if not self._logs:
+            return
+        listed = self._exec(
+            ["sh", "-c", _LIST_LOG_FILES_SCRIPT, "sh", *self._logs],
+            workdir=_WORKDIR,
+            timeout_seconds=_COLLECT_EXEC_TIMEOUT_SECONDS,
+        )
+        for path in (line.strip() for line in (listed.stdout or "").splitlines()):
+            if not path:
+                continue
+            absolute = path if path.startswith("/") else f"{_WORKDIR}/{path}"
+            content = self._exec(["cat", absolute], timeout_seconds=_COLLECT_EXEC_TIMEOUT_SECONDS)
+            target = dest / "sandbox" / absolute.lstrip("/")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content.stdout or "")
+
     def teardown(self) -> None:
         """Delete the evaluation's sandbox. The workspace is deleted in ``end_run()``."""
         if self._ref is not None and self._client is not None:
@@ -593,8 +676,10 @@ class OpenShellRuntime:
 
                 logging.getLogger(__name__).warning("Sandbox teardown failed: %s", exc)
         self._ref = None
+        self._created_ms = 0
         self._start_ms = 0
         self._cached_ocsf = None
+        self._agent_result = None
 
     def end_run(self) -> None:
         """Wait for the run's workspace to drain, delete it, and close the client.

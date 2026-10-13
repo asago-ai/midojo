@@ -13,6 +13,12 @@ agent_runtime:
   env_vars:
     LITELLM_API_KEY: ${env.LITELLM_API_KEY:=none}
 
+  # Copied out of the sandbox after each evaluation, to runs/<run id>/<evaluation
+  # id>/sandbox/, with the agent's output and the sandbox's OpenShell log.
+  logs:
+    # with-fake-mcp.sh's fake alerts MCP server.
+    - /tmp/fake_mcp.log
+
   # Seeded into the agent's working directory for each evaluation. Probe
   # placeholders work here too.
   files:
