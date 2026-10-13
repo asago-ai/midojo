@@ -57,15 +57,12 @@ Create or update a gitignored `.env` in the repo root with your OpenAI-compatibl
 LITELLM_API_HOST=your-model-server.example.com
 LITELLM_MODEL=your-model-id
 LITELLM_API_KEY=your-api-key
+# Optional; the defaults are shown.
+# LITELLM_API_PORT=443
+# LITELLM_API_SCHEME=https
 ```
 
-The agent calls `https://<host>:443/v1`, and the sandbox's network policy allows only that host and port. Set `LITELLM_API_PORT` for a different port, and leave the key empty for an unauthenticated server. For a server on this machine, use `host.openshell.internal` instead of `localhost`, with its port and plain HTTP, for example:
-
-```dotenv
-LITELLM_API_HOST=host.openshell.internal
-LITELLM_API_PORT=11434
-LITELLM_API_SCHEME=http
-```
+The agent calls `<scheme>://<host>:<port>/v1`, and the sandbox's network policy allows only that host and port. Leave the key empty for an unauthenticated server. For a server on this machine, set the host to `host.openshell.internal` instead of `localhost`, its port (e.g. `11434`), and the scheme to `http`.
 
 The model isn't baked into the image: `midojo-run` passes these values into each sandbox. To change models, update `.env`; the next `midojo-run` uses it, with no rebuild or server restart. For remote gateways, use a registry image and a control-plane address the sandbox can reach.
 
