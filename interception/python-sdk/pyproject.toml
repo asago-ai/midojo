@@ -11,7 +11,8 @@ dependencies = [
 
 [project.optional-dependencies]
 mcp = [
-    "fastmcp",
+    # 4.0 removed fastmcp.tools.tool, which mcp.py imports ToolResult from.
+    "fastmcp>=3,<4",
 ]
 langchain = [
     "langchain>=1.4",
