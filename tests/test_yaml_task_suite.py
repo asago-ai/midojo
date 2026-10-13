@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from midojo.suite_definition import OpenShellRuntimeDefinition
@@ -376,3 +378,45 @@ class TestProbeAttackType:
 
         with pytest.raises(ValueError, match="injection_task_0:main.*Unsupported attack_type"):
             YAMLTaskSuite("test", suite_yaml)
+
+
+class TestWeatherModelServer:
+    """The weather agent's URL is built from the host and port its policy allows."""
+
+    _SUITE_YAML = Path(__file__).parent.parent / "suites" / "weather" / "suite.yaml"
+    _VARS = ("LITELLM_API_HOST", "LITELLM_API_PORT", "LITELLM_API_SCHEME", "LITELLM_MODEL", "LITELLM_API_KEY")
+
+    def _load(self, monkeypatch, **env):
+        for name in self._VARS:
+            monkeypatch.delenv(name, raising=False)
+        for name, value in env.items():
+            monkeypatch.setenv(name, value)
+        runtime = YAMLTaskSuite("weather", self._SUITE_YAML).definition.agent_runtime
+        assert isinstance(runtime, OpenShellRuntimeDefinition)
+        assert runtime.policy is not None
+        return runtime.env_vars, runtime.policy["networkPolicies"]["inference"]["endpoints"]
+
+    def test_remote_server_defaults_to_https_443(self, monkeypatch):
+        env_vars, endpoints = self._load(monkeypatch, LITELLM_API_HOST="models.example.com", LITELLM_MODEL="m")
+        assert env_vars["LITELLM_API_URL"] == "https://models.example.com:443/v1"
+        assert endpoints == [{"host": "models.example.com", "port": "443"}]
+        assert env_vars["LITELLM_MODEL"] == "m"
+        assert env_vars["LITELLM_API_KEY"] == "none"
+
+    def test_local_server(self, monkeypatch):
+        env_vars, endpoints = self._load(
+            monkeypatch,
+            LITELLM_API_HOST="host.openshell.internal",
+            LITELLM_API_PORT="11434",
+            LITELLM_API_SCHEME="http",
+            LITELLM_MODEL="m",
+        )
+        assert env_vars["LITELLM_API_URL"] == "http://host.openshell.internal:11434/v1"
+        assert endpoints == [{"host": "host.openshell.internal", "port": "11434"}]
+
+    @pytest.mark.parametrize("missing", ["LITELLM_API_HOST", "LITELLM_MODEL"])
+    def test_host_and_model_are_required(self, monkeypatch, missing):
+        env = {"LITELLM_API_HOST": "models.example.com", "LITELLM_MODEL": "m"}
+        del env[missing]
+        with pytest.raises(ValueError, match=missing):
+            self._load(monkeypatch, **env)

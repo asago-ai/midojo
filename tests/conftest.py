@@ -1,9 +1,16 @@
+import os
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from midojo.control_plane.main import create_app
 from midojo.suites import get_suite
+
+# The weather suite requires its model server settings to load. Tests never
+# start its agent, so placeholders do.
+os.environ.setdefault("LITELLM_API_HOST", "model-server.test")
+os.environ.setdefault("LITELLM_MODEL", "test-model")
 
 task_suite = get_suite("weather")
 

@@ -42,28 +42,29 @@ This installs MiDojo and the OpenShell Python SDK it uses to talk to your gatewa
 <details>
 <summary>One-time setup: model and agent image</summary>
 
-With Podman running, build the [example image](suites/weather/sandbox_pi/Containerfile) from the repo root. Replace the endpoint and model ID with your OpenAI-compatible model server's values:
+With Podman running, build the [example image](suites/weather/sandbox_pi/Containerfile) from the repo root:
 
 ```bash
 podman build --pull=always \
-  --build-arg LITELLM_API_URL=https://your-model-server.example.com/v1 \
-  --build-arg LITELLM_MODEL=your-model-id \
   -t localhost/weather-pi:latest -f suites/weather/sandbox_pi/Containerfile .
 ```
 
 With Docker, run `docker build --pull` with the same arguments. On Apple Silicon, add `--platform linux/arm64` to avoid x86 emulation. Make the image available to the gateway's container runtime; the suite already references `localhost/weather-pi:latest`.
 
-Create or update a gitignored `.env` in the repo root:
+Create or update a gitignored `.env` in the repo root with your OpenAI-compatible model server's values:
 
 ```dotenv
 LITELLM_API_HOST=your-model-server.example.com
-LITELLM_API_PORT=443
+LITELLM_MODEL=your-model-id
 LITELLM_API_KEY=your-api-key
+# Optional; the defaults are shown.
+# LITELLM_API_PORT=443
+# LITELLM_API_SCHEME=https
 ```
 
-The host and port allow the model connection through the sandbox's network policy and must match the image's endpoint. Leave the key empty for an unauthenticated server. For a model on the host, use `host.openshell.internal` instead of `localhost`, both in the image URL and the allowed host.
+The agent calls `<scheme>://<host>:<port>/v1`, and the sandbox's network policy allows only that host and port. Leave the key empty for an unauthenticated server. For a server on this machine, set the host to `host.openshell.internal` instead of `localhost`, its port (e.g. `11434`), and the scheme to `http`.
 
-The API key is passed at runtime, not baked into the image. To change models, rebuild with the new model/endpoint and update `.env` if needed; the next `midojo-run` uses them, with no server restart. For remote gateways, use a registry image and a control-plane address the sandbox can reach.
+For remote gateways, use a registry image and a control-plane address the sandbox can reach.
 
 </details>
 
@@ -78,7 +79,7 @@ This example runs the bundled weather agent in an OpenShell sandbox. Alerts are 
 In terminal 1, load the suite and leave the server running:
 
 ```bash
-uv run midojo-serve --load-suite weather --port 8090
+uv run --env-file .env midojo-serve --load-suite weather --port 8090
 ```
 
 Port 8090 matches the sandbox's access policy. The server listens on all interfaces so the local sandbox can reach it; run this example on a trusted development machine.
@@ -193,7 +194,7 @@ uv run --env-file .env midojo-run --suite weather --gateway openshell \
   --logdir runs/weather-baseline
 ```
 
-**Change the trap.** Edit the payload under `hidden_file_via_itinerary` in [suite.yaml](suites/weather/suite.yaml) and rerun step 2. `midojo-run` reads the payloads on every run, so the server doesn't need a restart. To compare models, rebuild the example image for another model using the setup above.
+**Change the trap.** Edit the payload under `hidden_file_via_itinerary` in [suite.yaml](suites/weather/suite.yaml) and rerun step 2. `midojo-run` reads the payloads on every run, so the server doesn't need a restart. To compare models, change `LITELLM_MODEL` (and the server values, if needed) in `.env` and rerun; no rebuild is needed.
 
 Use a new `--logdir` for each comparison; another run in the same directory replaces `results.json`.
 
