@@ -42,11 +42,10 @@ The fake MCP server is the man-in-the-middle: it sits between the Agent and real
 Start them in order, for example for the weather suite on an OpenShell gateway:
 
 ```sh
-podman build --build-arg LITELLM_API_URL=... --build-arg LITELLM_MODEL=... \
-  -t localhost/weather-pi:latest -f suites/weather/sandbox_pi/Containerfile .   # 1. the example agent image
+podman build -t localhost/weather-pi:latest -f suites/weather/sandbox_pi/Containerfile .   # 1. the example agent image (model-agnostic)
+export LITELLM_API_HOST=... LITELLM_MODEL=... LITELLM_API_KEY=...                 # the suite needs these to load (optional: LITELLM_API_PORT, LITELLM_API_SCHEME)
 midojo-serve --load-suite weather --port 8090                                     # 2. Control Plane (must be UP before anything else talks to it)
-LITELLM_API_KEY=... LITELLM_API_HOST=... LITELLM_API_PORT=... \
-  midojo-run --suite weather --gateway GATEWAY --control-url http://localhost:8090  # 3. runs the benchmark (exits when done)
+midojo-run --suite weather --gateway GATEWAY --control-url http://localhost:8090  # 3. runs the benchmark (exits when done)
 ```
 
 for additional examples refer to [README.md](./README.md).

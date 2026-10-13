@@ -4,13 +4,21 @@ agent_runtime:
   # The example PI agent. Build it from sandbox_pi/Containerfile (see the
   # Quick Start in the README), or replace it with your own sandbox image.
   image: localhost/weather-pi:latest
-  # with-fake-mcp.sh starts the image's fake alerts MCP server, then runs PI.
-  # --approve lets PI read the project .pi/mcp.json seeded below.
-  agent_command: ["/sandbox/midojo/with-fake-mcp.sh", "pi", "-p", "--no-session", "--approve"]
+  # start-agent.sh points PI at the model below and starts the image's fake
+  # alerts MCP server, then runs PI. --approve lets PI read the project
+  # .pi/mcp.json seeded below.
+  agent_command: ["/sandbox/midojo/start-agent.sh", "pi", "-p", "--no-session", "--approve"]
 
-  # The image reads its API key from this variable. Leave it unset for a
-  # local model server that needs no key: PI needs a value, so it sends `none`.
+  # The model the agent uses: any OpenAI-compatible server with tool calling.
+  # LITELLM_API_HOST and LITELLM_MODEL are required. The URL is built from the
+  # same host and port the network policy allows (see `inference` below), so
+  # the two can't disagree. For a server on this machine, use
+  # host.openshell.internal with its port and LITELLM_API_SCHEME=http. Leave
+  # LITELLM_API_KEY unset for a server that needs no key: PI needs a value, so
+  # it sends `none`.
   env_vars:
+    LITELLM_API_URL: ${env.LITELLM_API_SCHEME:=https}://${env.LITELLM_API_HOST}:${env.LITELLM_API_PORT:=443}/v1
+    LITELLM_MODEL: ${env.LITELLM_MODEL}
     LITELLM_API_KEY: ${env.LITELLM_API_KEY:=none}
 
   # Seeded into the agent's working directory for each evaluation. Probe
@@ -61,11 +69,11 @@ agent_runtime:
       #       port: 443
       #   binaries:
       #     - path: /sandbox/.uv/python/**
-      # The model server the image was built for (LITELLM_API_URL).
+      # The model server, the same host and port as LITELLM_API_URL above.
       inference:
         endpoints:
-          - host: ${env.LITELLM_API_HOST:=host.openshell.internal}
-            port: ${env.LITELLM_API_PORT:=8321}
+          - host: ${env.LITELLM_API_HOST}
+            port: ${env.LITELLM_API_PORT:=443}
         binaries:
           - path: /usr/bin/node
           - path: /usr/bin/pi
