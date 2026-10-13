@@ -20,6 +20,14 @@ class CreateFunctionCallRecord(BaseModel):
         default=False,
         description="The tool never ran: the agent's call was blocked, and `result` is what the agent was told instead.",
     )
+    agent_id: str | None = Field(
+        default=None,
+        description="Which agent made the call: a subagent's id when the call came from inside a subagent, else null (the main agent).",
+    )
+    agent_type: str | None = Field(
+        default=None,
+        description="The subagent's type (e.g. 'general-purpose') when the call came from a subagent, else null.",
+    )
 
 
 class FunctionCallResponse(CreateFunctionCallRecord):

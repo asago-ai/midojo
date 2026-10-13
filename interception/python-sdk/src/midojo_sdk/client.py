@@ -25,11 +25,27 @@ class AgentControlPlaneClient:
         response.raise_for_status()
 
     async def record_function_call(
-        self, *, function: str, args: dict, result: str, error: str | None = None, blocked: bool = False
+        self,
+        *,
+        function: str,
+        args: dict,
+        result: str,
+        error: str | None = None,
+        blocked: bool = False,
+        agent_id: str | None = None,
+        agent_type: str | None = None,
     ) -> None:
         response = await self._http.post(
             f"{self._base_url}/agent/function-calls",
             headers=self._headers,
-            json={"function": function, "args": args, "result": result, "error": error, "blocked": blocked},
+            json={
+                "function": function,
+                "args": args,
+                "result": result,
+                "error": error,
+                "blocked": blocked,
+                "agent_id": agent_id,
+                "agent_type": agent_type,
+            },
         )
         response.raise_for_status()
