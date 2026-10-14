@@ -95,3 +95,27 @@ def test_model_copy_deep():
     copy = instance.model_copy(deep=True)
     copy.items.append({"x": 1})
     assert instance.items == []
+
+
+def test_list_items_keep_keys_absent_from_the_first_item():
+    """A key appearing only on a later list item must not be dropped.
+
+    Injection directive entries are lists whose first entry may be ``{payload}``
+    while a later one adds ``when``/``delivery``; those must survive the
+    inferred-type round-trip (regression for silent key loss).
+    """
+    env_data = {
+        "injections": {
+            "tool_output": {
+                "Read": [
+                    {"payload": ""},
+                    {"payload": "p", "when": {"arg": {"file_path": "secret.md"}}, "delivery": "context"},
+                ]
+            }
+        }
+    }
+    EnvType = infer_environment_type("demo", env_data)  # noqa: N806 - type factory
+    dumped = EnvType.model_validate(env_data).model_dump()
+    entry = dumped["injections"]["tool_output"]["Read"][1]
+    assert entry["when"] == {"arg": {"file_path": "secret.md"}}
+    assert entry["delivery"] == "context"
