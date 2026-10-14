@@ -15,6 +15,20 @@
           { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/midojo_hook.py\"", "timeout": 15 }
         ]
       }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/midojo_hook.py\"", "timeout": 15 }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/midojo_hook.py\"", "timeout": 15 }
+        ]
+      }
     ]
   }
 }
