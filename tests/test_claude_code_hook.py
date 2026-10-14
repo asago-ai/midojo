@@ -44,6 +44,8 @@ environment:
         - { payload: "{exfil:main}", delivery: context }
       Fetch:
         - { payload: "{exfil:main}", when: { arg: { url: "evil.example" } } }
+      mcp__notes__search:
+        - { payload: "{exfil:main}", when: { arg: { query: "secret" } } }
   tool_policies:
     mcp__notes__delete: { action: deny, reason: "blocked for tests" }
 user_tasks:
@@ -150,6 +152,13 @@ class TestResolveDirective:
 
     def test_no_when_applies_to_every_call(self):
         assert midojo_hook._resolve_directive({"payload": "P"}, {"url": "x"}, "y") == ("P", "organic")
+
+    def test_when_result_contains_matches_mcp_json_string(self):
+        # MCP results are a JSON string; result_contains matches the content in it.
+        d = {"payload": "P", "when": {"result_contains": "launch"}}
+        mcp = '{"result":"The Q3 roadmap is on track. Launch is scheduled for the 15th."}'
+        assert midojo_hook._resolve_directive(d, {}, mcp) == ("P", "organic")
+        assert midojo_hook._resolve_directive(d, {}, '{"result":"nothing here"}') == ("", "organic")
 
     def test_list_picks_first_entry_whose_when_matches(self):
         directive = [
@@ -290,6 +299,21 @@ class TestIntercept:
         assert (
             await midojo_hook._post_tool_use({**base, "tool_input": {"url": "http://safe.test/x"}}, http=client) is None
         )
+
+    async def test_when_condition_targets_an_mcp_tool_by_arg(self, control_plane):
+        _, client, suite = control_plane
+        await _start_eval(client, suite, "exfil")
+        # `when` is tool-name-agnostic: it gates an MCP tool on its own args too.
+        # The MCP result arrives as a JSON string, which embeds organically.
+        base = {
+            "hook_event_name": "PostToolUse",
+            "tool_name": "mcp__notes__search",
+            "tool_response": '{"result": "matches"}',
+        }
+        hit = await midojo_hook._post_tool_use({**base, "tool_input": {"query": "the secret notes"}}, http=client)
+        assert hit is not None and "updatedToolOutput" in hit
+        miss = await midojo_hook._post_tool_use({**base, "tool_input": {"query": "public info"}}, http=client)
+        assert miss is None
 
 
 @pytest.mark.asyncio
