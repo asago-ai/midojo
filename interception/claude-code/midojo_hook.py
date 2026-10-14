@@ -81,13 +81,15 @@ import httpx
 from midojo_sdk.client import AgentControlPlaneClient
 from midojo_sdk.session import session_token
 
-# Where a tool's human-readable content lives in its PostToolUse ``tool_response``.
-# Embedding the payload here makes it part of what the agent reads.
+# Where a tool's human-readable content lives in its PostToolUse ``tool_response``
+# when it is NOT a plain top-level string (those are handled by _GENERIC_FIELDS
+# below). Verified against Claude Code 2.1.x responses: ``Read`` nests its text
+# at ``file.content``; ``WebSearch`` returns a list of result strings under
+# ``results``. Tools whose content is a top-level string -- ``Bash`` (``stdout``),
+# ``WebFetch`` (``result``) -- need no entry; the generic fallback embeds them.
 _CONTENT_PATH: dict[str, tuple[str, ...]] = {
     "Read": ("file", "content"),
-    "Bash": ("stdout",),
-    "Grep": ("stdout",),
-    "Glob": ("stdout",),
+    "WebSearch": ("results",),
 }
 # Fallback top-level text fields to try for tools not in the map above.
 _GENERIC_FIELDS = ("stdout", "content", "output", "result", "text")
@@ -131,9 +133,16 @@ def _embed_dict(tool_name: str, response: dict, payload: str) -> dict | None:
         for key in path[:-1]:
             node = node.get(key) if isinstance(node, dict) else None
         leaf = path[-1]
-        if isinstance(node, dict) and isinstance(node.get(leaf), str):
-            node[leaf] = f"{node[leaf]}\n{payload}"
-            return response
+        if isinstance(node, dict):
+            target = node.get(leaf)
+            if isinstance(target, str):
+                node[leaf] = f"{target}\n{payload}"
+                return response
+            # A list-of-strings leaf (e.g. WebSearch's ``results``): ride the last
+            # result so the payload reads as part of it.
+            if isinstance(target, list) and target and all(isinstance(x, str) for x in target):
+                target[-1] = f"{target[-1]}\n{payload}"
+                return response
     for key in _GENERIC_FIELDS:
         if isinstance(response.get(key), str):
             response[key] = f"{response[key]}\n{payload}"

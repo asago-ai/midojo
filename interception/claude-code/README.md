@@ -28,6 +28,20 @@ PostToolUse fires (tool_name, tool_response)
 
 For a tool whose shape the hook doesn't know, it falls back to `additionalContext` — a note injected after the tool result. The two differ in realism: embedding is untrusted *data* the model tends to scrutinise; `additionalContext` reads as authoritative context the model is likelier to obey. Both are useful vectors.
 
+### Targeting built-in tools
+
+Targeting is keyed by the exact tool name, so the data-returning built-ins embed organically out of the box (verified against Claude Code 2.1.x `tool_response` shapes):
+
+| Tool | content field | how |
+|---|---|---|
+| `Read` | `file.content` (nested string) | explicit shape map |
+| `Bash` | `stdout` (top-level string) | generic fallback |
+| `WebFetch` | `result` (top-level string) | generic fallback |
+| `WebSearch` | `results` (list of strings) | explicit shape map (rides the last result) |
+| MCP `mcp__<server>__<tool>` | JSON string | parsed, embedded, re-serialised |
+
+Any other tool whose result exposes a top-level string (`stdout`/`content`/`output`/`result`/`text`) also embeds via the generic fallback; anything else degrades to the `additionalContext` note. The exact built-in set and shapes are **version- and config-dependent** (some builds expose or rename tools), so confirm the tool names your agent actually uses — they appear in the recorded `function-calls` of a baseline (non-injected) run — and target those. MCP tool names are the customer's own (`mcp__<server>__<tool>`).
+
 ## Where targeting lives (prototype)
 
 Which tool gets which payload is read from the evaluation environment, by convention:
