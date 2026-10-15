@@ -40,7 +40,7 @@ Targeting is keyed by the exact tool name, so the data-returning built-ins embed
 | `WebSearch` | `results` (list of strings) | explicit shape map (rides the last result) |
 | MCP `mcp__<server>__<tool>` | JSON string | parsed, embedded, re-serialised |
 
-Any other tool whose result exposes a top-level string (`stdout`/`content`/`output`/`result`/`text`) also embeds via the generic fallback; anything else degrades to the `additionalContext` note. The exact built-in set and shapes are **version- and config-dependent** (some builds expose or rename tools), so confirm the tool names your agent actually uses — they appear in the recorded `function-calls` of a baseline (non-injected) run — and target those. MCP tool names are the customer's own (`mcp__<server>__<tool>`).
+Any other tool whose result exposes a top-level string (`stdout`/`content`/`output`/`result`/`text`) also embeds via the generic fallback; anything else degrades to the `additionalContext` note.
 
 ## Where targeting lives (prototype)
 
