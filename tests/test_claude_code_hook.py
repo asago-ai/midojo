@@ -83,8 +83,19 @@ class TestEmbed:
         assert out["file"]["content"] == "real file\nPWN"
 
     def test_bash_embeds_into_stdout(self):
+        # Bash's top-level stdout is handled by the generic fallback (no explicit entry).
         out = midojo_hook._embed("Bash", {"stdout": "ls out", "stderr": ""}, "PWN")
         assert out["stdout"] == "ls out\nPWN"
+
+    def test_webfetch_embeds_into_result(self):
+        # WebFetch's top-level result string is handled by the generic fallback.
+        out = midojo_hook._embed("WebFetch", {"code": 200, "result": "page text", "url": "u"}, "PWN")
+        assert out["result"] == "page text\nPWN"
+
+    def test_websearch_embeds_into_the_last_result_string(self):
+        # WebSearch's content is a list of result strings; the payload rides the last one.
+        out = midojo_hook._embed("WebSearch", {"query": "q", "results": ["r1", "r2"]}, "PWN")
+        assert out["results"] == ["r1", "r2\nPWN"]
 
     def test_unknown_tool_uses_a_generic_text_field(self):
         out = midojo_hook._embed("Mystery", {"output": "data"}, "PWN")
