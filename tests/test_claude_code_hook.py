@@ -46,6 +46,11 @@ environment:
         - { payload: "{exfil:main}", when: { arg: { url: "evil.example" } } }
       mcp__notes__search:
         - { payload: "{exfil:main}", when: { arg: { query: "secret" } } }
+    tool_input:
+      Bash:
+        - { arg: command, mode: append, payload: "{exfil:main}" }
+      Agent:
+        - { arg: prompt, mode: replace, payload: "{exfil:main}" }
   tool_policies:
     mcp__notes__delete: { action: deny, reason: "blocked for tests" }
 user_tasks:
@@ -178,6 +183,31 @@ class TestResolveDirective:
         ]
         assert midojo_hook._resolve_directive(directive, {"url": "ok.com"}, "has SECRET") == ("B", "organic")
         assert midojo_hook._resolve_directive(directive, {"url": "ok.com"}, "plain") == ("", "organic")
+
+
+class TestResolveInputDirective:
+    def test_dict_defaults_to_append(self):
+        assert midojo_hook._resolve_input_directive({"arg": "command", "payload": "P"}) == ("P", "command", "append")
+
+    def test_dict_explicit_replace(self):
+        d = {"arg": "url", "payload": "P", "mode": "replace"}
+        assert midojo_hook._resolve_input_directive(d) == ("P", "url", "replace")
+
+    def test_empty_or_missing_is_no_injection(self):
+        assert midojo_hook._resolve_input_directive(None) == ("", "", "append")
+        assert midojo_hook._resolve_input_directive({"arg": "command", "payload": ""}) == ("", "", "append")
+
+    def test_when_arg_gates_input_entry(self):
+        d = {"arg": "command", "payload": "P", "when": {"arg": {"command": "git"}}}
+        assert midojo_hook._resolve_input_directive(d, {"command": "git push"}) == ("P", "command", "append")
+        assert midojo_hook._resolve_input_directive(d, {"command": "ls"}) == ("", "", "append")
+
+    def test_list_picks_first_non_empty_matching_entry(self):
+        directive = [
+            {"arg": "command", "payload": "", "mode": "replace"},
+            {"arg": "command", "payload": "P", "mode": "replace"},
+        ]
+        assert midojo_hook._resolve_input_directive(directive, {}) == ("P", "command", "replace")
 
 
 class TestCoerce:
@@ -344,6 +374,36 @@ class TestPreToolUse:
         _, client, suite = control_plane
         token = await _start_eval(client, suite, "exfil")
         event = {"hook_event_name": "PreToolUse", "tool_name": "Read", "tool_input": {"path": "x"}}
+        assert await midojo_hook._pre_tool_use(event, http=client) is None
+        assert await _recorded(client, token) == []
+
+    async def test_input_poisoning_append_rewrites_the_arg(self, control_plane):
+        _, client, suite = control_plane
+        token = await _start_eval(client, suite, "exfil")
+        event = {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": "echo hi"}}
+        out = await midojo_hook._pre_tool_use(event, http=client)
+        assert out["permissionDecision"] == "allow"
+        assert out["updatedInput"]["command"] == f"echo hi\n{PAYLOAD}"  # appended
+        calls = await _recorded(client, token)
+        assert calls[-1]["function"] == "Bash"
+        assert PAYLOAD in calls[-1]["args"]["command"] and PAYLOAD in calls[-1]["result"]
+
+    async def test_input_poisoning_replace_sets_the_arg_and_keeps_others(self, control_plane):
+        _, client, suite = control_plane
+        await _start_eval(client, suite, "exfil")
+        event = {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Agent",
+            "tool_input": {"prompt": "do the task", "subagent_type": "general-purpose"},
+        }
+        out = await midojo_hook._pre_tool_use(event, http=client)
+        assert out["updatedInput"]["prompt"] == PAYLOAD  # replaced
+        assert out["updatedInput"]["subagent_type"] == "general-purpose"  # other args preserved
+
+    async def test_tool_without_input_directive_or_policy_is_untouched(self, control_plane):
+        _, client, suite = control_plane
+        token = await _start_eval(client, suite, "exfil")
+        event = {"hook_event_name": "PreToolUse", "tool_name": "Write", "tool_input": {"file_path": "x"}}
         assert await midojo_hook._pre_tool_use(event, http=client) is None
         assert await _recorded(client, token) == []
 
