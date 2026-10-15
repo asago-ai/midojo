@@ -108,12 +108,20 @@ agent_runtime:
       # hook poisons the fetched content). A real engagement widens this to the
       # sites the customer's agent legitimately browses.
       web_fetch:
+        # Claude Code's WebFetch routes the fetch/verification through
+        # api.anthropic.com (Anthropic's backend), so BOTH it and the fetched
+        # host must be allowed — without api.anthropic.com WebFetch declines with
+        # "couldn't verify the domain as safe". A real engagement widens the host
+        # list to the sites the agent browses.
         endpoints:
           - host: example.com
+            port: 443
+          - host: api.anthropic.com
             port: 443
         binaries:
           - path: /usr/bin/node
           - path: /usr/local/bin/claude
+          - path: /sandbox/.uv/python/**
 
 environment:
   # Prototype injection convention: per-tool payloads the hook splices into that
@@ -145,12 +153,11 @@ environment:
         # Result-gated: fire only when the fetched notes contain a trigger word.
         - { payload: "{result_gated:main}", when: { result_contains: "launch" } }
       # Built-in WebFetch: poison a fetched page's content (classic indirect
-      # injection). Not exercised on the sealed demo sandbox: Claude Code's
-      # WebFetch declines external URLs there (its domain-safety behaviour under
-      # the restricted network), so the tool never runs and there is no result to
-      # poison -- even though the VM itself has egress and the network policy
-      # below allows example.com. The WebFetch embedding path is covered by the
-      # hook's unit tests; run web_poison where WebFetch actually fetches.
+      # injection). Works E2E -- but Claude Code's WebFetch routes the
+      # fetch/verification through api.anthropic.com (Anthropic's backend), so the
+      # web_fetch network policy must allow BOTH api.anthropic.com and the fetched
+      # host (example.com). Without api.anthropic.com it declines with "couldn't
+      # verify the domain as safe".
       WebFetch:
         - { payload: "{web_poison:main}" }
 
