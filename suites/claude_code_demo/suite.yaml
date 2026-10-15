@@ -145,10 +145,12 @@ environment:
         # Result-gated: fire only when the fetched notes contain a trigger word.
         - { payload: "{result_gated:main}", when: { result_contains: "launch" } }
       # Built-in WebFetch: poison a fetched page's content (classic indirect
-      # injection). Needs the target host allowed in the network policy below AND
-      # a gateway with external egress — the sealed demo gateway has none, so the
-      # fetch fails there (the WebFetch embedding itself is verified by the hook's
-      # unit tests). Run web_poison on a gateway that can reach the internet.
+      # injection). Not exercised on the sealed demo sandbox: Claude Code's
+      # WebFetch declines external URLs there (its domain-safety behaviour under
+      # the restricted network), so the tool never runs and there is no result to
+      # poison -- even though the VM itself has egress and the network policy
+      # below allows example.com. The WebFetch embedding path is covered by the
+      # hook's unit tests; run web_poison where WebFetch actually fetches.
       WebFetch:
         - { payload: "{web_poison:main}" }
 
