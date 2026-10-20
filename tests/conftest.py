@@ -15,6 +15,12 @@ os.environ.setdefault("LITELLM_MODEL", "test-model")
 task_suite = get_suite("weather")
 
 
+@pytest.fixture(autouse=True)
+def no_control_token(monkeypatch):
+    """Tests run without a control token unless they set MIDOJO_CONTROL_TOKEN themselves."""
+    monkeypatch.delenv("MIDOJO_CONTROL_TOKEN", raising=False)
+
+
 @pytest.fixture
 def suite():
     return task_suite
