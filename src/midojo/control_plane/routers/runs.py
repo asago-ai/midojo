@@ -175,6 +175,11 @@ async def grade_evaluation(
 # --- Environment endpoints (nested under evaluation) ---
 
 
+@router.get("/{run_id}/evaluations/{eval_id}/pre-environment", status_code=status.HTTP_200_OK)
+async def get_pre_environment(evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)]) -> dict:
+    return evaluation.pre_environment.model_dump()
+
+
 @router.get("/{run_id}/evaluations/{eval_id}/environment", status_code=status.HTTP_200_OK)
 async def get_environment(evaluation: Annotated[Evaluation, Depends(get_evaluation_by_id)]) -> dict:
     return evaluation.environment.model_dump()
