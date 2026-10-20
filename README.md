@@ -84,6 +84,8 @@ uv run --env-file .env midojo-serve --load-suite weather --port 8090
 
 Port 8090 matches the sandbox's access policy. The server listens on all interfaces so the local sandbox can reach it; run this example on a trusted development machine.
 
+Anything that can reach the server can read and change its runs. To require a token on every route except the agent's callbacks and `/health`, add `MIDOJO_CONTROL_TOKEN=<a random secret>` to `.env`: `midojo-serve` and `midojo-run` both read it (or pass `--control-token`), and `midojo-run` never hands it to the agent.
+
 ### 2. Run a red-team test
 
 In terminal 2, from the repo root, run one evaluation on the `openshell` gateway the installer registered:

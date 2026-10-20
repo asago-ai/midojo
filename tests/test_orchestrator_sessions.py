@@ -12,6 +12,8 @@ from pydantic import BaseModel
 
 from midojo.agent_client import AgentClient, PIAgentClient, SimpleHTTPAgentClient
 from midojo.control_plane.client import ControlPlaneClient
+from midojo.control_plane.config import AppConfig
+from midojo.control_plane.main import create_app
 from midojo.orchestrator import run_benchmark, run_task
 from midojo.runtimes import UnmanagedRuntime
 from midojo.runtimes.openshell import OpenShellObservations, OpenShellRuntime
@@ -176,6 +178,30 @@ async def test_benchmark_selects_suite_and_creates_unique_sessions(local_http, c
 
 
 @pytest.mark.asyncio
+async def test_benchmark_authenticates_with_the_control_token(suite, unmanaged_suite, monkeypatch, tmp_path):
+    app = create_app({"weather": suite}, config=AppConfig(control_token="control-secret"))
+    client_class = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda *args, **kwargs: client_class(*args, transport=httpx.ASGITransport(app), **kwargs)
+    )
+    benchmark = {
+        "control_url": "http://control",
+        "agent_client": ReportingAgent(),
+        "agent_uri": "http://agent",
+        "protocol": "http",
+        "suite": unmanaged_suite,
+        "suite_name": "weather",
+        "user_task_ids": ["weather_new_york"],
+        "injection_task_ids": [],
+        "logdir": tmp_path,
+    }
+    with pytest.raises(httpx.HTTPStatusError, match="401"):
+        await run_benchmark(**benchmark)
+    await run_benchmark(**benchmark, control_token="control-secret")
+    assert json.loads((tmp_path / "results.json").read_text())["utility"] == {"weather_new_york,": True}
+
+
+@pytest.mark.asyncio
 async def test_benchmark_grades_security_when_the_injection_reaches_the_agent(
     local_http, client, unmanaged_suite, tmp_path
 ):
@@ -219,6 +245,24 @@ async def test_http_agent_receives_session_header(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("token,expected", [("control-secret", "Bearer control-secret"), (None, None)])
+async def test_control_client_sends_the_control_token(token, expected):
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        if request.method == "DELETE":
+            return httpx.Response(204)
+        return httpx.Response(201, json={"id": "run-1", "suite_name": "weather"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
+        control = ControlPlaneClient("http://control", token=token, http=http)
+        await control.create_run("weather")
+        await control.revoke_session("run-1", "eval-1")
+    assert [request.headers.get("Authorization") for request in requests] == [expected, expected]
+
+
+@pytest.mark.asyncio
 async def test_pi_subprocess_receives_session_at_launch(monkeypatch, tmp_path):
     launches = []
 
@@ -238,6 +282,29 @@ async def test_pi_subprocess_receives_session_at_launch(monkeypatch, tmp_path):
         assert await agent.send_task("task", session_token=token) == "done"
     assert [launch["env"]["MIDOJO_SESSION_TOKEN"] for launch in launches] == ["first", "second"]
     assert all(launch["env"]["MIDOJO_URL"] == "http://control" for launch in launches)
+
+
+@pytest.mark.asyncio
+async def test_pi_subprocess_never_receives_the_control_token(monkeypatch, tmp_path):
+    monkeypatch.setenv("MIDOJO_CONTROL_TOKEN", "control-secret")
+    launches = []
+
+    class Process:
+        returncode = 0
+
+        async def communicate(self):
+            return b"done", b""
+
+    async def launch(*args, **kwargs):
+        launches.append(kwargs)
+        return Process()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", launch)
+    assert await PIAgentClient(str(tmp_path), "http://control").send_task("task", session_token="token") == "done"
+    env = launches[0]["env"]
+    assert env["MIDOJO_SESSION_TOKEN"] == "token"
+    assert "MIDOJO_CONTROL_TOKEN" not in env
+    assert "control-secret" not in env.values()
 
 
 def test_openshell_tokens_and_labels_are_per_sandbox_creation(gateway):

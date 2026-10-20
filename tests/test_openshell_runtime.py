@@ -59,7 +59,15 @@ class _FakeSandboxClient:
     def __init__(self):
         self.exec_calls = []
         self.logs_requests = []
+        self.specs = []
         self._stub = self
+
+    def create(self, *, spec, name, **kwargs):
+        self.specs.append(spec)
+        return SimpleNamespace(name=name)
+
+    def wait_ready(self, name, **kwargs):
+        pass
 
     def exec(self, sandbox_name, command, **kwargs):
         self.exec_calls.append((sandbox_name, command, kwargs))
@@ -85,6 +93,15 @@ def test_exec_addresses_the_sandbox_by_name_within_the_workspace():
     name, _, kwargs = client.exec_calls[0]
     assert name == "midojo-eval-1"
     assert kwargs["workspace"] == "midojo-shell-abc123"
+
+
+def test_sandbox_environment_never_carries_the_control_token(monkeypatch):
+    monkeypatch.setenv("MIDOJO_CONTROL_TOKEN", "control-secret")
+    runtime, client = _runtime_with_sandbox()
+    runtime.configure(cluster="test", control_url="http://localhost:8090")
+    runtime.setup({}, session_token="session", eval_id="e1", user_task_id="t", injection_task_id=None)
+    environment = dict(client.specs[0].environment)
+    assert environment == {"MIDOJO_SESSION_TOKEN": "session", "MIDOJO_URL": "http://host.openshell.internal:8090"}
 
 
 def test_log_fetch_scopes_to_the_sandbox_since_the_evaluation_started():

@@ -1,3 +1,4 @@
+import logging
 import sys
 from unittest.mock import patch
 
@@ -63,3 +64,25 @@ def test_serve_rejects_invalid_suite_before_starting(external_suite):
     assert isinstance(result.exception, ValueError)
     assert "environment\n  Input should be a valid dictionary" in str(result.exception)
     serve.assert_not_called()
+
+
+def test_serve_warns_once_when_control_routes_are_unauthenticated(monkeypatch, caplog):
+    monkeypatch.delenv("MIDOJO_CONTROL_TOKEN", raising=False)
+    with patch("midojo.serve.uvicorn.run") as serve, caplog.at_level(logging.WARNING, logger="midojo.serve"):
+        result = CliRunner().invoke(main, ["--load-suite", "weather"])
+    assert result.exit_code == 0, result.exception
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "unauthenticated" in warnings[0] and "MIDOJO_CONTROL_TOKEN" in warnings[0]
+    assert TestClient(serve.call_args.args[0]).get("/suites").status_code == 200
+
+
+@pytest.mark.parametrize("args,env", [(["--control-token", "secret"], {}), ([], {"MIDOJO_CONTROL_TOKEN": "secret"})])
+def test_serve_requires_the_control_token_when_set(caplog, args, env):
+    with patch("midojo.serve.uvicorn.run") as serve, caplog.at_level(logging.WARNING, logger="midojo.serve"):
+        result = CliRunner().invoke(main, ["--load-suite", "weather", *args], env=env)
+    assert result.exit_code == 0, result.exception
+    assert not caplog.records
+    client = TestClient(serve.call_args.args[0])
+    assert client.get("/suites").status_code == 401
+    assert client.get("/suites", headers={"Authorization": "Bearer secret"}).status_code == 200
