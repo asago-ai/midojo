@@ -126,7 +126,7 @@ The weather answer is correct—but the user never asked for a hidden copy of th
 
 A useful answer can still come with an unsafe action. That's why MiDojo scores the two separately.
 
-Cmd/Ctrl-click the evaluation ID, in terminals that support links, to open its record on the server: the agent's input and output, the verdicts, and the recorded tool calls. Add `/observations` to that URL to see the sandbox evidence, such as files created and network calls. Both are available while the server is running.
+Cmd/Ctrl-click the evaluation ID, in terminals that support links, to open its record on the server: the agent's input and output, the verdicts, and the recorded tool calls. Add `/observations` to that URL to see the sandbox evidence, such as files created and network calls. Both are available while the server is running. If you set `MIDOJO_CONTROL_TOKEN`, these pages need it too, and a browser can't send it: open them with `curl -H "Authorization: Bearer $MIDOJO_CONTROL_TOKEN" <url>` instead.
 
 ## Going further
 
