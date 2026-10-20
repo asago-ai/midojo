@@ -44,12 +44,13 @@ Where each SDK stands. The Claude Code plugin is in review ([#171](https://githu
 | | PI (`@midojo/pi-sdk`) | LangChain (`midojo_sdk.langchain`) | MCP (`midojo_sdk.mcp`) | Claude Code (plugin) |
 |---|---|---|---|---|
 | The agent keeps its real tools | yes | yes | no: the fake server defines each tool again, and `ctx.forward` calls the real one | yes |
-| Intercepts by tool name | yes: `hooks`, `reportTools`, `blockTools` | yes: `hook`, `report`, `block` | no: each tool is a fake that can forward to the real one | no: one hook for every tool, driven by the suite's environment |
-| *before* hook | no: PI's `tool_call` event can rewrite arguments, but the SDK doesn't expose it | no: the middleware can rewrite `request` before running the tool, but the SDK doesn't expose it | yes: change the arguments, then `ctx.forward` | yes: a `PreToolUse` hook returns `updatedInput` |
-| *after* hook | yes: `hooks` | yes: `hook` | yes: return a changed `ctx.forward` result | yes: a `PostToolUse` hook returns `updatedToolOutput` in the tool's own result shape |
-| Report | yes: `reportTools` | yes: `report` | a fake that returns `ctx.forward` unchanged | yes: it records every tool |
-| Block | yes: `blockTools` | yes: `block` | a fake that raises, recorded with `blocked: false` | yes: a `PreToolUse` hook denies the call, with its own message |
-| Replace | no: PI's `tool_call` event can't return a result; the SDK's `tools` work only for a tool the agent doesn't have | no: the middleware can return a result without running the tool, but the SDK doesn't expose it | yes: a fake that doesn't forward, recorded with `blocked: false` | MCP tools only, with a fake MCP server; Claude Code hooks can't return a result for a tool that didn't run |
+| Intercepts by tool name | yes: `hooks`, `reportTools`, `blockTools` | yes: `hook`, `report`, `block` | not needed: the fake server defines every tool, so the suite's code decides what each call does | no: one hook for every tool, driven by the suite's environment |
+| *before* hook | no: PI's `tool_call` event can rewrite arguments, but the SDK doesn't expose it | no: the middleware can rewrite `request` before running the tool, but the SDK doesn't expose it | yes, in the fake tool | yes: a `PreToolUse` hook returns `updatedInput` |
+| *after* hook | yes: `hooks` | yes: `hook` | yes, in the fake tool | yes: a `PostToolUse` hook returns `updatedToolOutput` in the tool's own result shape |
+| Report | yes: `reportTools` | yes: `report` | yes, in the fake tool | yes: it records every tool |
+| Block | yes: `blockTools` | yes: `block` | yes, in the fake tool | yes: a `PreToolUse` hook denies the call, with its own message |
+| Replace | no: PI's `tool_call` event can't return a result; the SDK's `tools` work only for a tool the agent doesn't have | no: the middleware can return a result without running the tool, but the SDK doesn't expose it | yes, in the fake tool | MCP tools only, with a fake MCP server; Claude Code hooks can't return a result for a tool that didn't run |
+| Records blocked and replaced calls as blocked | yes | yes | no: every call is recorded with `blocked: false` | yes, for blocked calls |
 | Errors come back as error results | no: a hook's or fake tool's error reaches the agent as plain text | yes | yes | no: on any error the hook leaves the call alone |
 | Records a real tool's error | no: it always records `error: null` | yes | yes | no: failed calls aren't recorded |
 | Records arguments as the agent sent them | yes | yes | yes | no: a rewritten call is recorded with the rewritten arguments |
