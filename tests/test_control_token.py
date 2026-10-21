@@ -1,6 +1,9 @@
 """The control token guards every route except the agent callbacks and the health check."""
 
+import re
+
 import pytest
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from midojo.control_plane.config import AppConfig
@@ -8,6 +11,8 @@ from midojo.control_plane.main import create_app
 
 TOKEN = "control-secret"
 CONTROL = {"Authorization": f"Bearer {TOKEN}"}
+# FastAPI's own documentation routes, which aren't API routes.
+DOCS = {"/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc"}
 ROUTES = [
     ("get", "/suites", 200),
     ("get", "/suites/weather", 200),
@@ -47,6 +52,28 @@ def test_control_routes_require_the_control_token(guarded, evaluation, method, p
         assert rejected.status_code == 401
         assert rejected.headers["WWW-Authenticate"] == "Bearer"
     assert _request(guarded, method, path, CONTROL).status_code == status
+
+
+def _takes_control_token(route: APIRoute) -> bool:
+    # The agent callbacks take the evaluation's session token instead, and the health check takes none.
+    return not route.path.startswith("/agent/") and route.path != "/health"
+
+
+def test_every_other_route_requires_the_control_token(guarded):
+    """Walks the app's routes, so a router included without the control dependency fails here."""
+    routes = guarded.app.routes
+    assert {route.path for route in routes if not isinstance(route, APIRoute)} <= DOCS
+    checked = [
+        (method, re.sub(r"\{[^}]+\}", "x", route.path))
+        for route in routes
+        if isinstance(route, APIRoute) and _takes_control_token(route)
+        for method in sorted(route.methods)
+    ]
+    assert checked
+    for method, path in checked:
+        response = guarded.request(method, path)
+        assert response.status_code == 401, f"{method} {path} answered {response.status_code} without the control token"
+        assert response.headers["WWW-Authenticate"] == "Bearer"
 
 
 def test_evaluation_routes_reject_the_session_token(guarded, evaluation):
