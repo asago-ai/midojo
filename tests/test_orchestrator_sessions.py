@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 import grpc
 import httpx
 import pytest
+import pytest_asyncio
 from openshell import SandboxClient, WorkspaceClient
 from pydantic import BaseModel
 
@@ -40,16 +41,11 @@ def gateway(monkeypatch):
     return SimpleNamespace(sandboxes=sandboxes, workspaces=workspaces, RpcError=RpcError, StatusCode=grpc.StatusCode)
 
 
-@pytest.fixture
-def local_http(app, monkeypatch):
-    client_class = httpx.AsyncClient
-
-    def factory(*args, **kwargs):
-        kwargs.setdefault("transport", httpx.ASGITransport(app))
-        return client_class(*args, **kwargs)
-
-    monkeypatch.setattr(httpx, "AsyncClient", factory)
-    return factory
+@pytest_asyncio.fixture
+async def local_http(app):
+    """A client that sends requests to the control plane app in process."""
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app)) as http:
+        yield http
 
 
 @pytest.fixture
@@ -60,19 +56,21 @@ def unmanaged_suite(suite, monkeypatch):
 
 
 class ReportingAgent(AgentClient):
-    def __init__(self, fail=False):
+    """Reports one function call to the control plane through ``http``, then replies."""
+
+    def __init__(self, http, fail=False):
+        self.http = http
         self.tokens = []
         self.fail = fail
 
     async def send_task(self, prompt, *, session_token):
         self.tokens.append(session_token)
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                "http://control/agent/function-calls",
-                headers={"Authorization": f"Bearer {session_token}"},
-                json={"function": "read", "args": {}, "result": prompt},
-            )
-            response.raise_for_status()
+        response = await self.http.post(
+            "http://control/agent/function-calls",
+            headers={"Authorization": f"Bearer {session_token}"},
+            json={"function": "read", "args": {}, "result": prompt},
+        )
+        response.raise_for_status()
         if self.fail:
             raise RuntimeError("Agent failed")
         return "New York is 72°F and sunny"
@@ -82,8 +80,8 @@ class ReportingAgent(AgentClient):
 @pytest.mark.parametrize("fail", [False, True])
 async def test_runner_revokes_sessions_on_success_and_agent_failure(local_http, client, fail):
     run = client.post("/runs", json={"suite_name": "weather"}).json()
-    agent = ReportingAgent(fail)
-    control = ControlPlaneClient("http://control")
+    agent = ReportingAgent(local_http, fail)
+    control = ControlPlaneClient("http://control", http=local_http)
     try:
         task = run_task(control, agent, run["id"], "weather_new_york", None, {}, runtime=UnmanagedRuntime())
         if fail:
@@ -121,10 +119,12 @@ async def test_partial_sandbox_setup_is_cleaned_and_session_revoked(local_http, 
 
     runtime = Runtime("test", image="base")
     run = client.post("/runs", json={"suite_name": "weather"}).json()
-    control = ControlPlaneClient("http://control")
+    control = ControlPlaneClient("http://control", http=local_http)
     try:
         with pytest.raises(RuntimeError, match="Seed failed"):
-            await run_task(control, ReportingAgent(), run["id"], "weather_new_york", None, {}, runtime=runtime)
+            await run_task(
+                control, ReportingAgent(local_http), run["id"], "weather_new_york", None, {}, runtime=runtime
+            )
     finally:
         await control.aclose()
     assert runtime.cleaned
@@ -146,10 +146,16 @@ async def test_runner_records_sandbox_observations(local_http, client):
             pass
 
     run = client.post("/runs", json={"suite_name": "weather"}).json()
-    control = ControlPlaneClient("http://control")
+    control = ControlPlaneClient("http://control", http=local_http)
     try:
         result = await run_task(
-            control, ReportingAgent(), run["id"], "weather_new_york", None, {}, runtime=Runtime("test", image="base")
+            control,
+            ReportingAgent(local_http),
+            run["id"],
+            "weather_new_york",
+            None,
+            {},
+            runtime=Runtime("test", image="base"),
         )
     finally:
         await control.aclose()
@@ -159,7 +165,7 @@ async def test_runner_records_sandbox_observations(local_http, client):
 
 @pytest.mark.asyncio
 async def test_benchmark_selects_suite_and_creates_unique_sessions(local_http, client, unmanaged_suite, tmp_path):
-    agent = ReportingAgent()
+    agent = ReportingAgent(local_http)
     await run_benchmark(
         control_url="http://control",
         agent_client=agent,
@@ -170,6 +176,7 @@ async def test_benchmark_selects_suite_and_creates_unique_sessions(local_http, c
         user_task_ids=["weather_new_york", "warmest_city"],
         injection_task_ids=[],
         logdir=tmp_path,
+        http=local_http,
     )
     assert len(set(agent.tokens)) == 2
     output = (tmp_path / "results.json").read_text()
@@ -178,26 +185,24 @@ async def test_benchmark_selects_suite_and_creates_unique_sessions(local_http, c
 
 
 @pytest.mark.asyncio
-async def test_benchmark_authenticates_with_the_control_token(suite, unmanaged_suite, monkeypatch, tmp_path):
+async def test_benchmark_authenticates_with_the_control_token(suite, unmanaged_suite, tmp_path):
     app = create_app({"weather": suite}, config=AppConfig(control_token="control-secret"))
-    client_class = httpx.AsyncClient
-    monkeypatch.setattr(
-        httpx, "AsyncClient", lambda *args, **kwargs: client_class(*args, transport=httpx.ASGITransport(app), **kwargs)
-    )
-    benchmark = {
-        "control_url": "http://control",
-        "agent_client": ReportingAgent(),
-        "agent_uri": "http://agent",
-        "protocol": "http",
-        "suite": unmanaged_suite,
-        "suite_name": "weather",
-        "user_task_ids": ["weather_new_york"],
-        "injection_task_ids": [],
-        "logdir": tmp_path,
-    }
-    with pytest.raises(httpx.HTTPStatusError, match="401"):
-        await run_benchmark(**benchmark)
-    await run_benchmark(**benchmark, control_token="control-secret")
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app)) as http:
+        benchmark = {
+            "control_url": "http://control",
+            "agent_client": ReportingAgent(http),
+            "agent_uri": "http://agent",
+            "protocol": "http",
+            "suite": unmanaged_suite,
+            "suite_name": "weather",
+            "user_task_ids": ["weather_new_york"],
+            "injection_task_ids": [],
+            "logdir": tmp_path,
+            "http": http,
+        }
+        with pytest.raises(httpx.HTTPStatusError, match="401"):
+            await run_benchmark(**benchmark)
+        await run_benchmark(**benchmark, control_token="control-secret")
     assert json.loads((tmp_path / "results.json").read_text())["utility"] == {"weather_new_york,": True}
 
 
@@ -207,7 +212,7 @@ async def test_benchmark_grades_security_when_the_injection_reaches_the_agent(
 ):
     await run_benchmark(
         control_url="http://control",
-        agent_client=ReportingAgent(),
+        agent_client=ReportingAgent(local_http),
         agent_uri="http://agent",
         protocol="http",
         suite=unmanaged_suite,
@@ -215,6 +220,7 @@ async def test_benchmark_grades_security_when_the_injection_reaches_the_agent(
         user_task_ids=["weather_new_york"],
         injection_task_ids=["tornado_alert_via_prompt"],
         logdir=tmp_path,
+        http=local_http,
     )
     results = json.loads((tmp_path / "results.json").read_text())
     pair = "weather_new_york,tornado_alert_via_prompt"

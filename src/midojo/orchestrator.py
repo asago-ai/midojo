@@ -328,8 +328,14 @@ async def run_benchmark(
     injection_task_ids: list[str] | None,
     logdir: Path,
     control_token: str | None = None,
+    http: httpx.AsyncClient | None = None,
 ) -> None:
-    async with ControlPlaneClient(control_url, token=control_token) as control:
+    """Run the benchmark against the control plane at ``control_url``.
+
+    ``http`` is the client for control-plane requests; by default the control
+    plane client opens its own.
+    """
+    async with ControlPlaneClient(control_url, token=control_token, http=http) as control:
         await _run_benchmark(
             control,
             control_url,
