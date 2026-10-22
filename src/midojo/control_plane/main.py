@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import TypeAdapter
 
@@ -10,6 +10,7 @@ from midojo.types import SuiteName
 from midojo.yaml_task_suite import YAMLTaskSuite
 
 from .config import AppConfig
+from .dependencies import require_control_token
 from .routers import agent, runs, suite, tasks
 from .store import InMemoryStore, InvalidSessionError, Store
 
@@ -26,9 +27,11 @@ def create_app(
     app.state.suites = {_SUITE_NAME.validate_python(name): suite for name, suite in suites.items()}
     app.state.store = store if store is not None else InMemoryStore()
     app.state.config = config if config is not None else AppConfig()
-    app.include_router(suite.router)
-    app.include_router(tasks.router)
-    app.include_router(runs.router)
+    # /agent routes take an evaluation session token instead.
+    control = [Depends(require_control_token)]
+    app.include_router(suite.router, dependencies=control)
+    app.include_router(tasks.router, dependencies=control)
+    app.include_router(runs.router, dependencies=control)
     app.include_router(agent.router)
 
     @app.exception_handler(InvalidSessionError)

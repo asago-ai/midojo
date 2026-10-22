@@ -82,3 +82,19 @@ def test_openshell_suite_runs_on_the_gateway(benchmark):
     kwargs = benchmark.call_args.kwargs
     assert isinstance(kwargs["agent_client"], orchestrator.OpenShellAgentClient)
     assert (kwargs["agent_uri"], kwargs["protocol"]) == ("g", "openshell")
+
+
+@pytest.mark.parametrize(
+    "args,env,expected",
+    [
+        (["--control-token", "cli-token"], {"MIDOJO_CONTROL_TOKEN": "env-token"}, "cli-token"),
+        ([], {"MIDOJO_CONTROL_TOKEN": "env-token"}, "env-token"),
+        ([], {}, None),
+    ],
+)
+def test_cli_passes_the_control_token_to_the_benchmark(benchmark, monkeypatch, args, env, expected):
+    monkeypatch.delenv("MIDOJO_CONTROL_TOKEN", raising=False)
+    args = ["--suite", "minibank", "--agent-uri", "http://agent", "--protocol", "http", *args]
+    result = CliRunner().invoke(orchestrator.main, args, env=env)
+    assert result.exit_code == 0, result.exception
+    assert benchmark.call_args.kwargs["control_token"] == expected
