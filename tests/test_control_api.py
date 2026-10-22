@@ -201,6 +201,40 @@ def test_record_function_call_pre_env_chain(client):
     ]
 
 
+def test_get_pre_environment_preserves_provisioned_environment(client):
+    run_id = _create_run(client)
+    eval_id = _create_evaluation(client, run_id)["id"]
+    provisioned_environment = client.get("/agent/environment").json()
+    changed_environment = {
+        **provisioned_environment,
+        "weather_alerts": [{"city": "Boston", "message": "blizzard"}],
+    }
+
+    resp = client.put("/agent/environment", json=changed_environment)
+    assert resp.status_code == 200
+
+    resp = client.get(f"/runs/{run_id}/evaluations/{eval_id}/pre-environment")
+    assert resp.status_code == 200
+    assert resp.json() == provisioned_environment
+
+    resp = client.get(f"/runs/{run_id}/evaluations/{eval_id}/environment")
+    assert resp.status_code == 200
+    assert resp.json() == changed_environment
+
+
+def test_get_pre_environment_unknown_evaluation(client):
+    run_id = _create_run(client)
+    resp = client.get(f"/runs/{run_id}/evaluations/BOGUS/pre-environment")
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Unknown evaluation: BOGUS"
+
+
+def test_get_pre_environment_unknown_run(client):
+    resp = client.get("/runs/BOGUS/evaluations/E/pre-environment")
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Unknown run: BOGUS"
+
+
 # --- /agent/* endpoints ---
 
 
