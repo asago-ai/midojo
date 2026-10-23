@@ -1,11 +1,11 @@
-"""Tests for attackers and the attempt loop's metrics and result cells."""
+"""Tests for attackers and the attempt loop's result cells."""
 
 from __future__ import annotations
 
 import pytest
 
 from midojo.attacks import AttackAttempt, AttemptOutcome, StaticAttacker
-from midojo.orchestrator import _attempt_metrics, _security_cell, _utility_cell
+from midojo.orchestrator import _security_cell, _utility_cell
 
 
 def _outcome(attempt: int, *, delivered: bool = True, broke: bool = False, utility: bool = True) -> AttemptOutcome:
@@ -13,7 +13,7 @@ def _outcome(attempt: int, *, delivered: bool = True, broke: bool = False, utili
         attempt=attempt,
         injections={"t:p": "payload"},
         delivered=delivered,
-        delivered_where=["Read"] if delivered else [],
+        delivered_where=("Read",) if delivered else (),
         broke=broke,
         security_reason="output_contains" if broke else None,
         utility=utility,
@@ -37,28 +37,14 @@ class TestStaticAttacker:
         assert first.injections == second.injections == {"t:p": "payload"}
 
     @pytest.mark.asyncio
-    async def test_hands_out_independent_copies(self) -> None:
-        attacker = StaticAttacker({"t:p": "payload"})
-        attempt = await attacker.propose(None, [])
-        attempt.injections["t:p"] = "mutated"
-        assert (await attacker.propose(None, [])).injections == {"t:p": "payload"}
-
-
-class TestAttemptMetrics:
-    def test_counts_every_outcome(self) -> None:
-        outcomes = [_outcome(1, utility=False), _outcome(2, broke=True), _outcome(3, delivered=False)]
-        assert _attempt_metrics(outcomes) == {
-            "attempts_run": 3,
-            "completed": 2,
-            "delivered": 2,
-            "successes": 1,
-            "attempts_to_break": 2,
-        }
-
-    def test_never_breaks(self) -> None:
-        m = _attempt_metrics([_outcome(k) for k in range(1, 4)])
-        assert m["attempts_to_break"] is None
-        assert m["successes"] == 0
+    async def test_keeps_its_own_copy_of_the_injections(self) -> None:
+        injections = {"t:p": "payload"}
+        attacker = StaticAttacker(injections)
+        injections["t:p"] = "changed by the caller"
+        first = await attacker.propose(None, [])
+        second = await attacker.propose(None, [])
+        assert first.injections == second.injections == {"t:p": "payload"}
+        assert first.injections is not second.injections
 
 
 class TestResultCells:

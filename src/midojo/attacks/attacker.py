@@ -10,7 +10,7 @@ attacker slots in beside :class:`StaticAttacker` without reshaping the loop.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -23,7 +23,7 @@ class AttackAttempt:
     strings, the same mapping the orchestrator passes to ``create_evaluation``.
     """
 
-    injections: dict[str, str]
+    injections: Mapping[str, str]
 
 
 @dataclass(frozen=True)
@@ -36,9 +36,9 @@ class AttemptOutcome:
     """
 
     attempt: int
-    injections: dict[str, str]
+    injections: Mapping[str, str]
     delivered: bool
-    delivered_where: list[str]
+    delivered_where: tuple[str, ...]
     broke: bool
     security_reason: str | None
     utility: bool

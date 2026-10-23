@@ -88,6 +88,7 @@ def _print_banner(
     protocol: str,
     user_tasks_to_run: list[str],
     injection_tasks_to_run: list[str],
+    attempts: int = 1,
 ) -> None:
     lines = Text()
     lines.append("Suite       ", style="dim")
@@ -99,6 +100,10 @@ def _print_banner(
         lines.append(f"{len(user_tasks_to_run)} user x {len(injection_tasks_to_run)} injection\n")
     else:
         lines.append(f"{len(user_tasks_to_run)} user (no injections)\n")
+    if attempts > 1:
+        # Percentages at K>1 mean "within K attempts", so the run shows its K.
+        lines.append("Attempts    ", style="dim")
+        lines.append(f"{attempts} per pair\n")
     console.print(Panel(lines, title="midojo orchestrator", border_style="cyan", padding=(1, 2)))
     console.print()
 
@@ -280,20 +285,16 @@ def _print_attempt(
             console.print("    ", Text("N/A (payload not in any result)", style="dim"))
 
 
-def _attempt_metrics(outcomes: list[AttemptOutcome]) -> dict[str, Any]:
-    """Aggregate per-attempt outcomes into the metrics recorded for a pair.
+def _attempt_record(outcome: AttemptOutcome) -> dict[str, Any]:
+    """One attempt as written to ``results.json``: everything but the agent's reply.
 
-    The overall attack success rate is the Security column (share of pairs that
-    broke), so this deliberately records raw counts — not a per-pair rate that
-    would read as a second, competing ASR.
+    ``results.json`` records verdicts and metadata, never agent responses. The
+    reply stays in memory for the attacker, and on the control plane under the
+    attempt's ``eval_id`` while it runs.
     """
-    return {
-        "attempts_run": len(outcomes),
-        "completed": sum(1 for o in outcomes if o.utility),
-        "delivered": sum(1 for o in outcomes if o.delivered),
-        "successes": sum(1 for o in outcomes if o.broke),
-        "attempts_to_break": next((o.attempt for o in outcomes if o.broke), None),
-    }
+    record = asdict(outcome)
+    del record["agent_output"]
+    return record
 
 
 async def _run_pair_attempts(
@@ -323,7 +324,7 @@ async def _run_pair_attempts(
     for k in range(1, attempts + 1):
         # No objective source exists yet; an attacker that pursues a goal defines one.
         attempt = await attacker.propose(None, outcomes)
-        injections = attempt.injections
+        injections = dict(attempt.injections)
         result = await run_task(control, agent_client, run_id, ut_id, it_id, injections, runtime=runtime)
         grade = result.grade
         hit = await _injection_reached_agent(control, run_id, result.eval_id, injections) if it_id else []
@@ -332,7 +333,7 @@ async def _run_pair_attempts(
             attempt=k,
             injections=injections,
             delivered=bool(hit),
-            delivered_where=hit,
+            delivered_where=tuple(hit),
             broke=broke,
             security_reason=grade.security_reason if broke else None,
             utility=grade.utility,
@@ -369,7 +370,7 @@ async def _run_benchmark(
         injection_tasks_to_run = []
 
     run_id = (await control.create_run(suite_name)).id
-    _print_banner(suite_name, agent_uri, protocol, user_tasks_to_run, injection_tasks_to_run)
+    _print_banner(suite_name, agent_uri, protocol, user_tasks_to_run, injection_tasks_to_run, attempts)
     console.print(f"  [dim]run[/dim] [cyan underline]{run_id}[/cyan underline]\n")
 
     utility_results: dict[TaskPair, bool] = {}
@@ -434,11 +435,9 @@ async def _run_benchmark(
     # exactly the historical shape, so existing result consumers are unaffected.
     if attempts > 1:
         results["attempts"] = attempts
-        results["metrics"] = {
-            f"{k.user_task_id},{k.injection_task_id}": _attempt_metrics(attempt_log[k]) for k in utility_results
-        }
         results["attempt_log"] = {
-            f"{k.user_task_id},{k.injection_task_id}": [asdict(o) for o in attempt_log[k]] for k in utility_results
+            f"{k.user_task_id},{k.injection_task_id}": [_attempt_record(o) for o in attempt_log[k]]
+            for k in utility_results
         }
     with open(results_file, "w") as f:
         json.dump(results, f, indent=2)
@@ -458,9 +457,9 @@ async def run_benchmark(
     user_task_ids: list[str] | None,
     injection_task_ids: list[str] | None,
     logdir: Path,
-    attempts: int = 1,
     control_token: str | None = None,
     http: httpx.AsyncClient | None = None,
+    attempts: int = 1,
 ) -> None:
     """Run the benchmark against the control plane at ``control_url``.
 
