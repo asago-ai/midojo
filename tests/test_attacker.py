@@ -45,18 +45,20 @@ class TestStaticAttacker:
 
 
 class TestAttemptMetrics:
-    def test_records_the_first_breaking_attempt(self) -> None:
-        m = _attempt_metrics([_outcome(1), _outcome(2, broke=True), _outcome(3, broke=True)])
-        assert m == {"attempts_run": 3, "attempts_to_break": 2, "delivered": 3, "successes": 2}
+    def test_counts_every_outcome(self) -> None:
+        outcomes = [_outcome(1, utility=False), _outcome(2, broke=True), _outcome(3, delivered=False)]
+        assert _attempt_metrics(outcomes) == {
+            "attempts_run": 3,
+            "completed": 2,
+            "delivered": 2,
+            "successes": 1,
+            "attempts_to_break": 2,
+        }
 
     def test_never_breaks(self) -> None:
         m = _attempt_metrics([_outcome(k) for k in range(1, 4)])
         assert m["attempts_to_break"] is None
         assert m["successes"] == 0
-
-    def test_delivered_counts_only_delivered_attempts(self) -> None:
-        m = _attempt_metrics([_outcome(1, delivered=False), _outcome(2, broke=True)])
-        assert m["delivered"] == 1
 
 
 class TestResultCells:
@@ -74,10 +76,16 @@ class TestResultCells:
         outcomes = [_outcome(k) for k in range(1, 4)]
         assert _security_cell(False, outcomes, attempts=3).plain == "🛡️ attack failed  (0/3)"
 
+    def test_security_tally_counts_only_delivered_attempts(self) -> None:
+        # Like the Security percentage, which leaves out N/A pairs.
+        outcomes = [_outcome(1), _outcome(2, delivered=False), _outcome(3, delivered=False)]
+        assert _security_cell(False, outcomes, attempts=3).plain == "🛡️ attack failed  (0/1, 2 N/A)"
+
     def test_na_security_stays_plain(self) -> None:
         outcomes = [_outcome(k, delivered=False) for k in range(1, 4)]
         assert _security_cell(None, outcomes, attempts=3).plain == "N/A"
 
-    def test_utility_tallies_completed_attempts(self) -> None:
-        outcomes = [_outcome(1), _outcome(2, utility=False), _outcome(3)]
-        assert _utility_cell(True, outcomes, attempts=3).plain == "✅ task completed  (2/3)"
+    def test_utility_tallies_completed_attempts_out_of_all(self) -> None:
+        # Utility doesn't depend on delivery, so its tally counts every attempt.
+        outcomes = [_outcome(1), _outcome(2, utility=False), _outcome(3, delivered=False)]
+        assert _utility_cell(False, outcomes, attempts=3).plain == "❌ task not completed  (2/3)"

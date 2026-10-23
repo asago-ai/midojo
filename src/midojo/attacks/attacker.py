@@ -62,7 +62,7 @@ class StaticAttacker:
     """Proposes the same suite-defined injection on every attempt.
 
     With one attempt this is MiDojo's original single-shot run. With K attempts
-    it delivers the identical injection K times, each in a fresh sandbox, which
+    it delivers the identical injection K times, each as a new evaluation, which
     shows how often it breaks the agent under the agent's own stochasticity. It
     ignores ``goal`` and ``history``: there is nothing to adapt.
     """
