@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 from collections.abc import Mapping
 from typing import Annotated
 
@@ -72,6 +73,18 @@ async def get_session_token(
     if credentials is None:
         raise HTTPException(401, "Evaluation session token required", headers={"WWW-Authenticate": "Bearer"})
     return credentials.credentials
+
+
+async def require_control_token(
+    config: Annotated[AppConfig, Depends(get_config)],
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(HTTPBearer(auto_error=False))],
+) -> None:
+    if config.control_token is None:
+        return
+    if credentials is None or not secrets.compare_digest(
+        credentials.credentials.encode(), config.control_token.encode()
+    ):
+        raise HTTPException(401, "Control token required", headers={"WWW-Authenticate": "Bearer"})
 
 
 def validate_environment(suite: YAMLTaskSuite, body: dict) -> Environment:

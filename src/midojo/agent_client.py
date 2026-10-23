@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 
 import httpx
 
+from midojo.control_plane.config import CONTROL_TOKEN_ENV
+
 if TYPE_CHECKING:
     from midojo.runtimes.openshell import OpenShellRuntime
 
@@ -221,8 +223,9 @@ class PIAgentClient(AgentClient):
         self.timeout = timeout
 
     async def send_task(self, prompt: str, *, session_token: str) -> str:
+        # The agent gets its session token only, never the orchestrator's control token.
         env = {
-            **os.environ,
+            **{name: value for name, value in os.environ.items() if name != CONTROL_TOKEN_ENV},
             "MIDOJO_URL": self.control_url,
             "MIDOJO_SESSION_TOKEN": session_token,
         }

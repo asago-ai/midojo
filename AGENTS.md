@@ -44,6 +44,7 @@ Start them in order, for example for the weather suite on an OpenShell gateway:
 ```sh
 podman build -t localhost/weather-pi:latest -f suites/weather/sandbox_pi/Containerfile .   # 1. the example agent image (model-agnostic)
 export LITELLM_API_HOST=... LITELLM_MODEL=... LITELLM_API_KEY=...                 # the suite needs these to load (optional: LITELLM_API_PORT, LITELLM_API_SCHEME)
+export MIDOJO_CONTROL_TOKEN=...                                                   # optional: midojo-serve requires it on all but /agent and /health; midojo-run sends it (or --control-token)
 midojo-serve --load-suite weather --port 8090                                     # 2. Control Plane (must be UP before anything else talks to it)
 midojo-run --suite weather --gateway GATEWAY --control-url http://localhost:8090  # 3. runs the benchmark (exits when done)
 ```

@@ -263,6 +263,14 @@ class TestRuntimeEnvSubstitution:
         with pytest.raises(ValueError, match="MIDOJO_CONTROL_HOST.*unset"):
             _openshell_policy_suite(tmp_path, "${env.MIDOJO_CONTROL_HOST}")
 
+    @pytest.mark.parametrize(
+        "ref", ["${env.MIDOJO_CONTROL_TOKEN}", "${env.MIDOJO_CONTROL_TOKEN:=x}", "${env.MIDOJO_CONTROL_TOKEN:+x}"]
+    )
+    def test_control_token_is_never_expanded(self, tmp_path, monkeypatch, ref):
+        monkeypatch.setenv("MIDOJO_CONTROL_TOKEN", "control-secret")
+        with pytest.raises(ValueError, match="control token must not be passed to the agent runtime"):
+            _openshell_policy_suite(tmp_path, ref)
+
     def test_substitution_does_not_touch_files_or_attack_payloads(self, tmp_path, monkeypatch):
         # Neither a bare ${IFS} nor a namespaced ${env.LEAKED} in a payload or a
         # seeded file may be expanded — substitution covers runtime settings only.

@@ -10,6 +10,7 @@ import yaml
 from pydantic import BaseModel, ValidationError
 
 from midojo.attacks import resolve_source, wrap_payload
+from midojo.control_plane.config import CONTROL_TOKEN_ENV
 from midojo.env_inference import infer_environment_type
 from midojo.probes import substitute_probes, substitute_probes_deep
 from midojo.runtimes import AgentRuntime, build_runtime
@@ -54,6 +55,11 @@ def _expand_env_vars(value: Any) -> Any:
 
 def _replace_env_match(match: re.Match[str]) -> str:
     name, op, arg = match.group(1), match.group(2), match.group(3)
+    if name == CONTROL_TOKEN_ENV:
+        raise ValueError(
+            f"environment variable '{name}' referenced in suite agent_runtime: "
+            "the control token must not be passed to the agent runtime"
+        )
     value = os.environ.get(name)
     if op == ":=":  # ${env.VAR:=default}
         return value or arg

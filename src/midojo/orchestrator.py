@@ -28,6 +28,7 @@ from midojo.agent_client import (
 )
 from midojo.attacks import Attacker, AttemptOutcome, StaticAttacker
 from midojo.control_plane.client import ControlPlaneClient
+from midojo.control_plane.config import CONTROL_TOKEN_ENV
 from midojo.control_plane.models import GradeResponse
 from midojo.runtimes import AgentRuntime
 from midojo.runtimes.openshell import OpenShellRuntime
@@ -445,8 +446,15 @@ async def run_benchmark(
     injection_task_ids: list[str] | None,
     logdir: Path,
     attempts: int = 1,
+    control_token: str | None = None,
+    http: httpx.AsyncClient | None = None,
 ) -> None:
-    async with ControlPlaneClient(control_url) as control:
+    """Run the benchmark against the control plane at ``control_url``.
+
+    ``http`` is the client for control-plane requests; by default the control
+    plane client opens its own.
+    """
+    async with ControlPlaneClient(control_url, token=control_token, http=http) as control:
         await _run_benchmark(
             control,
             control_url,
@@ -468,6 +476,12 @@ async def run_benchmark(
     default="http://localhost:8080",
     help="URL of the control plane started with midojo-serve. "
     "OpenShell sandboxes get this URL too, with localhost rewritten to reach the host.",
+)
+@click.option(
+    "--control-token",
+    envvar=CONTROL_TOKEN_ENV,
+    default=None,
+    help=f"Control token the control plane was started with. Never passed to the agent; env: {CONTROL_TOKEN_ENV}.",
 )
 @click.option(
     "--gateway",
@@ -530,6 +544,7 @@ async def run_benchmark(
 )
 def main(
     control_url: str,
+    control_token: str | None,
     gateway: str | None,
     agent_uri: str | None,
     suite_name: str,
@@ -612,6 +627,7 @@ def main(
             injection_task_ids=list(injection_tasks) if injection_tasks else None,
             logdir=logdir,
             attempts=attempts,
+            control_token=control_token or None,
         )
     )
 
