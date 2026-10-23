@@ -28,6 +28,9 @@ class OpenShellRuntimeDefinition(_DefinitionModel):
     env_vars: dict[str, str] = Field(default_factory=dict)
     # Seeded into the sandbox; relative paths land under /sandbox/workdir.
     files: dict[str, str] = Field(default_factory=dict)
+    # Text files the agent writes in the sandbox (shell globs allowed; relative
+    # paths resolve against /sandbox/workdir), copied out after each evaluation.
+    logs: list[str] = Field(default_factory=list)
 
 
 class UnmanagedRuntimeDefinition(_DefinitionModel):

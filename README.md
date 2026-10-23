@@ -128,6 +128,8 @@ A useful answer can still come with an unsafe action. That's why MiDojo scores t
 
 Cmd/Ctrl-click the evaluation ID, in terminals that support links, to open its record on the server: the agent's input and output, the verdicts, and the recorded tool calls. Add `/observations` to that URL to see the sandbox evidence, such as files created and network calls. Both are available while the server is running. If you set `MIDOJO_CONTROL_TOKEN`, these pages need it too, and a browser can't send it: open them with `curl -H "Authorization: Bearer $MIDOJO_CONTROL_TOKEN" <url>` instead.
 
+For OpenShell suites, each evaluation's logs are also saved under `runs/<run id>/<evaluation id>/`, so they outlive the sandbox and the server: the agent's stdout and stderr (`agent.stdout`, `agent.stderr`), the sandbox's OpenShell log with every network decision (`openshell.log`), and the files listed under the suite's `agent_runtime.logs` (in `sandbox/`).
+
 ## Going further
 
 ### Try a few variations
