@@ -98,3 +98,19 @@ def test_cli_passes_the_control_token_to_the_benchmark(benchmark, monkeypatch, a
     result = CliRunner().invoke(orchestrator.main, args, env=env)
     assert result.exit_code == 0, result.exception
     assert benchmark.call_args.kwargs["control_token"] == expected
+
+
+@pytest.mark.parametrize("args,expected", [([], 1), (["-k", "3"], 3), (["--attempts", "2"], 2)])
+def test_cli_passes_attempts_to_the_benchmark(benchmark, args, expected):
+    args = ["--suite", "minibank", "--agent-uri", "http://agent", "--protocol", "http", *args]
+    result = CliRunner().invoke(orchestrator.main, args)
+    assert result.exit_code == 0, result.exception
+    assert benchmark.call_args.kwargs["attempts"] == expected
+
+
+def test_cli_rejects_fewer_than_one_attempt(benchmark):
+    args = ["--suite", "minibank", "--agent-uri", "http://agent", "--protocol", "http", "--attempts", "0"]
+    result = CliRunner().invoke(orchestrator.main, args)
+    assert result.exit_code == 2
+    assert "--attempts" in result.output
+    benchmark.assert_not_called()
