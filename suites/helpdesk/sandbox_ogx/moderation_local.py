@@ -18,6 +18,15 @@ fragment scores at least HELPDESK_GUARD_THRESHOLD. Fragments under four words
 are skipped: the classifier flags short structured ones, such as a ticket's
 "open" status, while the instructions it's meant to catch are sentences.
 
+It also answers NeMo Guardrails' /v1/checks, the guard API Praxis AI calls
+(see sandbox_praxis/), with the same classifier:
+
+    POST /v1/checks {"messages": [..., {"role": "user", "content": "text"}]}
+      -> {"status": "blocked", "content": "text", "rail": "injection"}
+
+Praxis AI sends the messages up to the one to check, so the adapter scores the
+last one.
+
 The model is cached in the image at build time; the sandbox blocks downloads.
 Every check is appended to MODERATION_LOG as one JSON line, so an evaluation
 shows exactly what text the guardrail saw, and what it didn't.
@@ -84,6 +93,32 @@ async def moderations(request: Request) -> dict:
             }
         )
     return {"id": f"modr-{int(time.time() * 1000)}", "model": MODEL, "results": results}
+
+
+def _text(content) -> str:
+    """A chat message's text: a string, or the text of its content parts."""
+    if isinstance(content, list):
+        return "\n".join(str(p.get("text", "")) if isinstance(p, dict) else str(p) for p in content)
+    return str(content or "")
+
+
+@app.post("/v1/checks")
+async def checks(request: Request) -> dict:
+    body = await request.json()
+    messages = body.get("messages") or [{}]
+    text = _text(messages[-1].get("content"))
+    flagged, score, fragment = _classify(text)
+    _log(
+        {
+            "flagged": flagged,
+            "categories": ["injection"] if flagged else [],
+            "score": round(score, 4),
+            "fragment": fragment,
+            "input": text,
+            "rail_types": (body.get("guardrails") or {}).get("rail_types"),
+        }
+    )
+    return {"status": "blocked" if flagged else "passed", "content": text, "rail": "injection" if flagged else None}
 
 
 if __name__ == "__main__":

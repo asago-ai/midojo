@@ -1,0 +1,52 @@
+# Sandbox image for the helpdesk suite with Praxis AI as the gateway: the
+# helpdesk image (guardrail adapter, fake MCP server, application) plus a
+# Praxis AI build that runs the Responses tool loop instead of OGX.
+#
+# Build (from repo root, after building localhost/helpdesk-ogx:latest):
+#   podman build --platform linux/arm64 \
+#     -t localhost/helpdesk-praxis:latest -f suites/helpdesk/sandbox_praxis/Containerfile .
+
+# Praxis AI's agentic loop, MCP dispatch and Responses support are
+# experimental and excluded from its published images, so build it. The
+# sandbox is Ubuntu 24.04 (glibc), so build there rather than on Praxis AI's
+# Alpine (musl) builder.
+FROM docker.io/library/ubuntu:24.04 AS praxis-build
+
+ARG PRAXIS_AI_REF=3a3704c
+ARG PRAXIS_AI_FEATURES=full,openai-all,store-sqlite
+# Set to 1 to apply delimit-mcp-output.patch: MCP results wrapped as untrusted
+# data in the model's context, as OGX does (ogx-ai/ogx#6905). For comparison
+# runs only; tag that image separately.
+ARG PRAXIS_AI_DELIMIT_MCP=0
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends build-essential pkg-config libssl-dev curl git ca-certificates \
+      python3-pip \
+ && pip install --break-system-packages "cmake>=3.31" \
+ && rm -rf /var/lib/apt/lists/*
+RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.96.0
+ENV PATH=/root/.cargo/bin:$PATH
+
+COPY suites/helpdesk/sandbox_praxis/delimit-mcp-output.patch /tmp/
+RUN git clone https://github.com/praxis-proxy/ai /src \
+ && git -C /src checkout "${PRAXIS_AI_REF}" \
+ && if [ "${PRAXIS_AI_DELIMIT_MCP}" = 1 ]; then git -C /src apply /tmp/delimit-mcp-output.patch; fi
+WORKDIR /src
+# Praxis AI's release profile uses fat LTO with one codegen unit, which needs
+# more memory and time than a test build is worth; keep the optimizations,
+# skip LTO.
+ENV CARGO_PROFILE_RELEASE_LTO=false CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
+RUN --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/src/target \
+    cargo build --release -p praxis-ai-proxy --no-default-features --features "${PRAXIS_AI_FEATURES}" \
+ && cp target/release/praxis-ai /usr/local/bin/praxis-ai
+
+FROM localhost/helpdesk-ogx:latest
+
+COPY --chown=sandbox:sandbox --from=praxis-build /usr/local/bin/praxis-ai /sandbox/helpdesk/praxis/praxis-ai
+COPY --chown=sandbox:sandbox suites/helpdesk/sandbox_praxis/praxis.yaml /sandbox/helpdesk/praxis/
+# The helpdesk scripts again, so this image has the current ones even when the
+# helpdesk image predates them.
+COPY --chown=sandbox:sandbox --chmod=0755 suites/helpdesk/sandbox_ogx/start.sh /sandbox/helpdesk/
+COPY --chown=sandbox:sandbox suites/helpdesk/sandbox_ogx/moderation_local.py suites/helpdesk/sandbox_ogx/moderation_remote.py \
+     suites/helpdesk/sandbox_ogx/fake_mcp.py suites/helpdesk/sandbox_ogx/helpdesk_app.py /sandbox/helpdesk/

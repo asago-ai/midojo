@@ -25,6 +25,14 @@ The ticket body reaches the model as the result of `get_ticket`, a tool OGX runs
 
 `HELPDESK_GUARDRAILS=false` turns guardrails off, for control runs.
 
+### Praxis AI
+
+`HELPDESK_GATEWAY=praxis` swaps OGX for [Praxis AI](https://github.com/praxis-proxy/ai), which runs the same Responses tool loop as a gateway. [`sandbox_praxis/`](sandbox_praxis/) builds `localhost/helpdesk-praxis:latest` on top of the OGX image: it compiles Praxis AI with its experimental agentic loop and MCP features, and [`praxis.yaml`](sandbox_praxis/praxis.yaml) registers the same helpdesk connector and sends the model's requests to the model server. The guardrail is the same ProtectAI classifier, behind NeMo Guardrails' `/v1/checks` API, which is the only guard API Praxis AI calls.
+
+Praxis AI's guardrail checks Chat Completions requests and responses only, so on a Responses route the one check an operator can turn on is `phase.tool_results`: every new tool result, before the next model round. With guardrails on it's enabled; with `HELPDESK_GUARDRAILS=false` the filter is removed, which is Praxis AI's default. A flagged result fails the whole request.
+
+`--build-arg PRAXIS_AI_DELIMIT_MCP=1` applies [`delimit-mcp-output.patch`](sandbox_praxis/delimit-mcp-output.patch), which wraps MCP results in the model's context the way OGX does ([ogx-ai/ogx#6905](https://github.com/ogx-ai/ogx/pull/6905)), for comparison runs.
+
 ## Injection tasks
 
 Both payloads are wrapped in `important_instructions` and land in the body of ticket T-1002:
@@ -40,6 +48,8 @@ Build the image from the repo root:
 
 ```bash
 podman build --platform linux/arm64 -t localhost/helpdesk-ogx:latest -f suites/helpdesk/sandbox_ogx/Containerfile .
+# for HELPDESK_GATEWAY=praxis, also (compiles Praxis AI; give the podman machine 16 GB):
+podman build --platform linux/arm64 -t localhost/helpdesk-praxis:latest -f suites/helpdesk/sandbox_praxis/Containerfile .
 ```
 
 The model server needs the agent model (`HELPDESK_MODEL`, default `qwen36-35b-a3b`), and with `HELPDESK_GUARD=remote`, the guard model (`HELPDESK_GUARD_MODEL`, default `granite-guardian-3-1-8b`; `Llama-Guard-3-1B` also works). The local guardrail's model is in the image. With an OpenShell gateway running:

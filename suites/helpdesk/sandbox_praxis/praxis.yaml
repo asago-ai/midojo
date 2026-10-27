@@ -1,0 +1,109 @@
+# Praxis AI config for the helpdesk agent: the operator's gateway, in place of
+# OGX. Adapted from Praxis AI's examples/configs/openai/responses/
+# agentic-loop-guardrails.yaml.
+#
+# Praxis AI runs the Responses tool loop itself: it lists the helpdesk
+# connector's tools, sends the model a Responses request, executes the MCP
+# calls the model makes, and sends the results back in the next round.
+#
+# start.sh fills in __MODEL_HOST__ (the model server's host, reached over TLS
+# on 443) and, when guardrails are off, removes the guardrail block. Praxis AI's guardrail only supports Chat Completions bodies for its
+# request and response phases (praxis-proxy/ai#1043), so on this Responses
+# route the only guardrail an operator can turn on is phase.tool_results:
+# each new MCP result is checked before it enters the next model round.
+
+listeners:
+  - name: helpdesk-gateway
+    address: "127.0.0.1:8080"
+    filter_chains: [helpdesk-pipeline]
+
+filter_chains:
+  - name: helpdesk-pipeline
+    filters:
+      - filter: ai_operation
+
+      - filter: openai_responses_request
+        initialize_state: false
+        on_invalid: reject
+        headers:
+          format: x-praxis-ai-format
+          model: x-praxis-ai-model
+          stream: x-praxis-ai-stream
+
+      - filter: openai_responses_request
+        on_invalid: reject
+        headers:
+          format: ~
+          model: ~
+          stream: ~
+          mode: ~
+
+      - filter: openai_tool_parse
+
+      # The operator registers the helpdesk MCP server as a connector; the
+      # application refers to it by ID. During an evaluation it is MiDojo's
+      # fake helpdesk server (fake_mcp.py) in the sandbox.
+      - filter: openai_mcp_tool_resolve
+        connectors:
+          - id: helpdesk
+            server_url: http://127.0.0.1:8765/mcp
+            tool_policy: allow_all
+
+      - filter: iterative_request_router
+        initial_step: inference
+        max_iterations: 11
+        timeout_ms: 360000
+        step_timeout_ms: 300000
+        max_response_bytes: 67108864
+        max_stream_response_bytes: 67108864
+        steps:
+          - name: inference
+            filters:
+              - filter: openai_stream_events
+
+              - filter: openai_mcp_dispatch
+                max_calls_per_round: 32
+                max_parallel_calls: 8
+
+              # BEGIN guardrail
+              # After every local dispatcher, before the loop owner.
+              - filter: ai_guardrails
+                provider:
+                  type: nemo
+                  endpoint: "http://127.0.0.1:8322/v1/checks"
+                  timeout_ms: 30000
+                  max_message_checks: 32
+                phase:
+                  request: false
+                  response: false
+                  tool_results: true
+              # END guardrail
+
+              - filter: openai_agentic_loop
+                max_infer_iters: 10
+
+              - filter: openai_responses_proxy
+              - filter: router
+                routes:
+                  - path_prefix: "/"
+                    cluster: model-server
+              - filter: load_balancer
+                clusters:
+                  - name: model-server
+                    endpoints: ["__MODEL_HOST__:443"]
+                    tls:
+                      sni: "__MODEL_HOST__"
+                    read_timeout_ms: 300000
+            on_result:
+              - filter: openai_agentic_loop
+                key: action
+                value: loop
+                next: inference
+              - default: true
+                done: true
+
+insecure_options:
+  allow_private_endpoints: true
+  # The guardrail adapter and the fake MCP server listen on loopback in the
+  # sandbox.
+  allow_private_upstreams: true

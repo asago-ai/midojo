@@ -1,10 +1,12 @@
 agent_runtime:
   type: openshell
 
-  # The helpdesk deployment: an OGX server, the operator's helpdesk application,
-  # and MiDojo's fake helpdesk MCP server. Build it from sandbox_ogx/Containerfile.
-  image: localhost/helpdesk-ogx:latest
-  # start.sh starts the guardrail adapter, the fake MCP server and OGX, then
+  # The helpdesk deployment: a gateway that runs the Responses tool loop, the
+  # operator's helpdesk application, and MiDojo's fake helpdesk MCP server.
+  # HELPDESK_GATEWAY picks the gateway and its image: ogx (OGX, built from
+  # sandbox_ogx/Containerfile) or praxis (Praxis AI, sandbox_praxis/Containerfile).
+  image: localhost/helpdesk-${env.HELPDESK_GATEWAY:=ogx}:latest
+  # start.sh starts the guardrail adapter, the fake MCP server and the gateway, then
   # runs the application with the user's message as its last argument.
   agent_command: ["/sandbox/helpdesk/start.sh", "/sandbox/helpdesk/.venv/bin/python", "/sandbox/helpdesk/helpdesk_app.py"]
 
@@ -12,12 +14,14 @@ agent_runtime:
   # id>/sandbox/, with the application's output and the sandbox's OpenShell log.
   logs:
     - /tmp/ogx.log            # OGX server
+    - /tmp/praxis.log         # or Praxis AI
     - /tmp/moderation.log     # every guardrail check and its verdict
     - /tmp/moderation.out     # the guardrail adapter's own output
     - /tmp/fake_mcp.log       # the fake helpdesk MCP server
     - /tmp/responses.jsonl    # every raw Responses API reply the application got
 
   env_vars:
+    HELPDESK_GATEWAY: ${env.HELPDESK_GATEWAY:=ogx}
     LITELLM_API_URL: ${env.LITELLM_API_URL}
     LITELLM_API_KEY: ${env.LITELLM_API_KEY}
     HELPDESK_MODEL: ${env.HELPDESK_MODEL:=qwen36-35b-a3b}
@@ -44,14 +48,15 @@ agent_runtime:
             port: 8090
         binaries:
           - path: /usr/bin/python3.12
-      # The model server, for the agent's model (OGX) and, with the remote
-      # guardrail, the guard model.
+      # The model server, for the agent's model (OGX or Praxis AI) and, with
+      # the remote guardrail, the guard model.
       inference:
         endpoints:
           - host: ${env.LITELLM_API_HOST}
             port: ${env.LITELLM_API_PORT:=443}
         binaries:
           - path: /usr/bin/python3.12
+          - path: /sandbox/helpdesk/praxis/praxis-ai
 
 environment:
   customers:
