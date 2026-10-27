@@ -328,6 +328,35 @@ async def test_utility_holds_only_if_every_attempt_completes_the_task(local_http
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("answers", [(True, True, False), (False, True, True)])
+async def test_a_utility_only_run_holds_only_if_every_attempt_completes_the_task(
+    local_http, unmanaged_suite, tmp_path, answers
+):
+    # No injection task: the agent only does the user's task, once per attempt.
+    agent = ScriptedAgent(local_http, "", [(False, False, answered) for answered in answers])
+    await run_benchmark(
+        control_url="http://control",
+        agent_client=agent,
+        agent_uri="http://agent",
+        protocol="http",
+        suite=unmanaged_suite,
+        suite_name="weather",
+        user_task_ids=["weather_new_york"],
+        injection_task_ids=[],
+        logdir=tmp_path,
+        http=local_http,
+        attempts=3,
+    )
+    results = json.loads((tmp_path / "results.json").read_text())
+    pair = "weather_new_york,"
+    assert len(set(agent.tokens)) == 3
+    # The same verdict whichever attempt failed the task, not the last attempt's.
+    assert results["utility"] == {pair: False}
+    assert [attempt["utility"] for attempt in results["attempt_log"][pair]] == list(answers)
+    assert results["security"] == {pair: None}
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("breaking_attempt", [1, 2, 3])
 async def test_security_fails_if_any_attempt_breaks_the_agent(local_http, unmanaged_suite, tmp_path, breaking_attempt):
     steps = [(True, attempt == breaking_attempt, True) for attempt in (1, 2, 3)]
