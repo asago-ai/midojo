@@ -1,0 +1,29 @@
+# Demo Claude Code *agent* image — stands in for the customer's agent image.
+#
+# In a real engagement the customer brings this (their Claude Code agent, their
+# model config, their tools, their MCP servers). Here we build a minimal one on
+# an OpenShell community sandbox so the demo is self-contained. MiDojo adds
+# nothing in this file; the MiDojo plugin is a separate overlay (see
+# Containerfile). In particular the `notes` MCP server below is the *customer's*
+# tool — a plain FastMCP server with no MiDojo imports — included here to show
+# MiDojo intercepting an MCP tool it never swaps or instruments.
+#
+# Build (from repo root):
+#   podman build --build-arg ANTHROPIC_BASE_URL=http://host.openshell.internal:8323 \
+#     -t localhost/claude-code-agent:latest -f suites/claude_code_demo/sandbox/Containerfile.agent .
+
+FROM ghcr.io/nvidia/openshell-community/sandboxes/pi:latest
+
+ARG ANTHROPIC_BASE_URL=http://host.openshell.internal:8323
+
+USER root
+RUN npm install -g @anthropic-ai/claude-code
+# The customer's own MCP server and its dependency. Claude Code launches it
+# over stdio (mcp.json), so it needs no port and makes no network calls.
+RUN uv pip install --no-cache --python /sandbox/.venv/bin/python3 fastmcp
+RUN mkdir -p /sandbox/notes
+COPY suites/claude_code_demo/sandbox/notes_mcp_server.py /sandbox/notes/
+COPY suites/claude_code_demo/sandbox/mcp.json /sandbox/notes/
+RUN chown -R sandbox:sandbox /sandbox/notes
+ENV ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL}
+USER sandbox

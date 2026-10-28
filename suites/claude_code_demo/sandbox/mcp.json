@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "notes": {
+      "command": "/sandbox/.venv/bin/python3",
+      "args": ["/sandbox/notes/notes_mcp_server.py"]
+    }
+  }
+}

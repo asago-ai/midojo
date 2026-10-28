@@ -1,0 +1,38 @@
+# The MiDojo Claude Code plugin, as an overlay on *any* Claude Code agent image.
+#
+# This is the only MiDojo-specific build step: take the customer's agent image
+# and install the MiDojo plugin the same way a customer would — from a local
+# marketplace via `claude plugin install` — plus the SDK the hook records
+# through. No hand-wired settings: the plugin's own hooks/hooks.json is the
+# single source of truth, so the demo exercises the real packaging path. Point
+# AGENT_IMAGE at the customer's image; it defaults to the demo agent
+# (Containerfile.agent).
+#
+# Build (from repo root), after the agent image exists:
+#   podman build --build-arg AGENT_IMAGE=localhost/claude-code-agent:latest \
+#     -t localhost/claude-code-demo:latest -f suites/claude_code_demo/sandbox/Containerfile .
+#
+# Assumes the agent image has a Python with a venv at /sandbox/.venv (the
+# OpenShell base provides one) that is the `python3` the plugin hook runs. For a
+# different base, install midojo-sdk into whichever python `python3` resolves to.
+
+ARG AGENT_IMAGE=localhost/claude-code-agent:latest
+FROM ${AGENT_IMAGE}
+
+USER root
+# The MiDojo SDK, in the python the plugin hook runs (hooks.json calls `python3`).
+COPY interception/python-sdk/ /tmp/midojo-sdk/
+RUN uv pip install --no-cache --python /sandbox/.venv/bin/python3 /tmp/midojo-sdk && rm -rf /tmp/midojo-sdk
+# Stage the plugin behind its marketplace manifest, exactly as published in the
+# repo (marketplace.json -> ./interception/claude-code). It lives under /sandbox
+# because the suite's OpenShell filesystem policy only grants the agent access to
+# /sandbox (+ /tmp and a few read-only system paths): the marketplace source must
+# be reachable at runtime for Claude Code to load the plugin's hooks.
+RUN mkdir -p /sandbox/midojo-marketplace/.claude-plugin
+COPY .claude-plugin/marketplace.json /sandbox/midojo-marketplace/.claude-plugin/
+COPY interception/claude-code/ /sandbox/midojo-marketplace/interception/claude-code/
+RUN chown -R sandbox:sandbox /sandbox/midojo-marketplace
+USER sandbox
+# Install the plugin the customer way: add the local marketplace, install from it.
+RUN claude plugin marketplace add /sandbox/midojo-marketplace \
+ && claude plugin install midojo-interceptor@midojo
