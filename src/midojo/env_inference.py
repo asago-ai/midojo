@@ -2,9 +2,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import create_model
+from pydantic import ConfigDict, create_model
 
 from midojo.types import Environment
+
+# Inferred models allow extra keys so heterogeneous samples don't lose data. A
+# list's item model is inferred from the first element; without this, a key that
+# appears only on a later element (e.g. a `when`/`delivery` on the 2nd injection
+# directive entry when the 1st has only `payload`) would be silently dropped.
+_LENIENT = ConfigDict(extra="allow")
 
 
 def _infer_type(value: Any, model_name: str) -> type:
@@ -33,7 +39,7 @@ def _make_model(name: str, sample: dict) -> type:
     fields: dict[str, Any] = {}
     for key, value in sample.items():
         fields[key] = (_infer_type(value, f"{name}_{key.title().replace(' ', '')}"), ...)
-    return create_model(name, **fields)
+    return create_model(name, __config__=_LENIENT, **fields)
 
 
 def _infer_field(key: str, value: Any, suite_name: str) -> tuple[type, Any]:
@@ -48,9 +54,7 @@ def _infer_field(key: str, value: Any, suite_name: str) -> tuple[type, Any]:
         if vals and all(isinstance(v, dict) for v in vals):
             sigs = [_fields_signature(v) for v in vals]
             if len(set(map(frozenset, sigs))) == 1:
-                nested = _make_model(
-                    f"{suite_name}_{key.title().replace(' ', '')}Entry", vals[0]
-                )
+                nested = _make_model(f"{suite_name}_{key.title().replace(' ', '')}Entry", vals[0])
                 return (dict[str, nested], ...)
         return (dict[str, Any], ...)
     return (_infer_type(value, f"{suite_name}_{key}"), ...)
