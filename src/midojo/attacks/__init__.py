@@ -4,10 +4,14 @@ templated into suites at evaluation time.
 It separates *what* you're testing (suite authoring) from *how* you're
 attacking (this library), so suites stay stable while attacks evolve. See
 issue #36 for the design.
+
+It also holds the attackers (``attacks.attacker``): the policies that propose,
+for each attempt of an evaluation, which injection to deliver.
 """
 
 from __future__ import annotations
 
+from midojo.attacks.attacker import AttackAttempt, Attacker, AttemptOutcome, StaticAttacker
 from midojo.attacks.records import AttackTechnique, Origin, PayloadSet, PayloadWrapper
 from midojo.attacks.registry import (
     DEFAULT_LIBRARY,
@@ -23,11 +27,15 @@ __all__ = [
     "ASI_DETAILS",
     "DEFAULT_LIBRARY",
     "ASICategory",
+    "AttackAttempt",
     "AttackLibrary",
     "AttackTechnique",
+    "Attacker",
+    "AttemptOutcome",
     "Origin",
     "PayloadSet",
     "PayloadWrapper",
+    "StaticAttacker",
     "load_payload_set_file",
     "parse_asi_category",
     "resolve_source",

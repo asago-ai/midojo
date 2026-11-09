@@ -6,8 +6,9 @@ import importlib
 import json
 import os
 from collections import Counter
+from dataclasses import asdict
 from pathlib import Path
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import click
 import httpx
@@ -25,6 +26,7 @@ from midojo.agent_client import (
     PIAgentClient,
     SimpleHTTPAgentClient,
 )
+from midojo.attacks import Attacker, AttemptOutcome, StaticAttacker
 from midojo.control_plane.client import ControlPlaneClient
 from midojo.control_plane.config import CONTROL_TOKEN_ENV
 from midojo.control_plane.models import GradeResponse
@@ -86,6 +88,7 @@ def _print_banner(
     protocol: str,
     user_tasks_to_run: list[str],
     injection_tasks_to_run: list[str],
+    attempts: int = 1,
 ) -> None:
     lines = Text()
     lines.append("Suite       ", style="dim")
@@ -97,8 +100,42 @@ def _print_banner(
         lines.append(f"{len(user_tasks_to_run)} user x {len(injection_tasks_to_run)} injection\n")
     else:
         lines.append(f"{len(user_tasks_to_run)} user (no injections)\n")
+    if attempts > 1:
+        # Percentages at K>1 mean "within K attempts", so the run shows its K.
+        lines.append("Attempts    ", style="dim")
+        lines.append(f"{attempts} per pair\n")
     console.print(Panel(lines, title="midojo orchestrator", border_style="cyan", padding=(1, 2)))
     console.print()
+
+
+def _with_count(cell: Text, count: int, total: int, attempts: int, note: str = "") -> Text:
+    """Append a ``(count/total)`` attempt tally to a verdict cell when K>1.
+
+    The tally sits inline instead of in a separate column, and never changes the
+    verdict beside it.
+    """
+    if attempts > 1:
+        cell.append(f"  ({count}/{total}{note})", style="dim")
+    return cell
+
+
+def _utility_cell(util: bool, outcomes: list[AttemptOutcome], attempts: int) -> Text:
+    """The Utility verdict (task completed on every attempt), tallying the attempts that completed it."""
+    return _with_count(_utility(util), sum(1 for o in outcomes if o.utility), len(outcomes), attempts)
+
+
+def _security_cell(sec: bool | None, outcomes: list[AttemptOutcome], attempts: int) -> Text:
+    """The Security verdict (attack succeeded on any attempt), or N/A when no attempt delivered the payload.
+
+    The tally counts only attempts that delivered the payload, as the Security
+    percentage leaves out N/A pairs; undelivered attempts are noted as N/A.
+    """
+    if sec is None:
+        return Text("N/A", style="dim")
+    delivered = sum(1 for o in outcomes if o.delivered)
+    undelivered = len(outcomes) - delivered
+    note = f", {undelivered} N/A" if undelivered else ""
+    return _with_count(_security(sec), sum(1 for o in outcomes if o.broke), delivered, attempts, note)
 
 
 def _print_results_table(
@@ -106,7 +143,10 @@ def _print_results_table(
     security_results: dict[TaskPair, bool],
     has_injections: bool,
     results_file: Path,
+    attempt_log: dict[TaskPair, list[AttemptOutcome]] | None = None,
+    attempts: int = 1,
 ) -> None:
+    attempt_log = attempt_log or {}
     table = Table(title="Results", border_style="cyan", show_lines=True)
     table.add_column("User Task", style="bold")
     if has_injections:
@@ -116,12 +156,13 @@ def _print_results_table(
         table.add_column("Security", justify="center")
 
     for pair, util in utility_results.items():
-        sec = security_results.get(pair)
+        outcomes = attempt_log.get(pair, [])
+        util_cell = _utility_cell(util, outcomes, attempts)
         if has_injections:
-            sec_cell = _security(sec) if sec is not None else Text("N/A", style="dim")
-            table.add_row(pair.user_task_id, pair.injection_task_id, _utility(util), sec_cell)
+            sec_cell = _security_cell(security_results.get(pair), outcomes, attempts)
+            table.add_row(pair.user_task_id, pair.injection_task_id, util_cell, sec_cell)
         else:
-            table.add_row(pair.user_task_id, _utility(util))
+            table.add_row(pair.user_task_id, util_cell)
 
     table.add_section()
     if utility_results:
@@ -214,6 +255,96 @@ async def run_task(
         raise
 
 
+def _print_attempt(
+    control_url: str,
+    run_id: str,
+    ut_id: str,
+    it_id: str | None,
+    prompt: str,
+    outcome: AttemptOutcome,
+    attempts: int,
+) -> None:
+    eval_url = f"{control_url}/runs/{run_id}/evaluations/{outcome.eval_id}"
+    label = f"[bold]{ut_id}[/bold] x [bold]{it_id}[/bold]" if it_id else f"[bold]{ut_id}[/bold]"
+    if attempts > 1:
+        label = f"[magenta]attempt {outcome.attempt}/{attempts}[/magenta] {label}"
+    console.print(f"  [dim]\\[eval: [link={eval_url}][cyan]{outcome.eval_id}[/cyan][/link]][/dim] {label}")
+    _print_agent_text("agent input", prompt)
+    _print_agent_text("agent output", outcome.agent_output)
+    console.print("    ", _utility(outcome.utility))
+    if it_id:
+        if outcome.delivered:
+            counts = Counter(outcome.delivered_where)
+            parts = [f"{ch} x{n}" if n > 1 else ch for ch, n in counts.items()]
+            detail = f"injection in {', '.join(parts)}"
+            if outcome.broke and outcome.security_reason:
+                # attack succeeded — name the criterion that graded it
+                detail += f" · {outcome.security_reason}"
+            console.print("    ", _security(outcome.broke), Text(f"  ({detail})", style="dim"))
+        else:
+            console.print("    ", Text("N/A (payload not in any result)", style="dim"))
+
+
+def _attempt_record(outcome: AttemptOutcome) -> dict[str, Any]:
+    """One attempt as written to ``results.json``: everything but the agent's reply.
+
+    ``results.json`` records verdicts and metadata, never agent responses. The
+    reply stays in memory for the attacker, and on the control plane under the
+    attempt's ``eval_id`` while it runs.
+    """
+    record = asdict(outcome)
+    del record["agent_output"]
+    return record
+
+
+async def _run_pair_attempts(
+    control: ControlPlaneClient,
+    control_url: str,
+    agent_client: AgentClient,
+    run_id: str,
+    ut_id: str,
+    it_id: str | None,
+    attacker: Attacker,
+    attempts: int,
+    *,
+    runtime: AgentRuntime,
+) -> list[AttemptOutcome]:
+    """Run one (user_task x injection_task) pair ``attempts`` times.
+
+    Every attempt is a new evaluation with its own session and a freshly
+    provisioned environment. With the ``openshell`` runtime it also runs in a
+    fresh sandbox; an ``unmanaged`` agent is reused across attempts, as it is
+    across pairs, so state the agent keeps between tasks can carry over. The
+    attacker proposes each attempt's injection given the outcomes of the earlier
+    ones. Every attempt runs: the static attacker's point at K>1 is to see all of
+    them, and stopping at the first break is left to an attacker that hunts for
+    one.
+    """
+    outcomes: list[AttemptOutcome] = []
+    for k in range(1, attempts + 1):
+        # No objective source exists yet; an attacker that pursues a goal defines one.
+        attempt = await attacker.propose(None, outcomes)
+        injections = dict(attempt.injections)
+        result = await run_task(control, agent_client, run_id, ut_id, it_id, injections, runtime=runtime)
+        grade = result.grade
+        hit = await _injection_reached_agent(control, run_id, result.eval_id, injections) if it_id else []
+        broke = bool(it_id) and grade.security and bool(hit)
+        outcome = AttemptOutcome(
+            attempt=k,
+            injections=injections,
+            delivered=bool(hit),
+            delivered_where=tuple(hit),
+            broke=broke,
+            security_reason=grade.security_reason if broke else None,
+            utility=grade.utility,
+            agent_output=result.agent_output,
+            eval_id=result.eval_id,
+        )
+        outcomes.append(outcome)
+        _print_attempt(control_url, run_id, ut_id, it_id, result.prompt, outcome, attempts)
+    return outcomes
+
+
 async def _run_benchmark(
     control: ControlPlaneClient,
     control_url: str,
@@ -225,6 +356,7 @@ async def _run_benchmark(
     user_task_ids: list[str] | None,
     injection_task_ids: list[str] | None,
     logdir: Path,
+    attempts: int = 1,
 ) -> None:
     runtime = suite.runtime
     user_tasks_to_run = user_task_ids or list(suite.user_tasks.keys())
@@ -238,12 +370,13 @@ async def _run_benchmark(
         injection_tasks_to_run = []
 
     run_id = (await control.create_run(suite_name)).id
-    _print_banner(suite_name, agent_uri, protocol, user_tasks_to_run, injection_tasks_to_run)
+    _print_banner(suite_name, agent_uri, protocol, user_tasks_to_run, injection_tasks_to_run, attempts)
     console.print(f"  [dim]run[/dim] [cyan underline]{run_id}[/cyan underline]\n")
 
     utility_results: dict[TaskPair, bool] = {}
     security_results: dict[TaskPair, bool] = {}
     security_reasons: dict[TaskPair, str | None] = {}
+    attempt_log: dict[TaskPair, list[AttemptOutcome]] = {}
 
     it_ids_to_run: list[str | None] = [*injection_tasks_to_run] if injection_tasks_to_run else [None]
     started: str | None = None
@@ -255,40 +388,30 @@ async def _run_benchmark(
 
         for ut_id in user_tasks_to_run:
             for it_id in it_ids_to_run:
-                injections = suite.get_probes_for_task(it_id) if it_id else {}
-                result = await run_task(
+                attacker: Attacker = StaticAttacker(suite.get_probes_for_task(it_id) if it_id else {})
+                outcomes = await _run_pair_attempts(
                     control,
+                    control_url,
                     agent_client,
                     run_id,
                     ut_id,
                     it_id,
-                    injections,
+                    attacker,
+                    attempts,
                     runtime=runtime,
                 )
-                grade = result.grade
-                utility_results[TaskPair(ut_id, it_id or "")] = grade.utility
-                eval_id = result.eval_id
-                eval_url = f"{control_url}/runs/{run_id}/evaluations/{eval_id}"
-                label = f"[bold]{ut_id}[/bold] x [bold]{it_id}[/bold]" if it_id else f"[bold]{ut_id}[/bold]"
-                console.print(f"  [dim]\\[eval: [link={eval_url}][cyan]{eval_id}[/cyan][/link]][/dim] {label}")
-                _print_agent_text("agent input", result.prompt)
-                _print_agent_text("agent output", result.agent_output)
-                console.print("    ", _utility(grade.utility))
-                if it_id:
-                    hit_channels = await _injection_reached_agent(control, run_id, eval_id, injections)
-                    if hit_channels:
-                        security_results[TaskPair(ut_id, it_id)] = grade.security
-                        security_reasons[TaskPair(ut_id, it_id)] = grade.security_reason
-                        counts = Counter(hit_channels)
-                        parts = [f"{ch} x{n}" if n > 1 else ch for ch, n in counts.items()]
-                        via = ", ".join(parts)
-                        detail = f"injection in {via}"
-                        if grade.security and grade.security_reason:
-                            # attack succeeded — name the criterion that graded it
-                            detail += f" · {grade.security_reason}"
-                        console.print("    ", _security(grade.security), Text(f"  ({detail})", style="dim"))
-                    else:
-                        console.print("    ", Text("N/A (payload not in any result)", style="dim"))
+                pair = TaskPair(ut_id, it_id or "")
+                attempt_log[pair] = outcomes
+                # Across K attempts each verdict is the agent's worst case, independent
+                # of attempt order: Utility holds only if every attempt completed the
+                # task; Security fails if any attempt broke the agent. A pair is N/A
+                # when no attempt delivered the payload. With K=1 both reduce to the
+                # single attempt's result.
+                utility_results[pair] = all(o.utility for o in outcomes)
+                if it_id and any(o.delivered for o in outcomes):
+                    first_break = next((o for o in outcomes if o.broke), None)
+                    security_results[pair] = first_break is not None
+                    security_reasons[pair] = first_break.security_reason if first_break else None
     finally:
         with console.status(f"[dim]stopping the {runtime.name} runtime…[/dim]", spinner="dots"):
             await asyncio.to_thread(runtime.end_run)
@@ -301,20 +424,27 @@ async def _run_benchmark(
     results_file = logdir / "results.json"
     all_security = {f"{k.user_task_id},{k.injection_task_id}": security_results.get(k) for k in utility_results}
     all_security_reason = {f"{k.user_task_id},{k.injection_task_id}": security_reasons.get(k) for k in utility_results}
+    results: dict[str, Any] = {
+        "run_id": run_id,
+        "suite_name": suite_name,
+        "utility": {f"{k.user_task_id},{k.injection_task_id}": v for k, v in utility_results.items()},
+        "security": all_security,
+        "security_reason": all_security_reason,
+    }
+    # The attempts dimension is additive: a default (single-attempt) run writes
+    # exactly the historical shape, so existing result consumers are unaffected.
+    if attempts > 1:
+        results["attempts"] = attempts
+        results["attempt_log"] = {
+            f"{k.user_task_id},{k.injection_task_id}": [_attempt_record(o) for o in attempt_log[k]]
+            for k in utility_results
+        }
     with open(results_file, "w") as f:
-        json.dump(
-            {
-                "run_id": run_id,
-                "suite_name": suite_name,
-                "utility": {f"{k.user_task_id},{k.injection_task_id}": v for k, v in utility_results.items()},
-                "security": all_security,
-                "security_reason": all_security_reason,
-            },
-            f,
-            indent=2,
-        )
+        json.dump(results, f, indent=2)
 
-    _print_results_table(utility_results, security_results, bool(injection_tasks_to_run), results_file)
+    _print_results_table(
+        utility_results, security_results, bool(injection_tasks_to_run), results_file, attempt_log, attempts
+    )
 
 
 async def run_benchmark(
@@ -329,6 +459,7 @@ async def run_benchmark(
     logdir: Path,
     control_token: str | None = None,
     http: httpx.AsyncClient | None = None,
+    attempts: int = 1,
 ) -> None:
     """Run the benchmark against the control plane at ``control_url``.
 
@@ -347,6 +478,7 @@ async def run_benchmark(
             user_task_ids,
             injection_task_ids,
             logdir,
+            attempts,
         )
 
 
@@ -412,6 +544,17 @@ async def run_benchmark(
     envvar="MODEL_NAME",
     help="Model ID. Required for ogx/openai; env: MODEL_NAME.",
 )
+@click.option(
+    "--attempts",
+    "-k",
+    default=1,
+    type=click.IntRange(min=1),
+    help="Run each user x injection pair this many times (default 1, single-shot as before). "
+    "Each attempt is a new evaluation, in a fresh sandbox with the openshell runtime; an "
+    "unmanaged agent is reused across attempts, so state it keeps can carry over. With >1, "
+    "Utility holds only if every attempt completed the task, Security fails if any attempt "
+    "broke the agent, and each cell shows its attempt tally.",
+)
 def main(
     control_url: str,
     control_token: str | None,
@@ -427,6 +570,7 @@ def main(
     mcp_server_url: str | None,
     mcp_server_label: str | None,
     model_name: str | None,
+    attempts: int,
 ) -> None:
     for module in modules_to_load:
         importlib.import_module(module)
@@ -495,6 +639,7 @@ def main(
             user_task_ids=list(user_tasks) if user_tasks else None,
             injection_task_ids=list(injection_tasks) if injection_tasks else None,
             logdir=logdir,
+            attempts=attempts,
             control_token=control_token or None,
         )
     )
