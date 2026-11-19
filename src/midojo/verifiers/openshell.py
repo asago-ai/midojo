@@ -2,7 +2,7 @@
 
 These predicates read the runtime observations OpenShell collects outside the
 agent after each evaluation (``observations["openshell"]``, an
-:class:`~midojo.runtimes.openshell.OpenShellObservations`):
+:class:`~midojo.observations.OpenShellObservations`):
 
 - **Workdir predicates** inspect the filesystem diff (files created, modified,
   deleted, and their contents).
@@ -31,7 +31,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from midojo.runtimes.openshell import OBSERVATIONS_SOURCE, OpenShellObservations
+from midojo.observations import OBSERVATIONS_SOURCE, OpenShellObservations
 from midojo.verifiers import VerificationContext, VerificationResult
 from midojo.verifiers.combinators import AllOf, AnyOf, Not
 

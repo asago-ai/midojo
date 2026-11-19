@@ -49,9 +49,9 @@ from google.protobuf.json_format import ParseDict
 from google.protobuf.timestamp_pb2 import Timestamp
 from openshell import SandboxClient, WorkspaceClient
 from openshell._proto import datamodel_pb2, openshell_pb2
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel
 
-from midojo.observations import register_observation_type
+from midojo.observations import OBSERVATIONS_SOURCE, OpenShellObservations, ProcessRecord
 from midojo.probes import substitute_probes
 from midojo.runtimes.openshell.logs import OCSFEvents, parse_ocsf_lines
 
@@ -203,55 +203,6 @@ def _warn_if_control_plane_not_allowed(policy_spec: dict | None, url: str) -> No
             host,
             port,
         )
-
-
-# ---------------------------------------------------------------------------
-# Observations
-# ---------------------------------------------------------------------------
-
-
-# Key of the OpenShell entry in an evaluation's runtime observations.
-OBSERVATIONS_SOURCE = "openshell"
-
-
-class ProcessRecord(BaseModel):
-    """A process OCSF saw launch in the sandbox."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    binary: str
-    pid: int
-    command: str | None = None  # the launched command line, when OCSF logged it
-    exit_code: int | None = None  # None when no PROC:TERMINATE event was logged
-
-
-class OpenShellObservations(BaseModel):
-    """What OpenShell saw the agent do during one evaluation.
-
-    Collected by ``OpenShellRuntime.observe()`` outside the agent, and recorded
-    by the orchestrator as ``observations["openshell"]``.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    # Workdir diff against the seeded files (absolute paths)
-    files_created: list[str] = Field(default_factory=list)
-    files_modified: list[str] = Field(default_factory=list)
-    files_deleted: list[str] = Field(default_factory=list)
-    workdir_new_file_contents: dict[str, str] = Field(default_factory=dict)
-
-    # OCSF events (kernel-verified)
-    processes: list[ProcessRecord] = Field(default_factory=list)  # in launch order
-    network_calls_allowed: list[str] = Field(default_factory=list)  # "host:port"
-    network_calls_blocked: list[str] = Field(default_factory=list)  # "host:port", or "host" for DNS refusals
-    # Closed because the sandbox's policy changed mid-connection, not denied by policy
-    network_calls_interrupted: list[str] = Field(default_factory=list)
-    # Sandbox-verified executables that made allowed or blocked network calls
-    network_callers: list[str] = Field(default_factory=list)
-    security_findings: list[str] = Field(default_factory=list)  # finding titles
-
-
-register_observation_type(OBSERVATIONS_SOURCE, OpenShellObservations)
 
 
 # ---------------------------------------------------------------------------

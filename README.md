@@ -230,4 +230,15 @@ A suite's `agent_runtime` chooses **OpenShell** (a sandbox per evaluation) or **
 
 Start with the [weather suite](suites/weather/README.md), MiDojo's reference suite: its [task definitions](suites/weather/suite.yaml) and [Python loader](suites/weather/__init__.py). Define the legitimate tasks, where injections land, and what counts as task completion and attack success. Add tool interception where your scenario needs it.
 
+### Use MiDojo as a library
+
+Callers that conduct conversations themselves (a custom evaluation loop, a red-teaming pipeline) can use MiDojo's primitives without the server, the orchestrator or the OpenShell SDK:
+
+- `midojo.suite`: a plain suite (`UserTask`, `InjectionTask`, `Suite`) and its JSON form (`suite_from_json`, `suite_to_json`).
+- `midojo.generator.schema_aware`: `generate_suite` builds a suite from an assistant's carriers (the read-only tools or knowledge topics a payload can ride in on) and sinks (the side effects an attacker wants).
+- `midojo.attacks`: the vehicles that wrap a payload (`DEFAULT_LIBRARY`) and the OWASP ASI taxonomy.
+- `midojo.grading`: `grade` takes the answer, the tool calls and the environment before and after, plus the utility and security predicates, and returns `reached`, `utility` and `security`. It does no I/O.
+
+None of these modules import the OpenShell SDK. OpenShell's observation models live in `midojo.observations`, so its predicates parse without the runtime installed.
+
 Licensed under [Apache 2.0](LICENSE).
